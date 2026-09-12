@@ -1,0 +1,31 @@
+{
+  "name": "nimbus-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "bundle:mac": "tauri build --bundles app && python3 scripts/bundle-mac.py",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "test": "node --test tests/*.test.mjs",
+    "bundle:mac:personal": "NIMBUS_BUNDLE_PERSONAL_CONFIG=1 npm run bundle:mac"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@rollup/rollup-darwin-arm64": "^4.63.1",
+    "@tauri-apps/cli": "^2.8.4",
+    "@tauri-apps/cli-darwin-arm64": "^2.11.4",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
+  }
+}

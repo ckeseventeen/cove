@@ -1,0 +1,41 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.db
+*.db-shm
+*.db-wal
+.env
+
+# Personal configuration and credentials (including environment variants)
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+secrets.json
+*.local.json
+*.local.toml
+
+# Local builds, databases, caches and backups
+.audit-backup/
+*.app/
+*.dmg
+*.pkg
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+__pycache__/
+*.py[cod]
+src-tauri/gen/
+.codex/
+.agents/
+
+# One-off local investigation notes and migration helpers
+2026-09-09.md
+AUDIT-2026-09-11.md
+fix2.py
+fix_app.py
+refactor.py
