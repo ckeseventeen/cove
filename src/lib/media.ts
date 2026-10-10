@@ -3,11 +3,12 @@ type MovieCategory = "all" | "movie" | "tv" | "documentary" | "animation";
 type MovieSort = "recent" | "oldest" | "rating" | "title";
 type MusicSort = "title-asc" | "title-desc" | "folder" | "source" | "size-desc" | "size-asc";
 type MusicPlayMode = "sequence" | "repeat-all" | "repeat-one" | "shuffle";
+/** Decimal units, matching Finder. */
 export function readableSize(bytes: number) {
   if (!bytes) return "大小未知";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** unit).toFixed(unit > 2 ? 1 : 0)} ${units[unit]}`;
+  const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1);
+  return `${(bytes / 1000 ** unit).toFixed(unit > 2 ? 1 : 0)} ${units[unit]}`;
 }
 
 export function providerName(accountId: string, accounts: Account[]) {
@@ -106,7 +107,7 @@ export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<M
 export function episodeKey(name: string) { return name.match(/s\d{1,2}e\d{1,3}|第?\d{1,3}[集话]|^\d{1,3}/i)?.[0].toLowerCase() ?? name.replace(/\.[^.]+$/, "").replace(/4k|2160p|1080p|720p|remux|hdr|中字|字幕/gi, "").trim().toLowerCase(); }
 export function qualityOf(file: MediaFile) { const name = file.displayName.toLowerCase(); if (/4k|2160/.test(name)) return "4K"; if (/1080/.test(name)) return "1080p"; if (/720/.test(name)) return "720p"; return `${readableSize(file.size)}`; }
 export function musicTitleOf(file: MediaFile) { return file.displayName.replace(/\.[^.]+$/, "").trim(); }
-export function musicFolderOf(file: MediaFile) { const parts = (file.cloudPath || file.remotePath).split("/").filter(Boolean); return parts.at(-2) || "未分类"; }
+export function musicFolderOf(file: MediaFile) { const parts = (file.cloudPath || file.remotePath || "").split("/").filter(Boolean); return parts.at(-2) || "未分类"; }
 export function musicSourceOf(file: MediaFile, sources: MediaSource[], accounts: Account[]) { return sources.find((source) => source.id === file.sourceId)?.label || providerName(file.accountId, accounts); }
 export function formatTime(seconds: number) { const value = Math.max(0, Math.floor(seconds || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
 export function parseSyncedLyrics(value?: string) {
@@ -118,3 +119,36 @@ export function parseSyncedLyrics(value?: string) {
   }).filter((line) => line.text).sort((a, b) => a.time - b.time);
 }
 
+
+/** Shared by global search and the music library so directory queries agree. */
+export function matchesMusicQuery(file: MediaFile, query: string): boolean {
+  const needle = query.trim().toLocaleLowerCase();
+  return !needle || [file.displayName, file.cloudPath, file.remotePath, musicFolderOf(file)]
+    .some(value => value?.toLocaleLowerCase().includes(needle));
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+  local: "本地磁盘",
+  webdav: "WebDAV",
+  baidu: "百度网盘",
+  google_drive: "Google Drive",
+  onedrive: "OneDrive",
+  alidrive: "阿里云盘",
+  quark: "夸克网盘",
+};
+export function providerLabel(provider: string) { return PROVIDER_LABELS[provider] ?? provider; }
+
+/** "Artist - Title.flac" → { title, artist }; other names keep the whole stem as the title. */
+export function songParts(file: MediaFile): { title: string; artist: string } {
+  const stem = musicTitleOf(file);
+  const match = stem.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  return match ? { artist: match[1].trim(), title: match[2].trim() } : { title: stem, artist: "" };
+}
+
+/** Folder that holds a file, for "Show in Files". */
+export function containingFolder(file: MediaFile) {
+  const path = file.cloudPath || file.remotePath || "";
+  if (!path.startsWith("/")) return null;
+  const index = path.lastIndexOf("/");
+  return index <= 0 ? "/" : path.slice(0, index);
+}

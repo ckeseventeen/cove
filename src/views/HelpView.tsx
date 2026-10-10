@@ -1,25 +1,66 @@
+const SHORTCUTS: [string, string][] = [
+  ["⌘F", "搜索资料库"],
+  ["⌘1 – ⌘4", "首页、文件、影视、音乐"],
+  ["⌘[ / ⌘]", "返回 / 前进"],
+  ["⌃⌘S", "显示或隐藏边栏"],
+  ["空格", "播放 / 暂停"],
+  ["⌘→ / ⌘←", "下一首 / 上一首"],
+  ["⌘↑ / ⌘↓", "调高 / 调低音量"],
+  ["⌥⌘L / ⌥⌘U", "歌词 / 待播清单"],
+  ["空格（文件中）", "快速查看所选文件"],
+  ["⌘↑（文件中）", "前往上一级文件夹"],
+  ["⌘C / ⌘V（文件中）", "拷贝 / 粘贴文件"],
+  ["F（播放视频时）", "进入或退出全屏"],
+  ["← / →（播放视频时）", "后退 / 前进 5 秒"],
+];
+
 export function HelpView() {
   return (
-    <section className="info-page">
-      <p className="eyebrow">使用帮助</p>
-      <h2>三步建立媒体库</h2>
-      <ol className="help-steps">
-        <li>
-          <strong>1. 连接云盘</strong>
-          <span>添加百度网盘并在浏览器完成官方 OAuth 授权，或添加 WebDAV、本地磁盘。凭据安全保存在系统 Keychain 中。</span>
-        </li>
-        <li>
-          <strong>2. 选择具体文件夹</strong>
-          <span>在网盘或磁盘目录中，点击目标文件夹右侧设为“影视”或“音乐”，其全部子文件夹会被递归增量扫描。</span>
-        </li>
-        <li>
-          <strong>3. 刷新与播放</strong>
-          <span>左侧媒体目录的刷新按钮可随时重新对账；点击媒体卡片即可使用高性能 libmpv 内核硬件解码播放。</span>
-        </li>
-      </ol>
-      <p className="support-note">
-        Cove 遵循本地优先与零知识原则。云端文件绝不会因在应用内移除账号或媒体目录而被删除或篡改。
-      </p>
-    </section>
+    <div className="page narrow">
+      <header className="page-header">
+        <div className="heading">
+          <h1 className="large-title">Cove 帮助</h1>
+          <p className="page-subtitle">把本机和云端的影片、剧集与音乐整理在一处。</p>
+        </div>
+      </header>
+      <section className="group">
+        <h2 className="group-title">开始使用</h2>
+        <ol className="group-box help-steps">
+          <li className="group-row">
+            <span className="glyph blue small">1</span>
+            <span className="row-main">
+              <span className="row-title">添加存储</span>
+              <span className="row-subtitle">在“文件”中添加 WebDAV、百度网盘等存储。凭据只保存在钥匙串中。</span>
+            </span>
+          </li>
+          <li className="group-row">
+            <span className="glyph purple small">2</span>
+            <span className="row-main">
+              <span className="row-title">选择文件夹</span>
+              <span className="row-subtitle">进入文件夹后选择“设为影视文件夹”或“设为音乐文件夹”，子文件夹会一并扫描。</span>
+            </span>
+          </li>
+          <li className="group-row">
+            <span className="glyph pink small">3</span>
+            <span className="row-main">
+              <span className="row-title">开始播放</span>
+              <span className="row-subtitle">影视按作品与剧集整理，音乐显示歌词。播放进度会自动保存。</span>
+            </span>
+          </li>
+        </ol>
+      </section>
+      <section className="group">
+        <h2 className="group-title">键盘快捷键</h2>
+        <div className="group-box">
+          {SHORTCUTS.map(([keys, action]) => (
+            <div className="group-row" key={keys}>
+              <span className="row-main row-title">{action}</span>
+              <kbd className="row-value keys">{keys}</kbd>
+            </div>
+          ))}
+        </div>
+        <p className="group-footer">媒体键、AirPods 与“控制中心”中的播放控制同样可用。移除账号或媒体文件夹不会删除存储中的任何文件。</p>
+      </section>
+    </div>
   );
 }

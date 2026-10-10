@@ -1,0 +1,347 @@
+/* The transparent controls window floating over the native video view. Always dark, like QuickTime. */
+
+html.video-window,
+html.video-window body,
+html.video-window #root {
+  background: transparent;
+}
+html.video-window {
+  color-scheme: dark;
+  --label: rgba(255, 255, 255, 0.88);
+  --label-secondary: rgba(255, 255, 255, 0.58);
+  --label-tertiary: rgba(255, 255, 255, 0.3);
+  --label-quaternary: rgba(255, 255, 255, 0.12);
+  --separator: rgba(255, 255, 255, 0.12);
+  --fill: rgba(255, 255, 255, 0.08);
+  --fill-hover: rgba(255, 255, 255, 0.12);
+  --fill-pressed: rgba(255, 255, 255, 0.18);
+  --control-bg: rgba(255, 255, 255, 0.16);
+  --control-bg-pressed: rgba(255, 255, 255, 0.24);
+  --control-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+  --field-bg: rgba(255, 255, 255, 0.08);
+  --field-border: rgba(255, 255, 255, 0.14);
+  --window-bg: #2c2c2e;
+  --content-bg: #1e1e1e;
+  --material-bg: rgba(40, 40, 42, 0.8);
+  --menu-bg: rgba(38, 38, 40, 0.86);
+  --accent: #0a84ff;
+  --focus-ring: rgba(10, 132, 255, 0.55);
+  --red: #ff453a;
+  --green: #32d74b;
+  --purple: #bf5af2;
+  --slider-fill: rgba(255, 255, 255, 0.9);
+  --slider-track: rgba(255, 255, 255, 0.25);
+}
+
+.video-overlay {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  color: #fff;
+  pointer-events: none;
+}
+.video-overlay.idle {
+  cursor: none;
+}
+.video-surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+.video-top,
+.video-hud,
+.video-error {
+  transition: opacity 0.28s var(--ease), transform 0.32s var(--ease-spring);
+}
+.video-overlay.idle .video-top,
+.video-overlay.idle .video-hud,
+.video-overlay.idle .video-error {
+  opacity: 0;
+  pointer-events: none;
+}
+.video-overlay.idle .video-hud {
+  transform: translate(-50%, 12px);
+}
+
+.video-top {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hud-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 12px 0 8px;
+  border-radius: 14px;
+  background: var(--hud-bg);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 2px 10px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: var(--text-body);
+  font-weight: 500;
+  pointer-events: auto;
+}
+.hud-pill:hover {
+  background: rgba(60, 60, 64, 0.8);
+}
+.video-title {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(100% - 260px);
+  transform: translateX(-50%);
+  text-align: center;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.video-title strong {
+  max-width: 100%;
+  overflow: hidden;
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.video-title span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: var(--text-subhead);
+}
+.video-error {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  z-index: 4;
+  max-width: min(520px, 80vw);
+  padding: 8px 12px;
+  border-radius: var(--radius-m);
+  background: rgba(120, 28, 28, 0.82);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  font-size: var(--text-callout);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.video-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Floating transport */
+.video-hud {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 4;
+  width: min(600px, calc(100vw - 48px));
+  padding: 10px 16px 12px;
+  border-radius: 16px;
+  background: var(--hud-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 10px 40px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+.hud-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.hud-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.hud-group.center {
+  gap: 10px;
+}
+.hud-group.end {
+  justify-content: flex-end;
+}
+.hud-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: var(--radius-s);
+  color: rgba(255, 255, 255, 0.92);
+  transition: background var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease);
+}
+.hud-icon:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+.hud-icon:active:not(:disabled) {
+  transform: scale(0.92);
+}
+.hud-icon:disabled {
+  color: rgba(255, 255, 255, 0.3);
+}
+.hud-icon.active {
+  background: rgba(255, 255, 255, 0.2);
+}
+.hud-icon.play {
+  width: 40px;
+  height: 40px;
+}
+.hud-volume {
+  width: 76px !important;
+}
+.hud-progress {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: var(--text-subhead);
+}
+.hud-progress span {
+  min-width: 42px;
+}
+.hud-progress span:last-child {
+  text-align: right;
+}
+.hud-anchor {
+  position: relative;
+}
+
+/* HUD panels */
+.hud-panel {
+  border-radius: var(--radius-l);
+  background: rgba(36, 36, 38, 0.86);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  pointer-events: auto;
+  animation: pop-in 160ms var(--ease-spring);
+}
+.hud-panel.settings {
+  position: absolute;
+  right: -8px;
+  bottom: calc(100% + 14px);
+  width: 270px;
+  padding: 6px;
+}
+.hud-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+}
+.hud-setting > span {
+  flex: 1;
+  text-align: left;
+}
+.hud-setting > svg {
+  flex-shrink: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+.hud-setting select {
+  max-width: 140px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font-size: var(--text-callout);
+}
+.hud-setting.action:hover {
+  background: var(--accent);
+}
+.hud-setting.action:hover > svg {
+  color: #fff;
+}
+.video-dismiss {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: transparent;
+  pointer-events: auto;
+}
+.hud-panel.episodes {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 120px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  width: min(340px, 40vw);
+  overflow: hidden;
+  animation: episodes-in 200ms var(--ease-spring);
+}
+@keyframes episodes-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+.hud-panel.episodes header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 10px 10px 14px;
+  border-bottom: 0.5px solid rgba(255, 255, 255, 0.1);
+}
+.hud-panel.episodes header strong {
+  font-size: var(--text-title3);
+}
+.hud-panel.episodes header span {
+  flex: 1;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: var(--text-subhead);
+}
+.episodes-seasons {
+  padding: 10px 12px 0;
+  overflow-x: auto;
+}
+.episodes-list {
+  flex: 1;
+  min-height: 0;
+  padding: 6px;
+  overflow-y: auto;
+}
+.episode-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-s);
+  font-size: var(--text-body);
+  text-align: left;
+}
+.episode-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.episode-item.active {
+  background: var(--accent);
+}

@@ -13,14 +13,25 @@
     "macOSPrivateApi": true,
     "windows": [
       {
+        "label": "main",
         "title": "Cove",
         "width": 1280,
         "height": 800,
         "minWidth": 900,
-        "minHeight": 640,
+        "minHeight": 600,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
-        "transparent": false,
+        "trafficLightPosition": {
+          "x": 20,
+          "y": 28
+        },
+        "transparent": true,
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "followsWindowActiveState"
+        },
         "resizable": true
       },
       {
@@ -44,8 +55,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
-    "icon": ["icons/icon.icns", "icons/icon.png"],
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
     "category": "Entertainment",
     "shortDescription": "Your private personal media haven",
     "macOS": {

@@ -22,13 +22,25 @@ Google Drive 与 OneDrive 当前使用 OAuth Access Token 接入，令牌存入 
 
 百度网盘开发时从项目根目录 `.env` 读取 `NIMBUS_BAIDU_APP_KEY`、`NIMBUS_BAIDU_SECRET_KEY` 和 `NIMBUS_BAIDU_REDIRECT_URI`。用户授权产生的 Access Token 与 Refresh Token 只保存在 macOS Keychain。旧版全盘扫描结果不会再直接展示，只有用户明确选择的影视/音乐目录会进入聚合媒体库。阿里云盘仍需开放平台应用资质；夸克未提供公开的个人网盘文件 API，因此不使用 Cookie 抓取方案。
 
-已接入 libmpv 原生视图、独立控制层、音乐底栏与歌词、播放进度持久化。FUSE 挂载未实现。
+已接入 libmpv 原生视图、悬浮视频控制层、工具栏音乐播放器与歌词、播放进度持久化。FUSE 挂载未实现。
+
+### macOS 原生体验
+
+- 界面跟随系统浅色/深色外观；边栏使用系统 `NSVisualEffectView` 材质，窗口失焦时选中状态变灰。
+- 原生菜单栏（Cove、文件、编辑、显示、控制、窗口、帮助）与标准快捷键；右键菜单使用原生 `NSMenu`。
+- 媒体键、AirPods 与“控制中心”的“正在播放”（含封面）通过 `MPRemoteCommandCenter` / `MPNowPlayingInfoCenter` 接入。
+- 关闭窗口时：播放音乐则隐藏窗口继续播放（同“音乐”App）；播放视频则停止视频回到资料库。退出应用时保存播放进度。
+- 文件浏览器采用访达交互：单击选中、双击打开、空格快速查看、⌘↑ 上一级、⌘C/⌘V 拷贝粘贴、返回/前进历史。
+
+前端结构：`src/app`（窗口外壳、导航历史、资料库数据）、`src/player`（播放状态与音乐/视频界面）、`src/views`（各页面）、`src/ui`（通用控件）、`src/styles`（设计令牌与样式）。
 
 ## 开发环境
 
 需要 Node.js 18+、Rust 1.80+ 和完整 Xcode。
 
 当前机器的 Rust 安装在 `~/.cargo/bin`；如果新终端找不到 `cargo`，先执行 `export PATH="$HOME/.cargo/bin:$PATH"`。
+
+若尚未同意 Xcode 许可协议，`git`/`clang` 会报错；可临时使用命令行工具：`export DEVELOPER_DIR=/Library/Developer/CommandLineTools SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk`。
 
 ```bash
 npm install
@@ -62,6 +74,10 @@ npm run bundle:mac
 
 普通构建不嵌入 `.env`。仅个人本机使用的构建可显式执行 `npm run bundle:mac:personal`；该产物包含个人开发配置，不应公开分发。百度/TMDB 也可通过运行环境变量提供配置。
 
-`NIMBUS_DATA_DIR` 可指定独立数据库目录，用于隔离测试数据。开发服务器的 `/tests/music-layout.html` 使用合成歌词验证布局，不会播放真实音乐或连接云盘。
+`NIMBUS_DATA_DIR` 可指定独立数据库目录，用于隔离测试数据。`NIMBUS_TEST_MEDIA=/绝对路径/文件` 会在启动后通过正常播放流程打开该本地文件，用于原生播放器自测。
+
+浏览器预览：`npm run dev` 后打开 `/?demo=1` 使用演示数据（含模拟播放器，可验证歌词、待播清单与全屏播放界面）；`/tests/music-layout.html` 会自动播放一首带长歌词的演示歌曲。演示环境不连接云盘，也不播放视频。
 
 个人 Space 定位、功能缺口、已修复问题、流程验收与架构规划见 [最新业务验收报告](docs/PERSONAL-SPACE-ACCEPTANCE.md)。
+
+本轮原生化改造的审查发现、交互变化与验收记录见 [docs/NATIVE-REDESIGN-2026-10-10.md](docs/NATIVE-REDESIGN-2026-10-10.md)。

@@ -117,7 +117,7 @@ impl PlayerController {
             gate: Arc::new(tokio::sync::Mutex::new(())),
             generation: Arc::new(AtomicU64::new(0)),
             snapshot: Arc::new(Mutex::new(None)),
-            socket_path: PathBuf::from(format!("/tmp/nimbus-mpv-{}.sock", std::process::id())),
+            socket_path: runtime_dir().join(format!("cove-mpv-{}.sock", std::process::id())),
             current_file_id: Arc::new(Mutex::new(None)),
             native_handle: Arc::new(Mutex::new(None)),
             native_view: Arc::new(Mutex::new(None)),
@@ -185,11 +185,11 @@ impl PlayerController {
         let native_handle = Arc::clone(&self.native_handle);
         let active_generation = Arc::clone(&self.generation);
         tokio::task::spawn_blocking(move || {
-            let log_path = PathBuf::from("/tmp/nimbus-mpv.log");
+            let log_path = runtime_dir().join("cove-mpv.log");
             let _ = fs::write(
                 &log_path,
                 format!(
-                    "Nimbus embedded libmpv opening {title}\nIPC: {}\nNSView: 0x{view:x}\n",
+                    "Cove embedded libmpv opening {title}\nIPC: {}\nNSView: 0x{view:x}\n",
                     socket.display()
                 ),
             );
@@ -281,6 +281,11 @@ impl PlayerController {
             .map_err(|error| NimbusError::Internal(format!("无法调整视频视图：{error}")))
     }
 
+    /// Remove the IPC socket when the app exits so stale sockets do not accumulate.
+    pub fn cleanup(&self) {
+        let _ = fs::remove_file(&self.socket_path);
+    }
+
     pub fn current_file_id(&self) -> Option<String> {
         self.current_file_id.lock().clone()
     }
@@ -293,6 +298,8 @@ impl PlayerController {
         let is_stop = action == "stop";
         let command = match action.as_str() {
             "play_pause" => json!(["cycle", "pause"]),
+            "play" => json!(["set_property", "pause", false]),
+            "pause" => json!(["set_property", "pause", true]),
             "seek_absolute" => {
                 json!(["seek", value.unwrap_or_default().max(0.0), "absolute+exact"])
             }
@@ -404,6 +411,13 @@ fn create_embedded_player(view: usize, socket: &Path, log_path: &Path) -> Result
             )));
         }
     }
+    // Cove owns the system media keys through MPRemoteCommandCenter; older or
+    // differently built libmpv versions may not know this option, so it is optional.
+    for (name, value) in [("input-media-keys", "no")] {
+        let name = CString::new(name).expect("static option name");
+        let value = CString::new(value).expect("static option value");
+        unsafe { mpv_set_option_string(handle, name.as_ptr(), value.as_ptr()) };
+    }
     let result = unsafe { mpv_initialize(handle) };
     if result < 0 {
         unsafe {
@@ -423,6 +437,17 @@ fn create_embedded_player(view: usize, socket: &Path, log_path: &Path) -> Result
         )));
     }
     Ok(handle)
+}
+
+/// Per-user temporary directory ($TMPDIR on macOS) so the IPC socket and log are private.
+fn runtime_dir() -> PathBuf {
+    let dir = std::env::temp_dir();
+    // Unix socket paths are limited to 104 bytes on macOS.
+    if dir.as_os_str().len() < 72 {
+        dir
+    } else {
+        PathBuf::from("/tmp")
+    }
 }
 
 fn wait_for_socket(path: &Path) -> Result<()> {

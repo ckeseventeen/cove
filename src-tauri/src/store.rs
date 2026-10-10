@@ -357,7 +357,7 @@ impl Store {
     pub fn list_media_files(&self) -> Result<Vec<MediaFile>> {
         let connection = self.connection.lock();
         let mut statement = connection.prepare(
-            "SELECT id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, (SELECT sf.source_id FROM source_files sf WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), (SELECT ms.kind FROM media_sources ms JOIN source_files sf ON sf.source_id=ms.id WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), COALESCE((SELECT group_concat(source_id,'|') FROM source_files WHERE file_id=media_files.id AND present=1),'')
+            "SELECT id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, (SELECT sf.source_id FROM source_files sf WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), COALESCE((SELECT ms.kind FROM media_sources ms JOIN source_files sf ON sf.source_id=ms.id WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), media_files.media_kind), COALESCE((SELECT group_concat(source_id,'|') FROM source_files WHERE file_id=media_files.id AND present=1),'')
              FROM media_files WHERE scan_state = 'ready' AND EXISTS (SELECT 1 FROM source_files WHERE file_id=media_files.id AND present=1) ORDER BY display_name COLLATE NOCASE",
         )?;
         let rows = statement.query_map([], |row| {
@@ -387,7 +387,7 @@ impl Store {
         let connection = self.connection.lock();
         connection
             .query_row(
-                "SELECT id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, (SELECT sf.source_id FROM source_files sf WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), (SELECT ms.kind FROM media_sources ms JOIN source_files sf ON sf.source_id=ms.id WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), COALESCE((SELECT group_concat(source_id,'|') FROM source_files WHERE file_id=media_files.id AND present=1),'')
+                "SELECT id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, (SELECT sf.source_id FROM source_files sf WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), COALESCE((SELECT ms.kind FROM media_sources ms JOIN source_files sf ON sf.source_id=ms.id WHERE sf.file_id=media_files.id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), media_files.media_kind), COALESCE((SELECT group_concat(source_id,'|') FROM source_files WHERE file_id=media_files.id AND present=1),'')
                  FROM media_files WHERE id = ?1 AND scan_state = 'ready'",
                 [id],
                 |row| {

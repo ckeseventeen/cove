@@ -170,12 +170,12 @@ pub(crate) async fn baidu_oauth_connect(
     let (status, body) = if success {
         (
             "200 OK",
-            "<h2>百度网盘授权成功</h2><p>可以关闭这个页面并返回 Nimbus。</p>",
+            "<h2>百度网盘授权成功</h2><p>可以关闭这个页面并返回 Cove。</p>",
         )
     } else {
         (
             "400 Bad Request",
-            "<h2>百度网盘授权失败</h2><p>请关闭页面并返回 Nimbus 重试。</p>",
+            "<h2>百度网盘授权失败</h2><p>请关闭页面并返回 Cove 重试。</p>",
         )
     };
     let response = format!(

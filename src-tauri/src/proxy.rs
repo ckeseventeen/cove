@@ -54,12 +54,12 @@ impl StreamProxy {
             store,
             sessions: Arc::clone(&sessions),
             http: reqwest::Client::builder()
-                .user_agent("Nimbus/0.1")
+                .user_agent("Cove/0.1")
                 .connect_timeout(Duration::from_secs(12))
                 .build()?,
             direct_http: reqwest::Client::builder()
                 .no_proxy()
-                .user_agent("Nimbus/0.1")
+                .user_agent("Cove/0.1")
                 .connect_timeout(Duration::from_secs(12))
                 .build()?,
             credentials,
@@ -71,12 +71,12 @@ impl StreamProxy {
             let listener = match tokio::net::TcpListener::from_std(listener) {
                 Ok(listener) => listener,
                 Err(error) => {
-                    eprintln!("Nimbus could not start stream proxy: {error}");
+                    eprintln!("Cove could not start stream proxy: {error}");
                     return;
                 }
             };
             if let Err(error) = axum::serve(listener, router).await {
-                eprintln!("Nimbus stream proxy stopped: {error}");
+                eprintln!("Cove stream proxy stopped: {error}");
             }
         });
         Ok(Self { port, sessions })
@@ -209,7 +209,7 @@ async fn stream(
                     }
                 };
                 eprintln!(
-                    "Nimbus stream: Baidu link resolved in {:.2}s",
+                    "Cove stream: Baidu link resolved in {:.2}s",
                     resolve_started.elapsed().as_secs_f64()
                 );
                 resolved_url = Some(remote_url.clone());
@@ -240,21 +240,26 @@ async fn stream(
             }
         }
 
-        match url::Url::parse(&remote_url) {
-            Ok(mut parsed) => {
-                parsed
-                    .query_pairs_mut()
-                    .append_pair("access_token", &access_token);
-                remote_url = parsed.into();
+        // A cached link already carries the access token; only fresh links need it.
+        if !from_cache {
+            match url::Url::parse(&remote_url) {
+                Ok(mut parsed) => {
+                    parsed
+                        .query_pairs_mut()
+                        .append_pair("access_token", &access_token);
+                    remote_url = parsed.into();
 
-                if resolved_url.is_some() {
-                    let mut sessions = context.sessions.write().await;
-                    if let Some(s) = sessions.get_mut(&query.token) {
-                        s.cached_url = Some((remote_url.clone(), Instant::now()));
+                    if resolved_url.is_some() {
+                        let mut sessions = context.sessions.write().await;
+                        if let Some(s) = sessions.get_mut(&query.token) {
+                            s.cached_url = Some((remote_url.clone(), Instant::now()));
+                        }
                     }
                 }
+                Err(error) => {
+                    return error_response(StatusCode::BAD_GATEWAY, &error.to_string())
+                }
             }
-            Err(error) => return error_response(StatusCode::BAD_GATEWAY, &error.to_string()),
         }
     }
     let mut upstream = context.http.get(&remote_url);
@@ -285,7 +290,7 @@ async fn stream(
         Err(error) => {
             if account.account.provider == "baidu" {
                 eprintln!(
-                    "Nimbus stream upstream via proxy failed ({error}), retrying directly..."
+                    "Cove stream upstream via proxy failed ({error}), retrying directly..."
                 );
                 let mut direct_request = context
                     .direct_http
@@ -314,7 +319,7 @@ async fn stream(
         }
     };
     eprintln!(
-        "Nimbus stream: upstream headers received in {:.2}s",
+        "Cove stream: upstream headers received in {:.2}s",
         upstream_started.elapsed().as_secs_f64()
     );
     let status = upstream.status();
@@ -333,7 +338,7 @@ async fn stream(
     }
     if !status.is_success() {
         eprintln!(
-            "Nimbus stream upstream failed: provider={} status={} file={}",
+            "Cove stream upstream failed: provider={} status={} file={}",
             account.account.provider, status, file.display_name
         );
         return error_response(

@@ -80,3 +80,10 @@ test('anti-censorship pinyin de and zhi are converted to proper Chinese characte
   assert.equal(media.titleCandidateOf(f2), '权利之歌');
 });
 
+
+test('music search matches folder, local path and cloud path consistently', () => {
+  const song = {...file('Song.flac', '/音乐/午后'), mediaKind:'music', remotePath:'/local/Acoustic/Song.flac'};
+  for (const query of ['午后', '  SONG  ', 'acoustic', '音乐', '']) assert.equal(media.matchesMusicQuery(song, query), true);
+  assert.equal(media.matchesMusicQuery(song, '不存在'), false);
+  assert.equal(media.matchesMusicQuery({...song,cloudPath:undefined,remotePath:undefined}, 'song'), true);
+});

@@ -153,6 +153,9 @@ void nimbus_attach_controls_window(void *parent_pointer, void *child_pointer) {
             if (child.parentWindow) [child.parentWindow removeChildWindow:child];
             [parent addChildWindow:child ordered:NSWindowAbove];
         }
+        [child setIgnoresMouseEvents:NO];
+        [child setAcceptsMouseMovedEvents:YES];
+        [child orderFront:nil];
     };
     if (NSThread.isMainThread) attach();
     else dispatch_async(dispatch_get_main_queue(), attach);

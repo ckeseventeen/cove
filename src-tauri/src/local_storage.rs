@@ -96,7 +96,8 @@ pub fn browse(path: &str) -> Result<Vec<CloudEntry>> {
         if name.starts_with('.') {
             continue;
         }
-        let metadata = match item.metadata() {
+        // Follow symlinks so aliased folders browse like folders, as in Finder.
+        let metadata = match fs::metadata(&path).or_else(|_| item.metadata()) {
             Ok(metadata) => metadata,
             Err(_) => continue,
         };

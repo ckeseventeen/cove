@@ -45,6 +45,14 @@ pub(crate) async fn player_open_native(
     } else {
         state.proxy.create_url(file_id.clone()).await
     };
+    // Show the controls while opening too, so a slow cloud stream has an exit path.
+    if show_video {
+        if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
+            player::attach_controls_window(&main, &controls)?;
+            controls.show().map_err(|error| NimbusError::Internal(error.to_string()))?;
+            controls.set_focus().map_err(|error| NimbusError::Internal(error.to_string()))?;
+        }
+    }
     let opened = state
         .player
         .open(
@@ -71,8 +79,8 @@ pub(crate) async fn player_open_native(
     if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
         if show_video {
             player::attach_controls_window(&main, &controls)?;
-            let _ = controls.show();
-            let _ = main.set_focus();
+            controls.show().map_err(|error| NimbusError::Internal(error.to_string()))?;
+            controls.set_focus().map_err(|error| NimbusError::Internal(error.to_string()))?;
         } else {
             let _ = controls.hide();
             let _ = player::detach_controls_window(&controls);
@@ -89,7 +97,7 @@ pub(crate) async fn player_control(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<()> {
-    if action == "fullscreen" {
+    if action == "fullscreen" || action == "exit_fullscreen" {
         let main = window
             .app_handle()
             .get_webview_window("main")
@@ -97,7 +105,7 @@ pub(crate) async fn player_control(
         let fullscreen = main
             .is_fullscreen()
             .map_err(|error| NimbusError::Internal(error.to_string()))?;
-        main.set_fullscreen(!fullscreen)
+        main.set_fullscreen(action != "exit_fullscreen" && !fullscreen)
             .map_err(|error| NimbusError::Internal(error.to_string()))?;
         if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
             let main = main.clone();
@@ -115,11 +123,11 @@ pub(crate) async fn player_control(
             .await?;
         return Ok(());
     }
-    let should_hide = action == "stop";
-    if should_hide {
-        state.player.cancel_pending_open();
+    if action == "stop" {
+        crate::stop_playback(window.app_handle()).await;
+        return Ok(());
     }
-    if matches!(action.as_str(), "stop" | "play_pause") {
+    if matches!(action.as_str(), "play_pause" | "pause") {
         let snapshot = state.player.cached_status();
         if let Some(file) = snapshot.file_id.filter(|_| snapshot.duration > 0.0) {
             state.store.save_playback_progress(
@@ -131,22 +139,9 @@ pub(crate) async fn player_control(
         }
     }
     state.player.control(action, value).await?;
-    if should_hide {
-        state.proxy.revoke_all().await;
-        let _ = window
-            .app_handle()
-            .emit("nimbus-player-state", state.player.cached_status());
-        let _ = window.app_handle().emit("nimbus-player-stopped", ());
-        let main = window
-            .app_handle()
-            .get_webview_window("main")
-            .unwrap_or_else(|| window.clone());
-        state.player.set_view_visible(&main, false).await?;
-        if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
-            let _ = controls.hide();
-            let _ = player::detach_controls_window(&controls);
-        }
-    }
+    // Reflect the change immediately instead of waiting for the next poll tick.
+    let snapshot = state.player.status().await;
+    let _ = window.app_handle().emit("nimbus-player-state", &snapshot);
     Ok(())
 }
 

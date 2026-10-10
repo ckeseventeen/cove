@@ -1,5 +1,6 @@
 fn main() {
     println!("cargo:rerun-if-changed=src/mpv_view.m");
+    println!("cargo:rerun-if-changed=src/now_playing.m");
     #[cfg(target_os = "macos")]
     {
         let prefix = std::env::var("NIMBUS_MPV_PREFIX").unwrap_or_else(|_| {
@@ -12,12 +13,14 @@ fn main() {
         println!("cargo:rerun-if-env-changed=NIMBUS_MPV_PREFIX");
         cc::Build::new()
             .file("src/mpv_view.m")
+            .file("src/now_playing.m")
             .flag("-fobjc-arc")
             .include(format!("{prefix}/include"))
             .compile("nimbus_mpv_view");
         println!("cargo:rustc-link-search=native={prefix}/lib");
         println!("cargo:rustc-link-lib=framework=Cocoa");
         println!("cargo:rustc-link-lib=framework=OpenGL");
+        println!("cargo:rustc-link-lib=framework=MediaPlayer");
         println!("cargo:rustc-link-arg=-Wl,-rpath,{prefix}/lib");
         println!("cargo:rustc-link-arg=-Wl,-headerpad_max_install_names");
     }
