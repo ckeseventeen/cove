@@ -3,7 +3,7 @@ import { FileType2, Film, LoaderCircle, Music2, Play, Plus } from "lucide-react"
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { formatRelative, formatRemaining } from "../lib/format";
-import { containingFolder, episodeLabel, songParts, type MediaWork } from "../lib/media";
+import { containingFolder, displayTitleOf, episodeLabel, songParts, type MediaWork } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import { openDocument, type MediaFile, type ReadingProgress, type RecentPlayback } from "../lib/nimbus";
 import type { Notify } from "../ui/Toasts";
@@ -129,7 +129,7 @@ function ResumeCard({
   const music = file.mediaKind === "music";
   const work = music ? undefined : library.workByFileId.get(file.id);
   const metadata = work ? library.movieMetadata[work.id] : undefined;
-  const title = music ? songParts(file).title : metadata?.title || work?.title || file.displayName;
+  const title = music ? songParts(file).title : (work ? displayTitleOf(work, metadata) : file.displayName);
   const detail = music
     ? songParts(file).artist || "歌曲"
     : work?.isSeries

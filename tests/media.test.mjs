@@ -166,3 +166,11 @@ test('dialect versions look up the original show; the cache key carries the kind
   assert.equal(media.lookupNameOf(work), '繁花');
   assert.equal(media.lookupKeyOf(work), 'tv:繁花');
 });
+
+test('an edition stays visible next to the TMDB title', () => {
+  const [work] = media.buildMovieWorks([file('繁花沪语版S01E01.mp4', '/影视/电视剧/繁花沪语版')]);
+  assert.equal(media.displayTitleOf(work, { title: '繁花' }), '繁花（沪语版）');
+  assert.equal(media.displayTitleOf(work), '繁花沪语版');
+  const [plain] = media.buildMovieWorks([file('繁花S01E01.mp4', '/影视/电视剧/繁花')]);
+  assert.equal(media.displayTitleOf(plain, { title: '繁花' }), '繁花');
+});

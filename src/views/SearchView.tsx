@@ -3,7 +3,7 @@ import { ChevronRight, Film, LoaderCircle, Search } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
-import { matchesMusicQuery, providerLabel, type MediaWork } from "../lib/media";
+import { displayTitleOf, matchesMusicQuery, providerLabel, type MediaWork } from "../lib/media";
 import { EmptyState } from "../ui/controls";
 import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
@@ -95,7 +95,7 @@ export function SearchView({ query, library, notify, onNavigate, onOpenWork }: P
                     {metadata?.posterUrl ? <img src={metadata.posterUrl} alt="" loading="lazy" draggable={false} /> : <Film size={18} strokeWidth={1.5} />}
                   </span>
                   <span className="result-text">
-                    <span className="truncate">{metadata?.title || work.title}</span>
+                    <span className="truncate">{displayTitleOf(work, metadata)}</span>
                     <span className="truncate secondary">{workSubtitle(work, metadata)}</span>
                   </span>
                 </button>

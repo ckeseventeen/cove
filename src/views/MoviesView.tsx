@@ -3,7 +3,7 @@ import { Film, LoaderCircle, Play } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
-import { categoryOf, containingFolder, lookupNameOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { categoryOf, containingFolder, displayTitleOf, lookupNameOf, uniqueEpisodes, type MediaWork } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
@@ -204,7 +204,7 @@ function MovieCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [first.id, work.title]);
 
-  const title = metadata?.title || work.title;
+  const title = displayTitleOf(work, metadata);
   const play = () => void player.play(first);
   const folder = containingFolder(first);
   return (

@@ -201,10 +201,17 @@ export function buildMovieWorks(movieFiles: MediaFile[]) {
     return { id, title, year: group.year || undefined, files, seasons, isSeries: group.series };
   });
 }
+const EDITION = /\s*[（(]?((?:沪语|粤语|国语|普通话|台语|闽南语|方言|原声|导演剪辑|加长|未删减)版)[）)]?$/;
 /** What to search TMDB for: the title without a dialect or cut ("繁花沪语版" → "繁花"), plus the year for films so remakes and sequels differ. */
 export function lookupNameOf(work: MediaWork) {
-  const title = work.title.replace(/\s*[（(]?(?:沪语|粤语|国语|普通话|台语|闽南语|方言|原声|导演剪辑|加长|未删减)版[）)]?$/, "") || work.title;
+  const title = work.title.replace(EDITION, "") || work.title;
   return !work.isSeries && work.year ? `${title} ${work.year}` : title;
+}
+/** The name to show: TMDB's title, keeping an edition the library tells apart ("繁花（沪语版）"). */
+export function displayTitleOf(work: MediaWork, metadata?: { title?: string }) {
+  if (!metadata?.title) return work.title;
+  const edition = work.title.match(EDITION)?.[1];
+  return edition ? `${metadata.title}（${edition}）` : metadata.title;
 }
 /** How the native side records a lookup in its cache: the kind of work and the name. */
 export function lookupKeyOf(work: MediaWork) { return `${work.isSeries ? "tv" : "movie"}:${lookupNameOf(work)}`; }

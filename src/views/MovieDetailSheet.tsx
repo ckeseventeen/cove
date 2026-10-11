@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { containingFolder, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { containingFolder, displayTitleOf, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
@@ -76,7 +76,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
   const versionsOf = (episode: MediaFile) =>
     work.files.filter((file) => seasonOf(file) === seasonOf(episode) && episodeOf(file) === episodeOf(episode));
   const primary = work.isSeries ? episodes[0] ?? work.files[0] : work.files[0];
-  const title = metadata?.title || work.title;
+  const title = displayTitleOf(work, metadata);
   const folder = containingFolder(work.files[0]);
 
   return (
