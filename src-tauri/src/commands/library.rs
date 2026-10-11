@@ -145,3 +145,51 @@ pub(crate) async fn media_source_scan(
         .replace_source_files(&source, &files, !result.truncated)?;
     Ok(result)
 }
+
+fn playlist_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(NimbusError::Validation("播放列表名称不能为空".into()));
+    }
+    Ok(name.chars().take(100).collect())
+}
+
+#[tauri::command]
+pub(crate) fn playlist_list(state: State<'_, AppState>) -> Result<Vec<model::Playlist>> {
+    state.store.list_playlists()
+}
+
+#[tauri::command]
+pub(crate) fn playlist_create(
+    name: String,
+    file_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<model::Playlist> {
+    let id = Uuid::new_v4().to_string();
+    state.store.create_playlist(&id, &playlist_name(&name)?, &file_ids)?;
+    state
+        .store
+        .list_playlists()?
+        .into_iter()
+        .find(|playlist| playlist.id == id)
+        .ok_or_else(|| NimbusError::Internal("播放列表创建失败".into()))
+}
+
+#[tauri::command]
+pub(crate) fn playlist_rename(id: String, name: String, state: State<'_, AppState>) -> Result<()> {
+    state.store.rename_playlist(&id, &playlist_name(&name)?)
+}
+
+#[tauri::command]
+pub(crate) fn playlist_delete(id: String, state: State<'_, AppState>) -> Result<()> {
+    state.store.delete_playlist(&id)
+}
+
+#[tauri::command]
+pub(crate) fn playlist_set_items(
+    id: String,
+    file_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<()> {
+    state.store.set_playlist_items(&id, &file_ids)
+}

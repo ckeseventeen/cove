@@ -8,6 +8,7 @@ import {
   previewFiles,
   previewMetadata,
   previewMusicMetadata,
+  previewPlaylists,
   previewReading,
   previewRecent,
   previewSources,
@@ -117,6 +118,8 @@ export type ReadingProgress = {
   updatedAt: number;
 };
 
+export type Playlist = { id: string; name: string; fileIds: string[]; updatedAt: number };
+
 const APP_ONLY = "此操作需要在 Cove macOS 应用中使用";
 export const demoEnabled = !isTauri() && new URLSearchParams(window.location.search).get("demo") === "1";
 const demoAccounts: Account[] = demoEnabled ? previewAccounts : [];
@@ -222,7 +225,7 @@ export async function removeMediaSource(sourceId: string): Promise<void> {
 export async function openNativePlayer(fileId: string, fromStart = false): Promise<void> {
   if (isTauri()) return invoke<void>("player_open_native", { fileId, fromStart });
   const file = previewFiles.find((item) => item.id === fileId);
-  if (demoEnabled && file?.mediaKind === "music") return demoPlayer.open(file);
+  if (demoEnabled && file) return demoPlayer.open(file);
   appOnly("视频播放需要在 Cove macOS 应用中使用");
 }
 
@@ -451,6 +454,39 @@ export function onReadingProgress(callback: (progress: ReadingProgress) => void)
     disposed = true;
     unlisten?.();
   };
+}
+
+/* ---------- Playlists: ordered lists of library songs, kept in the library database ---------- */
+
+// The browser preview keeps playlists in memory so the layout can be exercised without the app.
+let previewPlaylistStore: Playlist[] = demoEnabled ? previewPlaylists.map((playlist) => ({ ...playlist, fileIds: [...playlist.fileIds] })) : [];
+const now = () => Math.floor(Date.now() / 1000);
+
+export async function listPlaylists(): Promise<Playlist[]> {
+  if (isTauri()) return invoke<Playlist[]>("playlist_list");
+  return previewPlaylistStore.map((playlist) => ({ ...playlist, fileIds: [...playlist.fileIds] }));
+}
+
+export async function createPlaylist(name: string, fileIds: string[] = []): Promise<Playlist> {
+  if (isTauri()) return invoke<Playlist>("playlist_create", { name, fileIds });
+  const playlist = { id: `playlist-${Date.now()}`, name: name.trim(), fileIds: [...new Set(fileIds)], updatedAt: now() };
+  previewPlaylistStore = [...previewPlaylistStore, playlist];
+  return { ...playlist, fileIds: [...playlist.fileIds] };
+}
+
+export async function renamePlaylist(id: string, name: string): Promise<void> {
+  if (isTauri()) return invoke("playlist_rename", { id, name });
+  previewPlaylistStore = previewPlaylistStore.map((playlist) => (playlist.id === id ? { ...playlist, name: name.trim(), updatedAt: now() } : playlist));
+}
+
+export async function deletePlaylist(id: string): Promise<void> {
+  if (isTauri()) return invoke("playlist_delete", { id });
+  previewPlaylistStore = previewPlaylistStore.filter((playlist) => playlist.id !== id);
+}
+
+export async function setPlaylistItems(id: string, fileIds: string[]): Promise<void> {
+  if (isTauri()) return invoke("playlist_set_items", { id, fileIds });
+  previewPlaylistStore = previewPlaylistStore.map((playlist) => (playlist.id === id ? { ...playlist, fileIds: [...fileIds], updatedAt: now() } : playlist));
 }
 
 export async function loadAiKey(): Promise<string | null> {

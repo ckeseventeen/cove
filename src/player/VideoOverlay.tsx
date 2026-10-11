@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
+import { ListVideo, LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
 import { buildMovieWorks, cleanWorkTitle, episodeLabel, episodeOf, seasonOf, uniqueEpisodes } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
@@ -17,7 +17,7 @@ import {
   type PlayerStatus,
 } from "../lib/nimbus";
 import { Slider } from "../ui/controls";
-import { isModalOpen } from "../ui/Sheet";
+import { isModalOpen, useTopmostEscape } from "../ui/Sheet";
 import { AiSubtitlesSheet } from "./AiSubtitlesSheet";
 import { EMPTY_STATUS } from "./statusStore";
 
@@ -38,6 +38,70 @@ function SkipIcon({ forward }: { forward?: boolean }) {
   );
 }
 
+/** Episode picker that opens above the controls: seasons as tabs, episodes as a grid. */
+function EpisodePanel({
+  queue,
+  current,
+  isSeries,
+  switching,
+  onPick,
+  onClose,
+}: {
+  queue: MediaFile[];
+  current: MediaFile;
+  isSeries: boolean;
+  switching: boolean;
+  onPick: (file: MediaFile) => void;
+  onClose: () => void;
+}) {
+  const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort((left, right) => left - right), [queue]);
+  const [season, setSeason] = useState(() => seasonOf(current));
+  const list = useRef<HTMLDivElement>(null);
+  useTopmostEscape(true, onClose);
+  const shown = seasons.length > 1 ? queue.filter((file) => seasonOf(file) === season) : queue;
+  const numbered = isSeries && shown.every((file) => (episodeOf(file) ?? 0) > 0);
+
+  useEffect(() => {
+    list.current?.querySelector<HTMLElement>("[aria-current='true']")?.scrollIntoView({ block: "nearest" });
+  }, [season]);
+
+  return (
+    <div className="episode-panel" role="dialog" aria-label={isSeries ? "选集" : "播放列表"}>
+      <div className="episode-header">
+        <strong>{isSeries ? "选集" : "播放列表"}</strong>
+        <span>{isSeries ? `共 ${shown.length} 集` : `${queue.length} 个视频`}</span>
+      </div>
+      {seasons.length > 1 && (
+        <div className="episode-seasons" role="tablist" aria-label="季">
+          {seasons.map((item) => (
+            <button key={item} role="tab" aria-selected={item === season} onClick={() => setSeason(item)}>
+              第 {item} 季
+            </button>
+          ))}
+        </div>
+      )}
+      <div ref={list} className={numbered ? "episode-grid" : "episode-list"}>
+        {shown.map((file) => {
+          const position = queue.indexOf(file);
+          const name = cleanWorkTitle(file.displayName) || file.displayName;
+          const isCurrent = file.id === current.id;
+          return (
+            <button
+              key={file.id}
+              aria-current={isCurrent}
+              disabled={switching}
+              title={isSeries ? `${episodeLabel(file, position)} · ${file.displayName}` : file.displayName}
+              onClick={() => (isCurrent ? onClose() : onPick(file))}
+            >
+              {numbered ? episodeOf(file) : <span className="truncate">{isSeries ? episodeLabel(file, position) : name}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Transparent window that floats QuickTime-style controls over the native libmpv view. */
 export function VideoOverlay() {
   const [current, setCurrent] = useState<MediaFile | null>(null);
@@ -52,6 +116,7 @@ export function VideoOverlay() {
   const [switching, setSwitching] = useState(false);
   const [visible, setVisible] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
+  const [episodesOpen, setEpisodesOpen] = useState(false);
   const [cachedSrt, setCachedSrt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hideTimer = useRef<number>();
@@ -149,7 +214,7 @@ export function VideoOverlay() {
     const reveal = () => {
       setVisible(true);
       window.clearTimeout(hideTimer.current);
-      if (!aiOpen && !status.paused && !status.eofReached && !interacting) {
+      if (!aiOpen && !episodesOpen && !status.paused && !status.eofReached && !interacting) {
         hideTimer.current = window.setTimeout(() => setVisible(false), 3000);
       }
     };
@@ -163,7 +228,7 @@ export function VideoOverlay() {
       window.removeEventListener("keydown", reveal);
       window.clearTimeout(hideTimer.current);
     };
-  }, [aiOpen, status.paused, status.eofReached, interacting]);
+  }, [aiOpen, episodesOpen, status.paused, status.eofReached, interacting]);
 
   const switchEpisode = async (file: MediaFile) => {
     if (switching) return;
@@ -350,6 +415,11 @@ export function VideoOverlay() {
         className="video-surface"
         aria-hidden="true"
         onClick={(event) => {
+          // The first click outside the episode picker only closes it.
+          if (episodesOpen) {
+            setEpisodesOpen(false);
+            return;
+          }
           if (event.detail === 1) {
             window.clearTimeout(clickTimer.current);
             clickTimer.current = window.setTimeout(togglePlay, 240);
@@ -410,7 +480,19 @@ export function VideoOverlay() {
               <SkipIcon forward />
             </button>
           </div>
-          <div className="hud-group end" />
+          <div className="hud-group end">
+            {queue.length > 1 && (
+              <button
+                className={`hud-text-button ${episodesOpen ? "active" : ""}`}
+                aria-expanded={episodesOpen}
+                title={isSeries ? "选集" : "同一文件夹中的视频"}
+                onClick={() => setEpisodesOpen((open) => !open)}
+              >
+                <ListVideo size={16} />
+                {isSeries ? "选集" : "列表"}
+              </button>
+            )}
+          </div>
         </div>
         <div className="hud-progress">
           <span className="tabular">{formatClock(status.position)}</span>
@@ -425,6 +507,20 @@ export function VideoOverlay() {
           <span className="tabular">-{formatClock(Math.max(0, status.duration - status.position))}</span>
         </div>
       </section>
+
+      {episodesOpen && queue.length > 1 && (
+        <EpisodePanel
+          queue={queue}
+          current={current}
+          isSeries={isSeries}
+          switching={switching}
+          onClose={() => setEpisodesOpen(false)}
+          onPick={(file) => {
+            setEpisodesOpen(false);
+            void switchEpisode(file);
+          }}
+        />
+      )}
 
       {aiOpen && (
         <AiSubtitlesSheet

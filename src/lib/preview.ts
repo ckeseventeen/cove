@@ -1,5 +1,5 @@
 // Explicit browser-only QA data: /?demo=1. Never used inside the native app.
-import type { Account, CloudEntry, MediaFile, MediaSource, MovieMetadata, MusicMetadata, ReadingProgress, RecentPlayback } from './nimbus';
+import type { Account, CloudEntry, MediaFile, MediaSource, MovieMetadata, MusicMetadata, Playlist, ReadingProgress, RecentPlayback } from './nimbus';
 
 export const previewAccounts: Account[] = [
   { id: 'preview', provider: 'local', label: '本地磁盘', endpoint: '/', status: 'preview' },
@@ -18,6 +18,8 @@ const names = [
   '海边的信.2024.mkv', '慢慢走.2022.mkv', '远山来客.2021.mkv', '黄昏之后.2020.mkv', '春日列车.2023.mkv',
   '小城记忆.2019.mkv', '漫长周末.2025.mkv', '第二种生活.2018.mkv', '云上旅行.S01E01.1080p.mkv',
   '云上旅行.S01E01.2160p.mkv', '云上旅行.S01E02.mkv',
+  ...Array.from({ length: 10 }, (_, index) => `云上旅行.S01E${String(index + 3).padStart(2, '0')}.mkv`),
+  ...Array.from({ length: 6 }, (_, index) => `云上旅行.S02E${String(index + 1).padStart(2, '0')}.mkv`),
 ];
 const artists = ['林间', '晚风乐团', '安静的人', '北方以北', '盐与糖'];
 
@@ -39,6 +41,11 @@ export const previewFiles: MediaFile[] = [
     id: `doc-${index}`, accountId: 'preview', remotePath: `/演示/文档/${index < 4 ? '书' : '工作'}/${name}`, cloudPath: `/演示/文档/${index < 4 ? '书' : '工作'}/${name}`,
     displayName: name, size: 1_200_000 + index * 2_300_000, sourceId: 'docs', sourceIds: ['docs'], mediaKind: 'document',
   })),
+];
+
+export const previewPlaylists: Playlist[] = [
+  { id: 'playlist-commute', name: '通勤路上', fileIds: ['song-3', 'song-17', 'song-8', 'song-42', 'song-25', 'song-61'], updatedAt: 1789142400 },
+  { id: 'playlist-night', name: '夜晚', fileIds: ['song-90', 'song-12', 'song-77'], updatedAt: 1789142000 },
 ];
 
 export const previewReading: ReadingProgress[] = [

@@ -33,6 +33,7 @@ export type PlayerApi = {
   metadata: MusicMetadata | null;
   metadataLoading: boolean;
   error: string;
+  /** What the lyrics / up next buttons show: the inspector, or the right side of Now Playing while it is open. */
   panel: PanelKind | null;
   fullScreen: boolean;
   /** A song restored from the last session: shown paused, resumes from here. */
@@ -51,8 +52,8 @@ export type PlayerApi = {
   cycleRepeat: () => void;
   moveInQueue: (index: number, delta: -1 | 1) => void;
   removeFromQueue: (id: string) => void;
-  playNext: (file: MediaFile) => void;
-  addToQueue: (file: MediaFile) => void;
+  playNext: (files: MediaFile | MediaFile[]) => void;
+  addToQueue: (files: MediaFile | MediaFile[]) => void;
   clearUpcoming: () => void;
   refreshMetadata: () => void;
   togglePanel: (panel: PanelKind) => void;
@@ -107,7 +108,8 @@ export function PlayerProvider({
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [metadataRevision, setMetadataRevision] = useState(0);
   const [error, setError] = useState("");
-  const [panel, setPanel] = useState<PanelKind | null>(null);
+  const [inspector, setInspector] = useState<PanelKind | null>(null);
+  const [fullPanel, setFullPanel] = useState<PanelKind | null>("lyrics");
   const [fullScreen, setFullScreen] = useState(false);
   const [resumeAt, setResumeAt] = useState<Resume | null>(null);
   const restoreAttempted = useRef(false);
@@ -312,7 +314,7 @@ export function PlayerProvider({
       metadata,
       metadataLoading,
       error,
-      panel,
+      panel: fullScreen ? fullPanel : inspector,
       fullScreen,
       resumeAt,
       play,
@@ -395,34 +397,40 @@ export function PlayerProvider({
         setQueue(nextQueue);
       },
       removeFromQueue: (id) => setQueue((items) => items.filter((file) => file.id !== id || file.id === nowPlaying?.id)),
-      playNext(file) {
+      playNext(files) {
+        const list = Array.isArray(files) ? files : [files];
+        if (!list.length) return;
         if (!nowPlaying || !isMusic(nowPlaying)) {
-          void play(file, { queue: [file], fromStart: true });
+          void play(list[0], { queue: list, fromStart: true });
           return;
         }
-        if (file.id === nowPlaying.id) return;
-        const rest = queue.filter((item) => item.id !== file.id);
+        const moving = list.filter((file) => file.id !== nowPlaying.id);
+        const ids = new Set(moving.map((file) => file.id));
+        const rest = queue.filter((item) => !ids.has(item.id));
         const at = rest.findIndex((item) => item.id === nowPlaying.id);
-        setQueue([...rest.slice(0, at + 1), file, ...rest.slice(at + 1)]);
+        setQueue([...rest.slice(0, at + 1), ...moving, ...rest.slice(at + 1)]);
       },
-      addToQueue(file) {
+      addToQueue(files) {
+        const list = Array.isArray(files) ? files : [files];
+        if (!list.length) return;
         if (!nowPlaying || !isMusic(nowPlaying)) {
-          void play(file, { queue: [file], fromStart: true });
+          void play(list[0], { queue: list, fromStart: true });
           return;
         }
-        if (file.id === nowPlaying.id) return;
-        setQueue((items) => [...items.filter((item) => item.id !== file.id), file]);
+        const adding = list.filter((file) => file.id !== nowPlaying.id);
+        const ids = new Set(adding.map((file) => file.id));
+        setQueue((items) => [...items.filter((item) => !ids.has(item.id) || item.id === nowPlaying.id), ...adding]);
       },
       clearUpcoming: () => setQueue((items) => items.slice(0, Math.max(index + 1, 1))),
       refreshMetadata() {
         refreshRequested.current = true;
         setMetadataRevision((value) => value + 1);
       },
-      togglePanel: (kind) => setPanel((value) => (value === kind ? null : kind)),
-      setPanel,
+      togglePanel: (kind) => (fullScreen ? setFullPanel : setInspector)((value) => (value === kind ? null : kind)),
+      setPanel: fullScreen ? setFullPanel : setInspector,
       setFullScreen,
     };
-  }, [command, currentIndex, error, fullScreen, isVideo, metadata, metadataLoading, nowPlaying, openingId, panel, play, queue, repeat, resumeAt, shuffle]);
+  }, [command, currentIndex, error, fullPanel, fullScreen, inspector, isVideo, metadata, metadataLoading, nowPlaying, openingId, play, queue, repeat, resumeAt, shuffle]);
 
   return <PlayerContext.Provider value={api}>{children}</PlayerContext.Provider>;
 }

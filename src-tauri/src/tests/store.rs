@@ -258,3 +258,31 @@ fn reading_progress_survives_reopening_and_keeps_the_page() {
     assert_eq!((reopened.page, reopened.page_count), (41, 300));
     assert_eq!(fixture.store.list_reading_progress(10).unwrap().len(), 1);
 }
+
+#[test]
+fn playlists_keep_order_skip_missing_songs_and_cascade() {
+    let fixture = Fixture::new();
+    let source = fixture.source("songs");
+    let songs = [file("A.flac"), file("B.flac"), file("C.flac")];
+    fixture.store.replace_source_files(&source, &songs, true).unwrap();
+    let ids: Vec<String> = fixture.store.list_media_files().unwrap().into_iter().map(|file| file.id).collect();
+    let wanted = vec![ids[2].clone(), ids[0].clone(), "missing".to_owned(), ids[2].clone()];
+    fixture.store.create_playlist("p1", "通勤", &wanted).unwrap();
+    let playlists = fixture.store.list_playlists().unwrap();
+    assert_eq!(playlists.len(), 1);
+    assert_eq!(playlists[0].file_ids, vec![ids[2].clone(), ids[0].clone()]);
+
+    fixture.store.set_playlist_items("p1", &[ids[1].clone(), ids[2].clone()]).unwrap();
+    fixture.store.rename_playlist("p1", "周末").unwrap();
+    let playlist = &fixture.store.list_playlists().unwrap()[0];
+    assert_eq!((playlist.name.as_str(), playlist.file_ids.len()), ("周末", 2));
+    assert!(fixture.store.rename_playlist("nope", "x").is_err());
+
+    fixture.store.delete_playlist("p1").unwrap();
+    assert!(fixture.store.list_playlists().unwrap().is_empty());
+    let connection = fixture.store.connection.lock();
+    let orphans: i64 = connection
+        .query_row("SELECT count(*) FROM playlist_items", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(orphans, 0);
+}

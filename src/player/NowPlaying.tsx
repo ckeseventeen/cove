@@ -1,12 +1,15 @@
-import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
 import { songParts } from "../lib/media";
 import { useTopmostEscape } from "../ui/Sheet";
 import { Lyrics } from "./Lyrics";
-import { Artwork, ProgressBar, TransportButtons, VolumeControl } from "./MiniPlayer";
+import { Artwork } from "./MiniPlayer";
+import { QueueList } from "./PlayerPanel";
 import { usePlayer } from "./PlayerProvider";
 
-/** Full-window player with large artwork and lyrics, as in Music's full screen player. */
+/**
+ * Now Playing fills the content area under the toolbar, so the toolbar's transport, volume and
+ * lyrics / up next buttons keep working and nothing is duplicated here. Clicking the artwork in the
+ * toolbar, pressing Escape or choosing anything in the sidebar returns to the library.
+ */
 export function NowPlaying() {
   const player = usePlayer();
   const open = player.fullScreen && !!player.nowPlaying && !player.isVideo;
@@ -14,16 +17,11 @@ export function NowPlaying() {
   if (!open || !player.nowPlaying) return null;
   const parts = songParts(player.nowPlaying);
   const art = player.metadata?.artworkUrl;
-  return createPortal(
-    <section className="now-playing" role="dialog" aria-modal="true" aria-label="正在播放">
+  return (
+    <section className="now-playing" data-side={player.panel ?? "none"} aria-label="正在播放">
       <div className="np-backdrop" aria-hidden="true">
         {art && <img src={art} alt="" />}
       </div>
-      <header className="np-header" data-tauri-drag-region>
-        <button className="np-close" aria-label="关闭正在播放" title="关闭" onClick={() => player.setFullScreen(false)}>
-          <ChevronDown size={18} />
-        </button>
-      </header>
       <div className="np-main">
         <div className="np-left">
           <Artwork url={art} size={320} className="np-art" />
@@ -33,15 +31,18 @@ export function NowPlaying() {
               {[player.metadata?.artist || parts.artist || "未知艺人", player.metadata?.album].filter(Boolean).join(" — ")}
             </p>
           </div>
-          <ProgressBar className="np-progress" />
-          <TransportButtons size={22} />
-          <VolumeControl />
         </div>
-        <div className="np-lyrics">
-          <Lyrics variant="full" />
-        </div>
+        {player.panel === "lyrics" && (
+          <div className="np-side np-lyrics">
+            <Lyrics variant="full" />
+          </div>
+        )}
+        {player.panel === "queue" && (
+          <div className="np-side np-queue">
+            <QueueList />
+          </div>
+        )}
       </div>
-    </section>,
-    document.body,
+    </section>
   );
 }

@@ -158,7 +158,13 @@ export function PlayerCenter() {
     <div className="mini-player">
       <TransportButtons extended={false} />
       <div className="lcd">
-        <button className="lcd-art" title="显示正在播放" aria-label="显示正在播放" onClick={() => player.setFullScreen(true)}>
+        <button
+          className="lcd-art"
+          title={player.fullScreen ? "返回资料库" : "显示正在播放"}
+          aria-label={player.fullScreen ? "返回资料库" : "显示正在播放"}
+          aria-pressed={player.fullScreen}
+          onClick={() => player.setFullScreen(!player.fullScreen)}
+        >
           <Artwork url={player.metadata?.artworkUrl} size={38} />
         </button>
         <div className="lcd-body">

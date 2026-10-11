@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { MainWindow } from "./app/MainWindow";
 import { installWindowBehaviour } from "./lib/native";
+import { demoEnabled, openNativePlayer } from "./lib/nimbus";
 import { VideoOverlay } from "./player/VideoOverlay";
 import "./styles/tokens.css";
 import "./styles/base.css";
@@ -15,6 +16,12 @@ import "./styles/video.css";
 const videoWindow = new URLSearchParams(window.location.search).has("player-controls");
 if (videoWindow) document.documentElement.classList.add("video-window");
 installWindowBehaviour({ vibrancy: !videoWindow });
+
+// Browser layout fixture for the video controls: `?player-controls&demo=1&fixture=video`.
+if (videoWindow && demoEnabled && new URLSearchParams(window.location.search).get("fixture") === "video") {
+  document.documentElement.style.background = "#3a3f47";
+  void openNativePlayer("movie-10");
+}
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>{videoWindow ? <VideoOverlay /> : <MainWindow />}</React.StrictMode>,

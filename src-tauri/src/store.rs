@@ -4,7 +4,7 @@ use rusqlite::{params, Connection};
 
 use crate::{
     error::{NimbusError, Result},
-    model::{Account, MediaFile, MediaSource, ReadingProgress, StoredAccount},
+    model::{Account, MediaFile, MediaSource, Playlist, ReadingProgress, StoredAccount},
 };
 
 pub struct Store {
@@ -121,10 +121,100 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 5 {
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS playlists (
+                   id TEXT PRIMARY KEY,
+                   name TEXT NOT NULL,
+                   created_at INTEGER NOT NULL,
+                   updated_at INTEGER NOT NULL
+                 );
+                 CREATE TABLE IF NOT EXISTS playlist_items (
+                   playlist_id TEXT NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
+                   file_id TEXT NOT NULL REFERENCES media_files(id) ON DELETE CASCADE,
+                   position INTEGER NOT NULL,
+                   PRIMARY KEY (playlist_id, file_id)
+                 );
+                 PRAGMA user_version = 5;
+                 COMMIT;",
+            )?;
+        }
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self {
             connection: parking_lot::Mutex::new(connection),
         })
+    }
+
+    pub fn list_playlists(&self) -> Result<Vec<Playlist>> {
+        let connection = self.connection.lock();
+        let mut statement = connection.prepare(
+            "SELECT id, name, updated_at,
+               COALESCE((SELECT group_concat(file_id, '|') FROM
+                 (SELECT file_id FROM playlist_items WHERE playlist_id = playlists.id ORDER BY position)), '')
+             FROM playlists ORDER BY created_at",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(Playlist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                updated_at: row.get(2)?,
+                file_ids: row
+                    .get::<_, String>(3)?
+                    .split('|')
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+            })
+        })?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
+    pub fn create_playlist(&self, id: &str, name: &str, file_ids: &[String]) -> Result<()> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO playlists (id, name, created_at, updated_at) VALUES (?1, ?2, unixepoch(), unixepoch())",
+            params![id, name],
+        )?;
+        write_playlist_items(&transaction, id, file_ids)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn rename_playlist(&self, id: &str, name: &str) -> Result<()> {
+        let changed = self.connection.lock().execute(
+            "UPDATE playlists SET name = ?2, updated_at = unixepoch() WHERE id = ?1",
+            params![id, name],
+        )?;
+        if changed == 0 {
+            return Err(NimbusError::Validation("找不到这个播放列表".into()));
+        }
+        Ok(())
+    }
+
+    pub fn delete_playlist(&self, id: &str) -> Result<()> {
+        self.connection
+            .lock()
+            .execute("DELETE FROM playlists WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Replace a playlist's songs with `file_ids`, in that order.
+    pub fn set_playlist_items(&self, id: &str, file_ids: &[String]) -> Result<()> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        let changed = transaction.execute(
+            "UPDATE playlists SET updated_at = unixepoch() WHERE id = ?1",
+            [id],
+        )?;
+        if changed == 0 {
+            return Err(NimbusError::Validation("找不到这个播放列表".into()));
+        }
+        transaction.execute("DELETE FROM playlist_items WHERE playlist_id = ?1", [id])?;
+        write_playlist_items(&transaction, id, file_ids)?;
+        transaction.commit()?;
+        Ok(())
     }
 
     /// Record that a document was opened, keeping the page already reached.
@@ -541,6 +631,28 @@ impl Store {
         )?;
         Ok(file_id)
     }
+}
+
+fn write_playlist_items(
+    transaction: &rusqlite::Transaction<'_>,
+    playlist_id: &str,
+    file_ids: &[String],
+) -> Result<()> {
+    let mut seen = std::collections::HashSet::new();
+    let mut position = 0_i64;
+    for file_id in file_ids {
+        if !seen.insert(file_id.as_str()) {
+            continue;
+        }
+        // Songs that are no longer in the library are skipped rather than failing the save.
+        let inserted = transaction.execute(
+            "INSERT OR IGNORE INTO playlist_items (playlist_id, file_id, position)
+             SELECT ?1, id, ?3 FROM media_files WHERE id = ?2",
+            params![playlist_id, file_id, position],
+        )?;
+        position += inserted as i64;
+    }
+    Ok(())
 }
 
 fn reading_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReadingProgress> {

@@ -148,7 +148,12 @@ pub fn run() {
             now_playing::now_playing_info,
             documents::document_open,
             documents::document_open_file,
-            documents::document_progress_list
+            documents::document_progress_list,
+            commands::library::playlist_list,
+            commands::library::playlist_create,
+            commands::library::playlist_rename,
+            commands::library::playlist_delete,
+            commands::library::playlist_set_items
         ])
         .on_window_event(|window, event| {
             if window.label() == "main"

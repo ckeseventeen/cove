@@ -1,10 +1,13 @@
-import { forwardRef } from "react";
-import { Clapperboard, FileText, House, LoaderCircle, Music, Plus } from "lucide-react";
+import { forwardRef, useRef, useState } from "react";
+import { Clapperboard, FileText, House, ListMusic, LoaderCircle, Music, Plus } from "lucide-react";
 import { showContextMenu } from "../lib/native";
-import type { Account, MediaSource } from "../lib/nimbus";
+import type { Account, MediaFile, MediaSource, Playlist } from "../lib/nimbus";
+import { usePlayer } from "../player/PlayerProvider";
 import { SearchField } from "../ui/controls";
 import { providerIcon } from "../ui/glyphs";
+import { useTopmostEscape } from "../ui/Sheet";
 import { sidebarKey, type Route } from "./navigation";
+import { SONGS_DRAG_TYPE } from "./playlistActions";
 import type { Library } from "./useLibrary";
 
 type Props = {
@@ -17,16 +20,83 @@ type Props = {
   onAddStorage: () => void;
   onRemoveAccount: (account: Account) => void;
   onRemoveSource: (source: MediaSource) => void;
+  onNewPlaylist: () => void;
+  onDeletePlaylist: (playlist: Playlist) => void;
+  /** The playlist whose name is being edited in place (a new one starts this way). */
+  editingPlaylist: string | null;
+  onEditPlaylist: (id: string | null) => void;
   onWindowMouseDown: (event: React.MouseEvent) => void;
 };
 
+/** In-place name field, as when naming a new playlist in Music. */
+function RenameField({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(initial);
+  // Escape, Return and the blur that follows them must finish the edit only once.
+  const finished = useRef(false);
+  const finish = (name: string | null) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(name);
+  };
+  useTopmostEscape(true, () => finish(null));
+  return (
+    <div className="sidebar-item editing">
+      <ListMusic size={16} />
+      <input
+        className="sidebar-rename"
+        aria-label="播放列表名称"
+        value={value}
+        autoFocus
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            finish(value);
+          }
+        }}
+        onBlur={() => finish(value)}
+      />
+    </div>
+  );
+}
+
+function draggedSongs(event: React.DragEvent, library: Library): MediaFile[] {
+  try {
+    const ids: unknown = JSON.parse(event.dataTransfer.getData(SONGS_DRAG_TYPE) || "[]");
+    if (!Array.isArray(ids)) return [];
+    return ids.map((id) => library.filesById.get(String(id))).filter((file): file is MediaFile => !!file);
+  } catch {
+    return [];
+  }
+}
+
 /** One row per destination: library, storage locations, media folders. Everything else lives in menus. */
 export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
-  { route, library, query, onQuery, onSearchKey, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource, onWindowMouseDown },
+  {
+    route,
+    library,
+    query,
+    onQuery,
+    onSearchKey,
+    onNavigate,
+    onAddStorage,
+    onRemoveAccount,
+    onRemoveSource,
+    onNewPlaylist,
+    onDeletePlaylist,
+    editingPlaylist,
+    onEditPlaylist,
+    onWindowMouseDown,
+  },
   searchRef,
 ) {
+  const player = usePlayer();
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const active = sidebarKey(route);
   const current = (key: string) => (active === key ? "page" : undefined);
+  const songsOf = (playlist: Playlist) =>
+    playlist.fileIds.map((id) => library.filesById.get(id)).filter((file): file is MediaFile => file?.mediaKind === "music");
 
   return (
     <aside className="sidebar" aria-label="边栏">
@@ -59,6 +129,69 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             <span className="trailing">{library.documents.length || ""}</span>
           </button>
         </section>
+
+        {(library.songs.length > 0 || library.playlists.length > 0) && (
+          <section className="sidebar-section">
+            <h2 className="sidebar-heading">
+              <span>播放列表</span>
+              <button className="icon-btn small" title="新建播放列表" aria-label="新建播放列表" onClick={onNewPlaylist}>
+                <Plus size={13} />
+              </button>
+            </h2>
+            {library.playlists.map((playlist) => {
+              if (editingPlaylist === playlist.id) {
+                return (
+                  <RenameField
+                    key={playlist.id}
+                    initial={playlist.name}
+                    onDone={(name) => {
+                      onEditPlaylist(null);
+                      if (name !== null) void library.renamePlaylist(playlist, name);
+                    }}
+                  />
+                );
+              }
+              const open = () => onNavigate({ name: "playlist", id: playlist.id });
+              const songs = songsOf(playlist);
+              return (
+                <button
+                  key={playlist.id}
+                  className={`sidebar-item ${dropTarget === playlist.id ? "drop-target" : ""}`}
+                  aria-current={current(`playlist:${playlist.id}`)}
+                  title={playlist.name}
+                  onClick={open}
+                  onDoubleClick={() => onEditPlaylist(playlist.id)}
+                  onContextMenu={(event) =>
+                    void showContextMenu(event, [
+                      { label: "播放", enabled: songs.length > 0, action: () => void player.play(songs[0], { queue: songs, fromStart: true }) },
+                      { label: "随机播放", enabled: songs.length > 1, action: () => player.playShuffled(songs) },
+                      "separator",
+                      { label: "重命名", action: () => onEditPlaylist(playlist.id) },
+                      { label: "删除播放列表…", destructive: true, action: () => onDeletePlaylist(playlist) },
+                    ])
+                  }
+                  onDragOver={(event) => {
+                    if (!event.dataTransfer.types.includes(SONGS_DRAG_TYPE)) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "copy";
+                    setDropTarget(playlist.id);
+                  }}
+                  onDragLeave={() => setDropTarget((value) => (value === playlist.id ? null : value))}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDropTarget(null);
+                    const files = draggedSongs(event, library);
+                    if (files.length) void library.addToPlaylist(playlist, files);
+                  }}
+                >
+                  <ListMusic size={16} />
+                  <span className="label">{playlist.name}</span>
+                  <span className="trailing">{songs.length || ""}</span>
+                </button>
+              );
+            })}
+          </section>
+        )}
 
         <section className="sidebar-section">
           <h2 className="sidebar-heading">

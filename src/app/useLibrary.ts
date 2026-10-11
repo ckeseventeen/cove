@@ -1,22 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildMovieWorks, type MediaWork } from "../lib/media";
+import { appendUnique, untitledName } from "../lib/playlists";
 import {
+  createPlaylist as createPlaylistCommand,
+  deletePlaylist as deletePlaylistCommand,
   getStatus,
   listAccounts,
   listCachedMovies,
   listMediaFiles,
   listMediaSources,
+  listPlaylists,
   listReadingProgress,
   listRecentPlayback,
   onReadingProgress,
   removeAccount as removeAccountCommand,
   removeMediaSource,
+  renamePlaylist as renamePlaylistCommand,
   scanMediaSource,
+  setPlaylistItems,
   type Account,
   type AppStatus,
   type MediaFile,
   type MediaSource,
   type MovieMetadata,
+  type Playlist,
   type ReadingProgress,
   type RecentPlayback,
 } from "../lib/nimbus";
@@ -32,6 +39,9 @@ export function useLibrary(notify: Notify) {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recent, setRecent] = useState<RecentPlayback[]>([]);
   const [reading, setReading] = useState<ReadingProgress[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const playlistsRef = useRef(playlists);
+  playlistsRef.current = playlists;
   const [movieMetadata, setMovieMetadataMap] = useState<Record<string, MovieMetadata>>({});
   const [loaded, setLoaded] = useState(false);
   const [scanningIds, setScanningIds] = useState<ReadonlySet<string>>(new Set());
@@ -81,6 +91,9 @@ export function useLibrary(notify: Notify) {
   useEffect(() => {
     void listReadingProgress()
       .then(setReading)
+      .catch(() => undefined);
+    void listPlaylists()
+      .then(setPlaylists)
       .catch(() => undefined);
     Promise.all([getStatus(), listAccounts(), listMediaSources(), listMediaFiles(), listRecentPlayback(), listCachedMovies()])
       .then(([nextStatus, nextAccounts, nextSources, nextFiles, nextRecent, cached]) => {
@@ -175,6 +188,95 @@ export function useLibrary(notify: Notify) {
     [notify],
   );
 
+  /* Playlists update the window immediately and roll back if the library refuses the change. */
+  const changePlaylists = useCallback(
+    async (next: Playlist[], save: () => Promise<unknown>, failure: string) => {
+      const previous = playlistsRef.current;
+      playlistsRef.current = next;
+      setPlaylists(next);
+      try {
+        await save();
+        return true;
+      } catch (cause) {
+        playlistsRef.current = previous;
+        setPlaylists(previous);
+        notify(`${failure}：${errorText(cause)}`, "error");
+        return false;
+      }
+    },
+    [notify],
+  );
+
+  const createPlaylist = useCallback(
+    async (songs: MediaFile[] = [], name?: string) => {
+      try {
+        const created = await createPlaylistCommand(
+          name ?? untitledName(playlistsRef.current.map((item) => item.name)),
+          songs.map((file) => file.id),
+        );
+        playlistsRef.current = [...playlistsRef.current, created];
+        setPlaylists(playlistsRef.current);
+        return created;
+      } catch (cause) {
+        notify(`无法新建播放列表：${errorText(cause)}`, "error");
+        return null;
+      }
+    },
+    [notify],
+  );
+
+  const renamePlaylist = useCallback(
+    (playlist: Playlist, name: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || trimmed === playlist.name) return Promise.resolve(true);
+      return changePlaylists(
+        playlistsRef.current.map((item) => (item.id === playlist.id ? { ...item, name: trimmed } : item)),
+        () => renamePlaylistCommand(playlist.id, trimmed),
+        "无法重命名播放列表",
+      );
+    },
+    [changePlaylists],
+  );
+
+  const deletePlaylist = useCallback(
+    (playlist: Playlist) =>
+      changePlaylists(
+        playlistsRef.current.filter((item) => item.id !== playlist.id),
+        () => deletePlaylistCommand(playlist.id),
+        `无法删除“${playlist.name}”`,
+      ),
+    [changePlaylists],
+  );
+
+  /** Replace a playlist's order (after a drag or a removal). */
+  const setPlaylistOrder = useCallback(
+    (playlist: Playlist, fileIds: string[]) =>
+      changePlaylists(
+        playlistsRef.current.map((item) => (item.id === playlist.id ? { ...item, fileIds } : item)),
+        () => setPlaylistItems(playlist.id, fileIds),
+        `无法更新“${playlist.name}”`,
+      ),
+    [changePlaylists],
+  );
+
+  const addToPlaylist = useCallback(
+    async (playlist: Playlist, songs: MediaFile[]) => {
+      const latest = playlistsRef.current.find((item) => item.id === playlist.id) ?? playlist;
+      const { order, added } = appendUnique(
+        latest.fileIds,
+        songs.map((file) => file.id),
+      );
+      if (!added) {
+        notify(songs.length === 1 ? `这首歌曲已在“${latest.name}”中` : `这些歌曲已在“${latest.name}”中`, "info");
+        return;
+      }
+      if (await setPlaylistOrder(latest, order)) {
+        notify(added === 1 ? `已添加到“${latest.name}”` : `已将 ${added} 首歌曲添加到“${latest.name}”`, "success");
+      }
+    },
+    [notify, setPlaylistOrder],
+  );
+
   return {
     loaded,
     accounts,
@@ -187,6 +289,12 @@ export function useLibrary(notify: Notify) {
     documents,
     reading,
     readingByKey,
+    playlists,
+    createPlaylist,
+    renamePlaylist,
+    deletePlaylist,
+    setPlaylistOrder,
+    addToPlaylist,
     filesById,
     workByFileId,
     movieMetadata,

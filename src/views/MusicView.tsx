@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AudioLines, ChevronDown, ChevronUp, LoaderCircle, Music2, Play, Shuffle } from "lucide-react";
 import type { Route } from "../app/navigation";
+import { SONGS_DRAG_TYPE, usePlaylistActions } from "../app/playlistActions";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, plural } from "../lib/format";
 import { containingFolder, musicFolderOf, songParts } from "../lib/media";
@@ -117,7 +118,25 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
   );
 }
 
-/** Songs list with Music.app semantics: click selects, double-click or Return plays. */
+/** Songs being dragged inside this window, so a list can tell its own rows apart from a drop elsewhere. */
+let draggingSongs: { ids: string[]; from: string } | null = null;
+
+/** WebKit snapshots the drag image where it is drawn, so it is placed under the pointer for one frame. */
+function dragBadge(count: number, x: number, y: number) {
+  const badge = document.createElement("div");
+  badge.className = "drag-badge";
+  badge.style.left = `${x + 8}px`;
+  badge.style.top = `${y + 8}px`;
+  badge.textContent = count === 1 ? "1 首歌曲" : `${count} 首歌曲`;
+  document.body.append(badge);
+  window.setTimeout(() => badge.remove(), 0);
+  return badge;
+}
+
+/**
+ * Songs list with Music.app semantics: click selects (⌘ and ⇧ extend), double-click or Return plays,
+ * songs drag onto a playlist in the sidebar. Inside a playlist, rows also drag to reorder.
+ */
 export function SongTable({
   songs,
   onNavigate,
@@ -125,6 +144,9 @@ export function SongTable({
   limit,
   sort,
   onSort,
+  playlistId,
+  onRemove,
+  onReorder,
 }: {
   songs: MediaFile[];
   onNavigate: (route: Route) => void;
@@ -132,9 +154,17 @@ export function SongTable({
   limit?: number;
   sort?: SongSort;
   onSort?: (field: SongSortField) => void;
+  /** Set when the list is a playlist: it is left out of "Add to Playlist". */
+  playlistId?: string;
+  onRemove?: (files: MediaFile[]) => void;
+  onReorder?: (ids: string[], beforeId: string | null) => void;
 }) {
   const player = usePlayer();
-  const [selected, setSelected] = useState<string | null>(null);
+  const playlists = usePlaylistActions();
+  const [selection, setSelection] = useState<ReadonlySet<string>>(new Set());
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [drop, setDrop] = useState<{ id: string; after: boolean } | null>(null);
+  const anchor = useRef<string | null>(null);
   const table = useRef<HTMLDivElement>(null);
   const { count, sentinel } = useIncrementalCount(limit ?? songs.length, 150, resetKey);
   const visible = songs.slice(0, limit ? Math.min(limit, count) : count);
@@ -142,10 +172,33 @@ export function SongTable({
   const playing = usePlayerStatus((status) => !!currentId && status.fileId === currentId && !status.paused);
 
   useEffect(() => {
-    table.current?.querySelector(`[data-id="${CSS.escape(selected ?? "")}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+    table.current?.querySelector(`[data-id="${CSS.escape(cursor ?? "")}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
+
+  // Forget songs that left the list (removed from a playlist, or a new search).
+  useEffect(() => {
+    setSelection((current) => {
+      const ids = new Set(songs.map((file) => file.id));
+      const kept = [...current].filter((id) => ids.has(id));
+      return kept.length === current.size ? current : new Set(kept);
+    });
+  }, [songs]);
 
   const play = (file: MediaFile) => void player.play(file, { queue: songs, fromStart: true });
+  const selectOnly = (id: string) => {
+    setSelection(new Set([id]));
+    setCursor(id);
+    anchor.current = id;
+  };
+  const selectRange = (id: string) => {
+    const from = visible.findIndex((file) => file.id === anchor.current);
+    const to = visible.findIndex((file) => file.id === id);
+    if (from < 0 || to < 0) return selectOnly(id);
+    const [low, high] = from < to ? [from, to] : [to, from];
+    setSelection(new Set(visible.slice(low, high + 1).map((file) => file.id)));
+    setCursor(id);
+  };
+  const selectedSongs = (ids: ReadonlySet<string> = selection) => songs.filter((file) => ids.has(file.id));
 
   const header = (field: SongSortField, label: string, extra = "") => {
     if (!onSort) return <span className={`th ${extra}`}>{label}</span>;
@@ -159,31 +212,103 @@ export function SongTable({
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    const index = visible.findIndex((file) => file.id === selected);
+    const index = visible.findIndex((file) => file.id === cursor);
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const next = visible[Math.max(0, Math.min(visible.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
-      if (next) setSelected(next.id);
+      if (!next) return;
+      if (event.shiftKey && anchor.current) selectRange(next.id);
+      else selectOnly(next.id);
     } else if (event.key === "Enter" && index >= 0) {
       event.preventDefault();
       play(visible[index]);
+    } else if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      setSelection(new Set(songs.map((file) => file.id)));
+    } else if ((event.key === "Backspace" || event.key === "Delete") && onRemove && selection.size) {
+      event.preventDefault();
+      onRemove(selectedSongs());
+    }
+  };
+
+  const onRowMouseDown = (event: React.MouseEvent, file: MediaFile) => {
+    if (event.button !== 0) return;
+    if (event.metaKey) {
+      const next = new Set(selection);
+      if (next.has(file.id)) next.delete(file.id);
+      else next.add(file.id);
+      setSelection(next);
+      setCursor(file.id);
+      anchor.current = file.id;
+    } else if (event.shiftKey && anchor.current) {
+      event.preventDefault();
+      selectRange(file.id);
+    } else if (!selection.has(file.id)) {
+      selectOnly(file.id);
     }
   };
 
   const menu = (event: React.MouseEvent, file: MediaFile) => {
-    setSelected(file.id);
+    const ids = selection.has(file.id) ? selection : new Set([file.id]);
+    if (!selection.has(file.id)) selectOnly(file.id);
+    const targets = selectedSongs(ids);
+    const single = targets.length === 1;
     const folder = containingFolder(file);
+    const others = playlists?.playlists.filter((playlist) => playlist.id !== playlistId) ?? [];
     void showContextMenu(event, [
       { label: "播放", action: () => play(file) },
-      { label: "下一首播放", action: () => player.playNext(file) },
-      { label: "添加到待播清单", action: () => player.addToQueue(file) },
+      { label: "下一首播放", action: () => player.playNext(targets) },
+      { label: "添加到待播清单", action: () => player.addToQueue(targets) },
+      ...(playlists
+        ? [
+            "separator" as const,
+            {
+              label: "添加到播放列表",
+              submenu: [
+                { label: "新建播放列表", action: () => playlists.create(targets) },
+                ...(others.length ? ["separator" as const] : []),
+                ...others.map((playlist) => ({ label: playlist.name, action: () => playlists.add(playlist, targets) })),
+              ],
+            },
+          ]
+        : []),
       "separator",
       {
         label: "在文件中显示",
-        enabled: !!folder,
+        enabled: single && !!folder,
         action: () => folder && onNavigate({ name: "storage", accountId: file.accountId, path: folder }),
       },
+      ...(onRemove
+        ? ["separator" as const, { label: single ? "从播放列表中移除" : `从播放列表中移除 ${targets.length} 首歌曲`, action: () => onRemove(targets) }]
+        : []),
     ]);
+  };
+
+  const onDragStart = (event: React.DragEvent, file: MediaFile) => {
+    const ids = selection.has(file.id) ? selectedSongs().map((item) => item.id) : [file.id];
+    if (!selection.has(file.id)) selectOnly(file.id);
+    draggingSongs = { ids, from: resetKey };
+    event.dataTransfer.effectAllowed = onReorder ? "copyMove" : "copy";
+    event.dataTransfer.setData(SONGS_DRAG_TYPE, JSON.stringify(ids));
+    event.dataTransfer.setDragImage(dragBadge(ids.length, event.clientX, event.clientY), -8, -8);
+  };
+
+  const onRowDragOver = (event: React.DragEvent, file: MediaFile) => {
+    if (!onReorder || draggingSongs?.from !== resetKey) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const box = event.currentTarget.getBoundingClientRect();
+    const after = event.clientY > box.top + box.height / 2;
+    setDrop((current) => (current?.id === file.id && current.after === after ? current : { id: file.id, after }));
+  };
+
+  const onRowDrop = (event: React.DragEvent, file: MediaFile) => {
+    if (!onReorder || !draggingSongs || draggingSongs.from !== resetKey || !drop) return;
+    event.preventDefault();
+    const position = songs.findIndex((item) => item.id === file.id);
+    const beforeId = drop.after ? (songs[position + 1]?.id ?? null) : file.id;
+    onReorder(draggingSongs.ids, beforeId);
+    setDrop(null);
   };
 
   return (
@@ -192,8 +317,12 @@ export function SongTable({
       className="table songs"
       role="grid"
       aria-label="歌曲"
+      aria-multiselectable="true"
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
+      }}
       style={{ "--columns": "40px minmax(160px, 2.2fr) minmax(100px, 1.2fr) minmax(100px, 1.2fr) 64px 72px" } as CSSProperties}
     >
       <div className="table-header" role="row">
@@ -208,16 +337,28 @@ export function SongTable({
         {visible.map((file, index) => {
           const parts = songParts(file);
           const current = file.id === currentId;
+          const dropClass = drop?.id === file.id ? (drop.after ? "drop-after" : "drop-before") : "";
           return (
             <div
               key={file.id}
               data-id={file.id}
               role="row"
-              aria-selected={selected === file.id}
-              className={`table-row ${current ? "current" : ""}`}
-              onMouseDown={() => setSelected(file.id)}
+              aria-selected={selection.has(file.id)}
+              className={`table-row ${current ? "current" : ""} ${dropClass}`}
+              draggable
+              onMouseDown={(event) => onRowMouseDown(event, file)}
+              onClick={(event) => {
+                if (!event.metaKey && !event.shiftKey && selection.size > 1) selectOnly(file.id);
+              }}
               onDoubleClick={() => play(file)}
               onContextMenu={(event) => menu(event, file)}
+              onDragStart={(event) => onDragStart(event, file)}
+              onDragEnd={() => {
+                draggingSongs = null;
+                setDrop(null);
+              }}
+              onDragOver={(event) => onRowDragOver(event, file)}
+              onDrop={(event) => onRowDrop(event, file)}
             >
               <span className="cell end index-cell">
                 {player.openingId === file.id ? (

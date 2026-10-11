@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
-import { demoEnabled, type Account, type MediaSource } from "../lib/nimbus";
+import { demoEnabled, type Account, type MediaFile, type MediaSource, type Playlist } from "../lib/nimbus";
 import { PlayerCenter, PlayerTools } from "../player/MiniPlayer";
 import { NowPlaying } from "../player/NowPlaying";
 import { PlayerPanel } from "../player/PlayerPanel";
@@ -20,6 +20,7 @@ import { MovieDetailSheet } from "../views/MovieDetailSheet";
 import { DocumentsView } from "../views/DocumentsView";
 import { MoviesView } from "../views/MoviesView";
 import { MusicView } from "../views/MusicView";
+import { PlaylistView } from "../views/PlaylistView";
 import { SearchView } from "../views/SearchView";
 import { SettingsView } from "../views/SettingsView";
 import { StorageView, type ClipboardEntry } from "../views/StorageView";
@@ -35,6 +36,7 @@ import {
   type History,
   type Route,
 } from "./navigation";
+import { PlaylistActionsContext, type PlaylistActions } from "./playlistActions";
 import { Sidebar } from "./Sidebar";
 import { useLibrary, type Library } from "./useLibrary";
 
@@ -83,6 +85,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
   const [addingStorage, setAddingStorage] = useState(false);
   const [alert, setAlert] = useState<AlertRequest | null>(null);
   const [detail, setDetail] = useState<MediaWork | null>(null);
+  const [editingPlaylist, setEditingPlaylist] = useState<string | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const scrollPositions = useRef(new Map<number, number>());
@@ -101,8 +104,11 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     setHistory(result);
   }, []);
 
+  // Choosing any destination leaves Now Playing, as in Music.
+  const { setFullScreen } = player;
   const navigate = useCallback(
     (next: Route, options?: { replace?: boolean }) => {
+      setFullScreen(false);
       const result = push(historyRef.current, next, options);
       if (result !== historyRef.current) scrollPositions.current.delete(result.index);
       moveTo(result);
@@ -111,7 +117,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         returnFromSearch.current = null;
       }
     },
-    [moveTo],
+    [moveTo, setFullScreen],
   );
 
   // New pages start at the top; back and forward return to where you were.
@@ -122,13 +128,15 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
   }, [history]);
 
   const back = useCallback(() => {
+    setFullScreen(false);
     moveTo(goBack(historyRef.current));
     setQuery("");
-  }, [moveTo]);
+  }, [moveTo, setFullScreen]);
   const forward = useCallback(() => {
+    setFullScreen(false);
     moveTo(goForward(historyRef.current));
     setQuery("");
-  }, [moveTo]);
+  }, [moveTo, setFullScreen]);
 
   const toggleSidebar = useCallback(() => {
     setSidebar((value) => {
@@ -197,6 +205,43 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     [library, moveTo],
   );
 
+  const newPlaylist = useCallback(
+    async (songs: MediaFile[] = []) => {
+      const created = await library.createPlaylist(songs);
+      if (!created) return;
+      if (!sidebar) toggleSidebar();
+      navigate({ name: "playlist", id: created.id });
+      setEditingPlaylist(created.id);
+    },
+    [library, navigate, sidebar, toggleSidebar],
+  );
+
+  const confirmDeletePlaylist = useCallback(
+    (playlist: Playlist) =>
+      setAlert({
+        title: `删除“${playlist.name}”？`,
+        message: "只会删除这个播放列表。其中的歌曲仍保留在资料库和存储中。",
+        icon: <Trash2 size={28} color="var(--red)" />,
+        confirmLabel: "删除",
+        destructive: true,
+        onConfirm: async () => {
+          if (await library.deletePlaylist(playlist)) {
+            moveTo(pruneHistory(historyRef.current, (item) => item.name === "playlist" && item.id === playlist.id));
+          }
+        },
+      }),
+    [library, moveTo],
+  );
+
+  const playlistActions = useMemo<PlaylistActions>(
+    () => ({
+      playlists: library.playlists,
+      add: (playlist, songs) => void library.addToPlaylist(playlist, songs),
+      create: (songs) => void newPlaylist(songs),
+    }),
+    [library, newPlaylist],
+  );
+
   // Menu bar commands (and their keyboard equivalents in the browser preview).
   const command = useRef<(id: string) => void>(() => undefined);
   command.current = (id: string) => {
@@ -208,6 +253,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return navigate({ name: "help" });
       case "cove.add-storage":
         return setAddingStorage(true);
+      case "cove.new-playlist":
+        return void newPlaylist();
       case "cove.find":
         return focusSearch();
       case "cove.go.home":
@@ -325,6 +372,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return <MoviesView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onOpenWork={setDetail} onNavigate={navigate} />;
       case "music":
         return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} />;
+      case "playlist":
+        return <PlaylistView key={route.id} library={library} playlistId={route.id} onNavigate={navigate} />;
       case "documents":
         return <DocumentsView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} notify={notify} />;
       case "search":
@@ -350,7 +399,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       className="window"
       data-sidebar={sidebar ? "visible" : "hidden"}
       data-video={player.isVideo ? "" : undefined}
-      style={{ "--panel-width": player.panel ? "320px" : "0px" } as CSSProperties}
+      style={{ "--panel-width": player.panel && !player.fullScreen ? "320px" : "0px" } as CSSProperties}
     >
       <Sidebar
         ref={searchInput}
@@ -365,6 +414,10 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         onAddStorage={() => setAddingStorage(true)}
         onRemoveAccount={confirmRemoveAccount}
         onRemoveSource={confirmRemoveSource}
+        onNewPlaylist={() => void newPlaylist()}
+        onDeletePlaylist={confirmDeletePlaylist}
+        editingPlaylist={editingPlaylist}
+        onEditPlaylist={setEditingPlaylist}
         onWindowMouseDown={windowMouseDown}
       />
       <div className="main">
@@ -384,13 +437,13 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         </header>
         <div className="main-body">
           <main ref={content} className={`content ${route.name === "storage" ? "flush" : ""}`}>
-            {page}
+            <PlaylistActionsContext.Provider value={playlistActions}>{page}</PlaylistActionsContext.Provider>
           </main>
           <PlayerPanel />
+          <NowPlaying />
         </div>
       </div>
 
-      <NowPlaying />
       {addingStorage && (
         <AddStorageSheet
           onClose={() => setAddingStorage(false)}

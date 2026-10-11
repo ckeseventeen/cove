@@ -51,12 +51,13 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let add_storage = item("cove.add-storage", "添加存储…", Some("CmdOrCtrl+N"))?;
     let new_folder = item("cove.new-folder", "新建文件夹", Some("Shift+CmdOrCtrl+N"))?;
+    let new_playlist = item("cove.new-playlist", "新建播放列表", Some("Alt+CmdOrCtrl+N"))?;
     let close = PredefinedMenuItem::close_window(app, Some("关闭窗口"))?;
     let file_menu = Submenu::with_items(
         app,
         "文件",
         true,
-        &[&add_storage, &new_folder, &separator()?, &close],
+        &[&add_storage, &new_folder, &new_playlist, &separator()?, &close],
     )?;
 
     let undo = PredefinedMenuItem::undo(app, Some("撤销"))?;

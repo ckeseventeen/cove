@@ -60,3 +60,12 @@ test('parent paths stop at the root', () => {
   assert.equal(nav.parentPath('/Users'), '/');
   assert.equal(nav.parentPath('/Users/me/Movies/'), '/Users/me');
 });
+
+test('each playlist is its own page and sidebar row', () => {
+  const one = { name: 'playlist', id: 'a' };
+  let history = nav.navigate(nav.initialHistory, one);
+  assert.equal(nav.navigate(history, { name: 'playlist', id: 'a' }), history);
+  history = nav.navigate(history, { name: 'playlist', id: 'b' });
+  assert.equal(history.entries.length, 3);
+  assert.equal(nav.sidebarKey(nav.currentRoute(history)), 'playlist:b');
+});

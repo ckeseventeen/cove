@@ -10,7 +10,8 @@ import { usePlayer, type PanelKind } from "./PlayerProvider";
 /** Right-hand inspector, like the Lyrics / Playing Next panel in Music. */
 export function PlayerPanel() {
   const player = usePlayer();
-  if (!player.panel) return null;
+  // While Now Playing is open it shows lyrics and up next itself.
+  if (!player.panel || player.fullScreen) return null;
   return (
     <aside className="panel player-panel" aria-label={player.panel === "lyrics" ? "歌词" : "待播清单"}>
       <div className="panel-header">
@@ -30,7 +31,7 @@ export function PlayerPanel() {
   );
 }
 
-function QueueList() {
+export function QueueList() {
   const player = usePlayer();
   const current = player.nowPlaying && !player.isVideo ? player.nowPlaying : null;
   if (!current) {

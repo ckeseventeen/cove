@@ -81,6 +81,16 @@ pub struct MediaSource {
     pub last_scan_at: Option<i64>,
 }
 
+/// A user playlist: an ordered list of library songs.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Playlist {
+    pub id: String,
+    pub name: String,
+    pub file_ids: Vec<String>,
+    pub updated_at: i64,
+}
+
 /// Where a document was last read, so the reader can reopen it on the same page.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
