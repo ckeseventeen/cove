@@ -317,9 +317,9 @@ export async function getMusicMetadata(fileId: string, refresh = false): Promise
   return { title: "", artist: "", album: "" };
 }
 
-async function fetchMovieMetadata(fileId: string, refresh = false, lookupName?: string): Promise<MovieMetadata> {
+async function fetchMovieMetadata(fileId: string, refresh = false, lookupName?: string, series?: boolean): Promise<MovieMetadata> {
   if (isTauri()) {
-    const metadata = await invoke<MovieMetadata>("movie_metadata", { fileId, refresh, lookupName });
+    const metadata = await invoke<MovieMetadata>("movie_metadata", { fileId, refresh, lookupName, series: series ?? null });
     return { ...metadata, genres: metadata.genres ?? [], cast: metadata.cast ?? [] };
   }
   if (demoEnabled && previewMetadata[fileId]) return previewMetadata[fileId];
@@ -331,15 +331,15 @@ let metadataActive = 0;
 const metadataWaiters: (() => void)[] = [];
 
 /** Cached, concurrency-limited TMDB lookups shared by every poster in view. */
-export function getMovieMetadata(fileId: string, refresh = false, lookupName?: string): Promise<MovieMetadata> {
-  const key = `${fileId}:${lookupName ?? ""}`;
+export function getMovieMetadata(fileId: string, refresh = false, lookupName?: string, series?: boolean): Promise<MovieMetadata> {
+  const key = `${fileId}:${series ?? ""}:${lookupName ?? ""}`;
   const cached = metadataRequests.get(key);
   if (!refresh && cached && cached.expires > Date.now()) return cached.value;
   const value = (async () => {
     if (metadataActive >= 3) await new Promise<void>((resolve) => metadataWaiters.push(resolve));
     metadataActive++;
     try {
-      return await fetchMovieMetadata(fileId, refresh, lookupName);
+      return await fetchMovieMetadata(fileId, refresh, lookupName, series);
     } finally {
       metadataActive--;
       metadataWaiters.shift()?.();

@@ -33,7 +33,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
 
   useEffect(() => {
     const generation = ++request.current;
-    getMovieMetadata(work.files[0].id, false, lookupNameOf(work))
+    getMovieMetadata(work.files[0].id, false, lookupNameOf(work), work.isSeries)
       .then((value) => {
         if (generation !== request.current) return;
         setMetadata(value);
@@ -54,7 +54,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
     setMatching(true);
     setError(null);
     try {
-      const value = await getMovieMetadata(work.files[0].id, true, query);
+      const value = await getMovieMetadata(work.files[0].id, true, query, work.isSeries);
       if (generation !== request.current) return;
       setMetadata(value);
       onMetadata(work.id, value);

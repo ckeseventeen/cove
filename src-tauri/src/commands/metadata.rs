@@ -252,8 +252,10 @@ pub(crate) async fn movie_metadata(
     file_id: String,
     refresh: Option<bool>,
     lookup_name: Option<String>,
+    series: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<metadata::MovieMetadata> {
+    let kind = series.map(|series| if series { "tv" } else { "movie" });
     let manual = refresh.unwrap_or(false)
         && lookup_name
             .as_ref()
@@ -263,7 +265,11 @@ pub(crate) async fn movie_metadata(
     } else {
         state.store.metadata_override(&file_id)?.or(lookup_name)
     };
-    // A cached result counts only if it was looked up under the same name.
+    // A cached result counts only if it was looked up under the same name, as the same kind of work.
+    let query_key = |name: &str| match kind {
+        Some(kind) => format!("{kind}:{}", name.trim()),
+        None => name.trim().to_owned(),
+    };
     let cached = || -> Result<Option<metadata::MovieMetadata>> {
         let Some(payload) = state.store.cached_metadata(&file_id, MOVIE_CACHE)? else {
             return Ok(None);
@@ -273,7 +279,7 @@ pub(crate) async fn movie_metadata(
             .filter(|metadata| {
                 requested_name
                     .as_deref()
-                    .map_or(true, |name| metadata.query.as_deref() == Some(name.trim()))
+                    .map_or(true, |name| metadata.query.as_deref() == Some(query_key(name).as_str()))
             }))
     };
     if !refresh.unwrap_or(false) {
@@ -340,11 +346,11 @@ pub(crate) async fn movie_metadata(
         .filter(|name| !name.is_empty())
         .map(str::to_owned);
     let lookup_name = query.clone().unwrap_or(lookup_name);
-    let mut metadata = match metadata::movie(&lookup_name).await {
+    let mut metadata = match metadata::movie(&lookup_name, kind).await {
         Ok(metadata) => metadata,
         Err(primary_error) => {
             if let Some(folder_name) = folder.filter(|candidate| *candidate != lookup_name) {
-                metadata::movie(folder_name)
+                metadata::movie(folder_name, kind)
                     .await
                     .map_err(|_| primary_error)?
             } else {
@@ -355,7 +361,7 @@ pub(crate) async fn movie_metadata(
     if manual {
         state.store.save_metadata_override(&file_id, &lookup_name)?;
     }
-    metadata.query = query;
+    metadata.query = query.as_deref().map(query_key);
     state
         .store
         .save_metadata(&file_id, MOVIE_CACHE, &serde_json::to_string(&metadata)?)?;

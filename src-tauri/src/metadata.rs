@@ -306,7 +306,30 @@ fn movie_query(name: &str) -> (String, Option<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{movie_query, MovieMetadata};
+    use super::{best_result, movie_query, MovieMetadata, TmdbSearchResult};
+
+    fn result(media_type: &str, title: &str, date: &str) -> TmdbSearchResult {
+        serde_json::from_value(serde_json::json!({
+            "id": 1, "media_type": media_type,
+            "title": if media_type == "movie" { Some(title) } else { None },
+            "name": if media_type == "tv" { Some(title) } else { None },
+            "release_date": if media_type == "movie" { Some(date) } else { None },
+            "first_air_date": if media_type == "tv" { Some(date) } else { None },
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn search_prefers_the_year_then_the_kind_the_library_found() {
+        let pocahontas = [result("movie", "风中奇缘", "1995-06-10"), result("tv", "风中奇缘", "2014-10-22")];
+        assert_eq!(best_result(&pocahontas, "风中奇缘", None, Some("tv")), 1);
+        assert_eq!(best_result(&pocahontas, "风中奇缘", None, Some("movie")), 0);
+        let monte_cristo = [result("movie", "基督山伯爵", "2024-06-28"), result("tv", "基督山伯爵", "2024-11-04")];
+        assert_eq!(best_result(&monte_cristo, "基督山伯爵", Some("2024"), Some("tv")), 1);
+        let iron_man = [result("movie", "钢铁侠", "2008-04-30"), result("movie", "钢铁侠2", "2010-04-28")];
+        assert_eq!(best_result(&iron_man, "Iron Man", Some("2010"), Some("movie")), 1);
+        assert_eq!(best_result(&iron_man, "钢铁侠", None, None), 0);
+    }
 
     #[test]
     fn cached_details_remember_their_lookup_name() {
@@ -348,7 +371,32 @@ mod tests {
     }
 }
 
-pub async fn movie(name: &str) -> Result<MovieMetadata> {
+/// Pick the search result to use. A matching year counts most, then the kind of work the library
+/// found (a 35-episode "风中奇缘" is the 2014 series, not the 1995 film), then an exact title.
+/// Ties keep TMDB's own order.
+fn best_result(results: &[TmdbSearchResult], query: &str, year: Option<&str>, kind: Option<&str>) -> usize {
+    let expected = query.to_lowercase();
+    let score = |item: &TmdbSearchResult| {
+        let date = item.release_date.as_deref().or(item.first_air_date.as_deref());
+        let year_matches = year.is_some_and(|year| date.is_some_and(|date| date.starts_with(year)));
+        let kind_matches = kind.is_some_and(|kind| item.media_type == kind);
+        let title_matches = [&item.title, &item.name, &item.original_title, &item.original_name]
+            .into_iter()
+            .flatten()
+            .any(|title| title.to_lowercase() == expected);
+        u8::from(year_matches) * 3 + u8::from(kind_matches) * 2 + u8::from(title_matches)
+    };
+    let mut best = 0;
+    for (index, item) in results.iter().enumerate() {
+        if score(item) > score(&results[best]) {
+            best = index;
+        }
+    }
+    best
+}
+
+/// Look up a film or series. `kind` is "movie" or "tv" when the library already knows which it is.
+pub async fn movie(name: &str, kind: Option<&str>) -> Result<MovieMetadata> {
     let config = TmdbConfig::load()?;
     let (query, year) = movie_query(name);
     if query.is_empty() {
@@ -380,26 +428,7 @@ pub async fn movie(name: &str) -> Result<MovieMetadata> {
         .into_iter()
         .filter(|item| matches!(item.media_type.as_str(), "movie" | "tv"))
         .collect::<Vec<_>>();
-    let preferred = year
-        .as_deref()
-        .and_then(|expected| {
-            results.iter().position(|item| {
-                item.release_date
-                    .as_deref()
-                    .or(item.first_air_date.as_deref())
-                    .is_some_and(|date| date.starts_with(expected))
-            })
-        })
-        .or_else(|| {
-            let expected = query.to_ascii_lowercase();
-            results.iter().position(|item| {
-                item.title
-                    .as_deref()
-                    .or(item.name.as_deref())
-                    .is_some_and(|title| title.to_ascii_lowercase() == expected)
-            })
-        })
-        .unwrap_or(0);
+    let preferred = best_result(&results, &query, year.as_deref(), kind);
     let result = (!results.is_empty())
         .then(|| results.remove(preferred))
         .ok_or_else(|| NimbusError::Validation(format!("TMDB 未找到：{query}")))?;

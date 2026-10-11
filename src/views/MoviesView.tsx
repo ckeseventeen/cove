@@ -194,7 +194,7 @@ function MovieCard({
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
         requested.current = true;
-        getMovieMetadata(first.id, false, lookupNameOf(work)).then(onMetadata).catch(() => undefined);
+        getMovieMetadata(first.id, false, lookupNameOf(work), work.isSeries).then(onMetadata).catch(() => undefined);
       },
       { rootMargin: "300px" },
     );

@@ -201,8 +201,13 @@ export function buildMovieWorks(movieFiles: MediaFile[]) {
     return { id, title, year: group.year || undefined, files, seasons, isSeries: group.series };
   });
 }
-/** What to search TMDB for: the title, plus the year for films so remakes and sequels differ. */
-export function lookupNameOf(work: MediaWork) { return !work.isSeries && work.year ? `${work.title} ${work.year}` : work.title; }
+/** What to search TMDB for: the title without a dialect or cut ("繁花沪语版" → "繁花"), plus the year for films so remakes and sequels differ. */
+export function lookupNameOf(work: MediaWork) {
+  const title = work.title.replace(/\s*[（(]?(?:沪语|粤语|国语|普通话|台语|闽南语|方言|原声|导演剪辑|加长|未删减)版[）)]?$/, "") || work.title;
+  return !work.isSeries && work.year ? `${title} ${work.year}` : title;
+}
+/** How the native side records a lookup in its cache: the kind of work and the name. */
+export function lookupKeyOf(work: MediaWork) { return `${work.isSeries ? "tv" : "movie"}:${lookupNameOf(work)}`; }
 export function uniqueEpisodes(files: MediaFile[]) { const seen = new Set<string>(); return files.filter(file => { const key = `${seasonOf(file)}:${episodeOf(file) ?? file.id}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
 export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<MovieCategory, "all"> {
   const path = work.files.map((file) => file.cloudPath ?? "").join(" ");

@@ -159,3 +159,10 @@ test('films stay films: sequels, dated parts and same-name remakes look up with 
   assert.equal(parts.length, 1);
   assert.equal(parts[0].title, '美国商业大亨传奇');
 });
+
+test('dialect versions look up the original show; the cache key carries the kind of work', () => {
+  const [work] = media.buildMovieWorks([file('繁花沪语版S01E01.mp4', '/影视/电视剧/繁花沪语版')]);
+  assert.equal(work.title, '繁花沪语版');
+  assert.equal(media.lookupNameOf(work), '繁花');
+  assert.equal(media.lookupKeyOf(work), 'tv:繁花');
+});
