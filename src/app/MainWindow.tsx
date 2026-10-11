@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ChevronLeft, ChevronRight, PanelLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
 import { demoEnabled, type Account, type MediaSource } from "../lib/nimbus";
@@ -14,7 +14,6 @@ import { MenuHost } from "../ui/MenuHost";
 import { isModalOpen } from "../ui/Sheet";
 import { Toasts, useToasts, type Notify } from "../ui/Toasts";
 import { AddStorageSheet } from "../views/AddStorageSheet";
-import { FilesView } from "../views/FilesView";
 import { HelpView } from "../views/HelpView";
 import { HomeView } from "../views/HomeView";
 import { MovieDetailSheet } from "../views/MovieDetailSheet";
@@ -22,7 +21,6 @@ import { MoviesView } from "../views/MoviesView";
 import { MusicView } from "../views/MusicView";
 import { SearchView } from "../views/SearchView";
 import { SettingsView } from "../views/SettingsView";
-import { SourcesView } from "../views/SourcesView";
 import { StorageView, type ClipboardEntry } from "../views/StorageView";
 import {
   canGoBack,
@@ -202,8 +200,6 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return focusSearch();
       case "cove.go.home":
         return navigate({ name: "home" });
-      case "cove.go.files":
-        return navigate({ name: "files" });
       case "cove.go.movies":
         return navigate({ name: "movies" });
       case "cove.go.music":
@@ -258,9 +254,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       ",": "cove.settings",
       n: "cove.add-storage",
       "1": "cove.go.home",
-      "2": "cove.go.files",
-      "3": "cove.go.movies",
-      "4": "cove.go.music",
+      "2": "cove.go.movies",
+      "3": "cove.go.music",
       "[": "cove.back",
       "]": "cove.forward",
       ArrowRight: "cove.next",
@@ -293,8 +288,6 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     switch (route.name) {
       case "home":
         return <HomeView library={library} onNavigate={navigate} onOpenWork={setDetail} onAddStorage={() => setAddingStorage(true)} />;
-      case "files":
-        return <FilesView library={library} onNavigate={navigate} onAddStorage={() => setAddingStorage(true)} onRemoveAccount={confirmRemoveAccount} />;
       case "storage":
         return account ? (
           <StorageView
@@ -319,10 +312,17 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} />;
       case "search":
         return <SearchView key={query.trim()} query={query} library={library} onNavigate={navigate} onOpenWork={setDetail} />;
-      case "sources":
-        return <SourcesView library={library} onNavigate={navigate} onRemoveSource={confirmRemoveSource} />;
       case "settings":
-        return <SettingsView library={library} notify={notify} />;
+        return (
+          <SettingsView
+            library={library}
+            notify={notify}
+            onNavigate={navigate}
+            onAddStorage={() => setAddingStorage(true)}
+            onRemoveAccount={confirmRemoveAccount}
+            onRemoveSource={confirmRemoveSource}
+          />
+        );
       case "help":
         return <HelpView />;
     }
@@ -353,9 +353,6 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       <div className="main">
         <header className="toolbar" data-tauri-drag-region onMouseDown={windowMouseDown}>
           <div className="toolbar-group">
-            <button className="icon-btn" title="显示或隐藏边栏 (⌃⌘S)" aria-label="显示或隐藏边栏" onClick={toggleSidebar}>
-              <PanelLeft size={17} />
-            </button>
             <button className="icon-btn" title="返回 (⌘[)" aria-label="返回" disabled={!canGoBack(history)} onClick={back}>
               <ChevronLeft size={19} />
             </button>
@@ -394,6 +391,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
           metadata={library.movieMetadata[detail.id]}
           onClose={() => setDetail(null)}
           onMetadata={library.setMovieMetadata}
+          onNavigate={navigate}
           notify={notify}
         />
       )}

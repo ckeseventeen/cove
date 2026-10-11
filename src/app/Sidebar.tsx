@@ -1,16 +1,5 @@
 import { forwardRef } from "react";
-import {
-  CircleHelp,
-  Clapperboard,
-  Folder,
-  FolderCog,
-  House,
-  LoaderCircle,
-  Music,
-  Plus,
-  RefreshCw,
-  Settings,
-} from "lucide-react";
+import { Clapperboard, House, LoaderCircle, Music, Plus } from "lucide-react";
 import { showContextMenu } from "../lib/native";
 import type { Account, MediaSource } from "../lib/nimbus";
 import { SearchField } from "../ui/controls";
@@ -31,6 +20,7 @@ type Props = {
   onWindowMouseDown: (event: React.MouseEvent) => void;
 };
 
+/** One row per destination: library, storage locations, media folders. Everything else lives in menus. */
 export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
   { route, library, query, onQuery, onSearchKey, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource, onWindowMouseDown },
   searchRef,
@@ -53,23 +43,15 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             <House size={16} />
             <span className="label">首页</span>
           </button>
-          <button className="sidebar-item" aria-current={current("files")} onClick={() => onNavigate({ name: "files" })}>
-            <Folder size={16} />
-            <span className="label">文件</span>
-          </button>
           <button className="sidebar-item" aria-current={current("movies")} onClick={() => onNavigate({ name: "movies" })}>
             <Clapperboard size={16} />
             <span className="label">影视</span>
-            <span className="trailing">
-              <span className="count">{library.works.length || ""}</span>
-            </span>
+            <span className="trailing">{library.works.length || ""}</span>
           </button>
           <button className="sidebar-item" aria-current={current("music")} onClick={() => onNavigate({ name: "music" })}>
             <Music size={16} />
             <span className="label">音乐</span>
-            <span className="trailing">
-              <span className="count">{library.songs.length || ""}</span>
-            </span>
+            <span className="trailing">{library.songs.length || ""}</span>
           </button>
         </section>
 
@@ -110,28 +92,17 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
           <section className="sidebar-section">
             <h2 className="sidebar-heading">
               <span>媒体文件夹</span>
-              <button className="icon-btn small" title="管理媒体文件夹" aria-label="管理媒体文件夹" onClick={() => onNavigate({ name: "sources" })}>
-                <FolderCog size={13} />
-              </button>
             </h2>
             {library.sources.map((source) => {
               const scanning = library.scanningIds.has(source.id);
               const open = () => onNavigate({ name: source.kind === "movie" ? "movies" : "music", sourceId: source.id });
               return (
-                <div
+                <button
                   key={source.id}
-                  role="button"
-                  tabIndex={0}
                   className="sidebar-item"
                   aria-current={current(`source:${source.id}`)}
                   title={`${source.label}\n${source.remoteRoot}`}
                   onClick={open}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      open();
-                    }
-                  }}
                   onContextMenu={(event) =>
                     void showContextMenu(event, [
                       { label: "显示", action: open },
@@ -144,39 +115,17 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
                 >
                   {source.kind === "movie" ? <Clapperboard size={16} /> : <Music size={16} />}
                   <span className="label">{source.label}</span>
-                  <span className="trailing">
-                    {scanning ? (
+                  {scanning && (
+                    <span className="trailing">
                       <LoaderCircle className="spin" size={12} aria-label="正在扫描" />
-                    ) : (
-                      <button
-                        className="icon-btn small hover-action"
-                        title="重新扫描"
-                        aria-label={`重新扫描 ${source.label}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void library.scanSource(source);
-                        }}
-                      >
-                        <RefreshCw size={11} />
-                      </button>
-                    )}
-                  </span>
-                </div>
+                    </span>
+                  )}
+                </button>
               );
             })}
           </section>
         )}
       </nav>
-      <footer className="sidebar-footer">
-        <button className="sidebar-item muted" aria-current={current("settings")} onClick={() => onNavigate({ name: "settings" })}>
-          <Settings size={16} />
-          <span className="label">设置</span>
-        </button>
-        <button className="sidebar-item muted" aria-current={current("help")} onClick={() => onNavigate({ name: "help" })}>
-          <CircleHelp size={16} />
-          <span className="label">帮助</span>
-        </button>
-      </footer>
     </aside>
   );
 });

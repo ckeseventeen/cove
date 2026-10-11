@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { CircleAlert, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { episodeOf, qualityOf, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
+import { containingFolder, episodeOf, qualityOf, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import type { Route } from "../app/navigation";
+import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
 import { getMovieMetadata, type MediaFile, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
@@ -14,11 +16,12 @@ type Props = {
   metadata?: MovieMetadata;
   onClose: () => void;
   onMetadata: (workId: string, metadata: MovieMetadata) => void;
+  onNavigate: (route: Route) => void;
   notify: Notify;
 };
 
 /** Title page in the style of the TV app: artwork, facts, seasons and versions. */
-export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, notify }: Props) {
+export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, onNavigate, notify }: Props) {
   const player = usePlayer();
   const [metadata, setMetadata] = useState<MovieMetadata | undefined>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +77,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
     work.files.filter((file) => seasonOf(file) === seasonOf(episode) && episodeOf(file) === episodeOf(episode));
   const primary = work.isSeries ? episodes[0] ?? work.files[0] : work.files[0];
   const title = metadata?.title || work.title;
+  const folder = containingFolder(work.files[0]);
 
   return (
     <Sheet onClose={onClose} label={`${title} 简介`} width={780} centered className="sheet detail-sheet">
@@ -105,8 +109,26 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
               {primary && player.openingId === primary.id ? <LoaderCircle className="spin" size={14} /> : <Play size={13} fill="currentColor" strokeWidth={0} />}
               {work.isSeries ? (work.seasons.length > 1 ? `播放第 ${season} 季` : "播放第一集") : "播放"}
             </button>
-            <button className="btn large" aria-expanded={matchOpen} onClick={() => setMatchOpen((value) => !value)}>
-              修正匹配…
+            <button
+              className="btn large more-btn"
+              title="更多"
+              aria-label="更多操作"
+              onClick={(event) =>
+                void showContextMenu(event, [
+                  { label: "修正匹配…", action: () => setMatchOpen(true) },
+                  {
+                    label: "在文件中显示",
+                    enabled: !!folder,
+                    action: () => {
+                      if (!folder) return;
+                      onClose();
+                      onNavigate({ name: "storage", accountId: work.files[0].accountId, path: folder });
+                    },
+                  },
+                ])
+              }
+            >
+              <Ellipsis size={15} />
             </button>
           </div>
           {matchOpen && (
@@ -141,60 +163,62 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
         </div>
       </div>
 
-      <div className="detail-files">
-        {work.isSeries ? (
-          <>
-            <div className="detail-files-header">
-              <h3>剧集</h3>
-              {work.seasons.length > 1 && (
-                <Segmented<string>
-                  ariaLabel="季"
-                  value={String(season)}
-                  onChange={(value) => setSeason(Number(value))}
-                  options={work.seasons.map((value) => ({ value: String(value), label: `第 ${value} 季` }))}
-                />
-              )}
-            </div>
-            <ol className="episode-list">
-              {episodes.map((episode, index) => {
-                const versions = versionsOf(episode);
-                return (
-                  <li key={episode.id} className="episode-row">
-                    <button className="episode-main" onClick={() => play(versions[0])} title={episode.displayName}>
-                      <span className="episode-number tabular">{episodeOf(episode) ?? index + 1}</span>
-                      <span className="episode-name truncate">{episode.displayName.replace(/\.[^.]+$/, "")}</span>
+      {(work.isSeries || work.files.length > 1) && (
+        <div className="detail-files">
+          {work.isSeries ? (
+            <>
+              <div className="detail-files-header">
+                <h3>剧集</h3>
+                {work.seasons.length > 1 && (
+                  <Segmented<string>
+                    ariaLabel="季"
+                    value={String(season)}
+                    onChange={(value) => setSeason(Number(value))}
+                    options={work.seasons.map((value) => ({ value: String(value), label: `第 ${value} 季` }))}
+                  />
+                )}
+              </div>
+              <ol className="episode-list">
+                {episodes.map((episode, index) => {
+                  const versions = versionsOf(episode);
+                  return (
+                    <li key={episode.id} className="episode-row">
+                      <button className="episode-main" onClick={() => play(versions[0])} title={episode.displayName}>
+                        <span className="episode-number tabular">{episodeOf(episode) ?? index + 1}</span>
+                        <span className="episode-name truncate">{episode.displayName.replace(/\.[^.]+$/, "")}</span>
+                      </button>
+                      <span className="episode-versions">
+                        {versions.map((file) => (
+                          <button key={file.id} className="badge-btn" title={`播放 ${file.displayName}`} onClick={() => play(file)}>
+                            {qualityOf(file)}
+                          </button>
+                        ))}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </>
+          ) : (
+            <>
+              <div className="detail-files-header">
+                <h3>版本</h3>
+              </div>
+              <ol className="episode-list">
+                {work.files.map((file) => (
+                  <li key={file.id} className="episode-row">
+                    <button className="episode-main" onClick={() => play(file)} title={file.displayName}>
+                      <span className="badge">{qualityOf(file)}</span>
+                      <span className="episode-name truncate">{file.displayName}</span>
+                      <span className="secondary tabular">{formatBytes(file.size, "")}</span>
                     </button>
-                    <span className="episode-versions">
-                      {versions.map((file) => (
-                        <button key={file.id} className="badge-btn" title={`播放 ${file.displayName}`} onClick={() => play(file)}>
-                          {qualityOf(file)}
-                        </button>
-                      ))}
-                    </span>
                   </li>
-                );
-              })}
-            </ol>
-          </>
-        ) : (
-          <>
-            <div className="detail-files-header">
-              <h3>{work.files.length > 1 ? "版本" : "文件"}</h3>
-            </div>
-            <ol className="episode-list">
-              {work.files.map((file) => (
-                <li key={file.id} className="episode-row">
-                  <button className="episode-main" onClick={() => play(file)} title={file.displayName}>
-                    <span className="badge">{qualityOf(file)}</span>
-                    <span className="episode-name truncate">{file.displayName}</span>
-                    <span className="secondary tabular">{formatBytes(file.size, "")}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          </>
-        )}
-      </div>
+                ))}
+              </ol>
+            </>
+          )}
+        </div>
+      )}
     </Sheet>
   );
 }

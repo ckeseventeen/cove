@@ -4,14 +4,11 @@ import {
   ChevronRight,
   ChevronUp,
   CircleAlert,
-  ClipboardPaste,
+  Ellipsis,
   Film,
-  FolderPlus,
-  LayoutGrid,
-  LibraryBig,
-  List,
   LoaderCircle,
   Music2,
+  Plus,
 } from "lucide-react";
 import { parentPath, type Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
@@ -30,7 +27,7 @@ import {
   type MediaSource,
 } from "../lib/nimbus";
 import { canCopyBetween, classifyEntry, isPlayableKind, storageCapabilities, validFolderName } from "../lib/storage";
-import { EmptyState, SearchField, Segmented, useIncrementalCount } from "../ui/controls";
+import { EmptyState, SearchField, useIncrementalCount } from "../ui/controls";
 import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
 import { Sheet } from "../ui/Sheet";
 import type { Notify } from "../ui/Toasts";
@@ -458,44 +455,30 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
           )}
         </nav>
         <div className="browser-tools">
+          {path !== "/" && !movieSource && !musicSource && (
+            <button className="btn" onClick={(event) => void showContextMenu(event, libraryItems(path))}>
+              <Plus size={12} />
+              添加到资料库
+            </button>
+          )}
           <button
             className="icon-btn"
-            title={path === "/" ? "请选择具体的文件夹" : "资料库"}
-            aria-label="资料库"
-            disabled={path === "/"}
-            onClick={(event) => void showContextMenu(event, libraryItems(path))}
+            title="更多"
+            aria-label="更多操作"
+            onClick={(event) =>
+              void showContextMenu(event, [
+                { label: "新建文件夹", enabled: canWrite && capabilities.createFolder && !busy, action: () => setNewFolderOpen(true) },
+                { label: clipboard ? `粘贴“${clipboard.name}”` : "粘贴", enabled: canPaste && !busy, action: () => void paste() },
+                "separator",
+                { label: "以列表显示", checked: view === "list", action: () => changeView("list") },
+                { label: "以图标显示", checked: view === "grid", action: () => changeView("grid") },
+                "separator",
+                { label: "刷新", action: () => setReload((value) => value + 1) },
+              ])
+            }
           >
-            <LibraryBig size={16} />
+            {busy ? <LoaderCircle className="spin" size={15} /> : <Ellipsis size={16} />}
           </button>
-          <button
-            className="icon-btn"
-            title={canWrite && capabilities.createFolder ? "新建文件夹 (⇧⌘N)" : "此位置不能新建文件夹"}
-            aria-label="新建文件夹"
-            disabled={!canWrite || !capabilities.createFolder || busy}
-            onClick={() => setNewFolderOpen(true)}
-          >
-            <FolderPlus size={16} />
-          </button>
-          <button
-            className="icon-btn"
-            title={clipboard ? `粘贴“${clipboard.name}”` : "粘贴"}
-            aria-label="粘贴"
-            disabled={!canPaste || busy}
-            onClick={() => void paste()}
-          >
-            {busy ? <LoaderCircle className="spin" size={15} /> : <ClipboardPaste size={16} />}
-          </button>
-          <span className="toolbar-divider" />
-          <Segmented<ViewMode>
-            className="icons"
-            ariaLabel="显示方式"
-            value={view}
-            onChange={changeView}
-            options={[
-              { value: "list", label: <List size={14} />, title: "列表" },
-              { value: "grid", label: <LayoutGrid size={13} />, title: "图标" },
-            ]}
-          />
           <SearchField small value={filter} onChange={setFilter} placeholder="过滤" ariaLabel="过滤当前文件夹" style={{ width: 150 }} />
         </div>
       </div>

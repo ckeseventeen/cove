@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, MicVocal } from "lucide-react";
 import { parseSyncedLyrics } from "../lib/media";
+import { showContextMenu } from "../lib/native";
 import { EmptyState } from "../ui/controls";
 import { usePlayer } from "./PlayerProvider";
 import { usePlayerStatus } from "./statusStore";
@@ -78,6 +79,17 @@ export function Lyrics({ variant }: { variant: "panel" | "full" }) {
         className={`lyrics-scroll ${showSynced ? "synced" : "plain"}`}
         tabIndex={0}
         aria-label="歌词"
+        onContextMenu={(event) =>
+          void showContextMenu(event, [
+            ...(lines.length
+              ? [{ label: fullText ? "显示同步歌词" : "显示全文", action: () => {
+                  setFullText((value) => !value);
+                  setFollow(true);
+                } }]
+              : []),
+            { label: "重新匹配歌词", enabled: !player.metadataLoading, action: player.refreshMetadata },
+          ])
+        }
         onWheel={stopFollowing}
         onTouchStart={stopFollowing}
         onKeyDown={(event) => {
@@ -105,24 +117,13 @@ export function Lyrics({ variant }: { variant: "panel" | "full" }) {
               </p>
             ))}
       </div>
-      <div className="lyrics-footer">
-        {lines.length > 0 && (
-          <button className="btn capsule" onClick={() => {
-            setFullText((value) => !value);
-            setFollow(true);
-          }}>
-            {fullText ? "同步歌词" : "全文"}
-          </button>
-        )}
-        {showSynced && !follow && (
+      {showSynced && !follow && (
+        <div className="lyrics-footer">
           <button className="btn capsule tinted" onClick={() => setFollow(true)}>
             回到当前
           </button>
-        )}
-        <button className="btn capsule" disabled={player.metadataLoading} onClick={player.refreshMetadata}>
-          {player.metadataLoading ? "正在匹配…" : "重新匹配"}
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

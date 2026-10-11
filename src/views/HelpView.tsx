@@ -1,8 +1,9 @@
 const SHORTCUTS: [string, string][] = [
   ["⌘F", "搜索资料库"],
-  ["⌘1 – ⌘4", "首页、文件、影视、音乐"],
+  ["⌘1 – ⌘3", "首页、影视、音乐"],
   ["⌘[ / ⌘]", "返回 / 前进"],
   ["⌃⌘S", "显示或隐藏边栏"],
+  ["⌘,", "设置（存储账号、媒体文件夹）"],
   ["空格", "播放 / 暂停"],
   ["⌘→ / ⌘←", "下一首 / 上一首"],
   ["⌘↑ / ⌘↓", "调高 / 调低音量"],
@@ -30,14 +31,14 @@ export function HelpView() {
             <span className="glyph blue small">1</span>
             <span className="row-main">
               <span className="row-title">添加存储</span>
-              <span className="row-subtitle">在“文件”中添加 WebDAV、百度网盘等存储。凭据只保存在钥匙串中。</span>
+              <span className="row-subtitle">点边栏“位置”旁的 +，添加 WebDAV、百度网盘等存储。凭据只保存在钥匙串中。</span>
             </span>
           </li>
           <li className="group-row">
             <span className="glyph purple small">2</span>
             <span className="row-main">
               <span className="row-title">选择文件夹</span>
-              <span className="row-subtitle">进入文件夹后选择“设为影视文件夹”或“设为音乐文件夹”，子文件夹会一并扫描。</span>
+              <span className="row-subtitle">在“位置”中打开文件夹，点“添加到资料库”选择影视或音乐，子文件夹会一并扫描。</span>
             </span>
           </li>
           <li className="group-row">

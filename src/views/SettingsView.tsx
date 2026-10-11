@@ -1,11 +1,22 @@
 import { useState } from "react";
-import { LoaderCircle } from "lucide-react";
+import { Clapperboard, Ellipsis, LoaderCircle, Music } from "lucide-react";
+import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
-import { clearMetadataCache } from "../lib/nimbus";
-import { plural } from "../lib/format";
+import { formatRelative, plural } from "../lib/format";
+import { providerLabel } from "../lib/media";
+import { showContextMenu } from "../lib/native";
+import { clearMetadataCache, type Account, type MediaSource } from "../lib/nimbus";
+import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
 
-type Props = { library: Library; notify: Notify };
+type Props = {
+  library: Library;
+  notify: Notify;
+  onNavigate: (route: Route) => void;
+  onAddStorage: () => void;
+  onRemoveAccount: (account: Account) => void;
+  onRemoveSource: (source: MediaSource) => void;
+};
 
 function StatusValue({ state, on, off }: { state: boolean | undefined; on: string; off: string }) {
   if (state === undefined) return <span className="row-value">正在检查…</span>;
@@ -18,7 +29,7 @@ function StatusValue({ state, on, off }: { state: boolean | undefined; on: strin
 }
 
 /** System Settings–style grouped form. */
-export function SettingsView({ library, notify }: Props) {
+export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource }: Props) {
   const [pending, setPending] = useState<"clear" | "refresh" | null>(null);
   const { status } = library;
 
@@ -50,22 +61,89 @@ export function SettingsView({ library, notify }: Props) {
       </header>
 
       <section className="group">
-        <h2 className="group-title">资料库</h2>
+        <h2 className="group-title">存储位置</h2>
         <div className="group-box">
-          <div className="group-row">
-            <span className="row-main row-title">云端存储账号</span>
-            <span className="row-value">{library.accounts.filter((account) => account.provider !== "local").length}</span>
-          </div>
-          <div className="group-row">
-            <span className="row-main row-title">媒体文件夹</span>
-            <span className="row-value">{library.sources.length}</span>
-          </div>
-          <div className="group-row">
-            <span className="row-main row-title">已索引的媒体文件</span>
-            <span className="row-value">{plural(library.files.length, "个")}</span>
-          </div>
+          {library.accounts.map((account) => (
+            <div className="group-row" key={account.id}>
+              <ProviderGlyph provider={account.provider} />
+              <span className="row-main">
+                <span className="row-title">{account.label}</span>
+                <span className="row-subtitle">{account.provider === "local" ? "这台 Mac" : providerLabel(account.provider)}</span>
+              </span>
+              <button
+                className="icon-btn"
+                title="更多"
+                aria-label={`${account.label} 的更多操作`}
+                onClick={(event) =>
+                  void showContextMenu(event, [
+                    { label: "打开", action: () => onNavigate({ name: "storage", accountId: account.id, path: "/" }) },
+                    ...(account.provider !== "local"
+                      ? (["separator", { label: "移除…", destructive: true, action: () => onRemoveAccount(account) }] as const)
+                      : []),
+                  ])
+                }
+              >
+                <Ellipsis size={15} />
+              </button>
+            </div>
+          ))}
         </div>
-        <p className="group-footer">索引只保存文件名、路径和大小等信息，不会下载云端原文件。</p>
+        <p className="group-footer">
+          密码与授权令牌只保存在 macOS 钥匙串中，移除账号不会改动存储中的文件。{" "}
+          <button className="btn plain inline" onClick={onAddStorage}>
+            添加存储…
+          </button>
+        </p>
+      </section>
+
+      <section className="group">
+        <h2 className="group-title">媒体文件夹</h2>
+        <div className="group-box">
+          {library.sources.map((source) => {
+            const scanning = library.scanningIds.has(source.id);
+            const provider = library.accounts.find((account) => account.id === source.accountId)?.provider ?? "";
+            return (
+              <div className="group-row" key={source.id}>
+                <span className={`glyph ${source.kind === "movie" ? "purple" : "pink"}`}>
+                  {source.kind === "movie" ? <Clapperboard size={15} /> : <Music size={15} />}
+                </span>
+                <span className="row-main">
+                  <span className="row-title">{source.label}</span>
+                  <span className="row-subtitle" title={source.remoteRoot}>
+                    {providerLabel(provider)} · {source.remoteRoot}
+                  </span>
+                </span>
+                <span className="row-value">
+                  {scanning ? <LoaderCircle className="spin" size={12} /> : null}
+                  {scanning ? "正在扫描" : `扫描于 ${formatRelative(source.lastScanAt)}`}
+                </span>
+                <button
+                  className="icon-btn"
+                  title="更多"
+                  aria-label={`${source.label} 的更多操作`}
+                  onClick={(event) =>
+                    void showContextMenu(event, [
+                      { label: "重新扫描", enabled: !scanning, action: () => void library.scanSource(source) },
+                      { label: "在文件中显示", action: () => onNavigate({ name: "storage", accountId: source.accountId, path: source.remoteRoot }) },
+                      "separator",
+                      { label: "移除…", destructive: true, action: () => onRemoveSource(source) },
+                    ])
+                  }
+                >
+                  <Ellipsis size={15} />
+                </button>
+              </div>
+            );
+          })}
+          {!library.sources.length && (
+            <div className="group-row">
+              <span className="row-main row-subtitle">还没有媒体文件夹。在“位置”中打开文件夹，选择“添加到资料库”。</span>
+            </div>
+          )}
+        </div>
+        <p className="group-footer">
+          只扫描这里列出的文件夹及其子文件夹，共索引 {plural(library.files.length, "个媒体文件")}，不会下载云端原文件。
+        </p>
       </section>
 
       <section className="group">

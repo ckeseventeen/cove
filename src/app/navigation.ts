@@ -2,12 +2,10 @@
 
 export type Route =
   | { name: "home" }
-  | { name: "files" }
   | { name: "storage"; accountId: string; path: string }
   | { name: "movies"; sourceId?: string }
   | { name: "music"; sourceId?: string }
   | { name: "search" }
-  | { name: "sources" }
   | { name: "settings" }
   | { name: "help" };
 

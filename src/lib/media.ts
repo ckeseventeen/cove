@@ -1,8 +1,5 @@
 import type { MediaFile, MediaSource, Account, MovieMetadata } from "./nimbus";
 type MovieCategory = "all" | "movie" | "tv" | "documentary" | "animation";
-type MovieSort = "recent" | "oldest" | "rating" | "title";
-type MusicSort = "title-asc" | "title-desc" | "folder" | "source" | "size-desc" | "size-asc";
-type MusicPlayMode = "sequence" | "repeat-all" | "repeat-one" | "shuffle";
 /** Decimal units, matching Finder. */
 export function readableSize(bytes: number) {
   if (!bytes) return "大小未知";

@@ -1,53 +1,66 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { AudioLines, LoaderCircle, Music2, Play, Shuffle } from "lucide-react";
+import { AudioLines, ChevronDown, ChevronUp, LoaderCircle, Music2, Play, Shuffle } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, plural } from "../lib/format";
-import { containingFolder, matchesMusicQuery, musicFolderOf, musicSourceOf, songParts } from "../lib/media";
+import { containingFolder, musicFolderOf, songParts } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import type { MediaFile } from "../lib/nimbus";
 import { extensionOf } from "../lib/storage";
 import { usePlayer } from "../player/PlayerProvider";
 import { usePlayerStatus } from "../player/statusStore";
-import { EmptyState, Popup, SearchField, useIncrementalCount } from "../ui/controls";
+import { EmptyState, useIncrementalCount } from "../ui/controls";
 
-type MusicSort = "title" | "artist" | "folder" | "source" | "size";
+type SongSortField = "title" | "artist" | "folder" | "size";
+export type SongSort = { field: SongSortField; ascending: boolean };
 
 const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+
+function loadSort(): SongSort {
+  try {
+    const saved = JSON.parse(localStorage.getItem("cove-music-sort-v2") ?? "null");
+    if (saved && ["title", "artist", "folder", "size"].includes(saved.field)) return { field: saved.field, ascending: !!saved.ascending };
+  } catch {
+    // Fall back to the default order.
+  }
+  return { field: "title", ascending: true };
+}
 
 type Props = { library: Library; sourceId?: string; onNavigate: (route: Route) => void };
 
 export function MusicView({ library, sourceId, onNavigate }: Props) {
   const player = usePlayer();
-  const [filter, setFilter] = useState("");
-  const [sort, setSort] = useState<MusicSort>(() => {
-    try {
-      const saved = localStorage.getItem("cove-music-sort") as MusicSort | null;
-      return saved && ["title", "artist", "folder", "source", "size"].includes(saved) ? saved : "title";
-    } catch {
-      return "title";
-    }
-  });
+  const [sort, setSort] = useState<SongSort>(loadSort);
   const source = library.sources.find((item) => item.id === sourceId);
+
+  const changeSort = (field: SongSortField) => {
+    const next = { field, ascending: sort.field === field ? !sort.ascending : field !== "size" };
+    setSort(next);
+    try {
+      localStorage.setItem("cove-music-sort-v2", JSON.stringify(next));
+    } catch {
+      // Preferences are best effort.
+    }
+  };
 
   const songs = useMemo(() => {
     const scoped = sourceId
       ? library.songs.filter((file) => file.sourceIds?.includes(sourceId) || file.sourceId === sourceId)
       : library.songs;
     const key = (file: MediaFile) => {
-      if (sort === "artist") return songParts(file).artist || "￿";
-      if (sort === "folder") return musicFolderOf(file);
-      if (sort === "source") return musicSourceOf(file, library.sources, library.accounts);
+      if (sort.field === "artist") return songParts(file).artist || "\uffff";
+      if (sort.field === "folder") return musicFolderOf(file);
       return songParts(file).title;
     };
-    return scoped
-      .filter((file) => matchesMusicQuery(file, filter))
-      .sort((left, right) =>
-        sort === "size"
-          ? right.size - left.size
-          : collator.compare(key(left), key(right)) || collator.compare(songParts(left).title, songParts(right).title),
-      );
-  }, [filter, library.accounts, library.songs, library.sources, sort, sourceId]);
+    const direction = sort.ascending ? 1 : -1;
+    return [...scoped].sort(
+      (left, right) =>
+        direction *
+        (sort.field === "size"
+          ? left.size - right.size
+          : collator.compare(key(left), key(right)) || collator.compare(songParts(left).title, songParts(right).title)),
+    );
+  }, [library.songs, sort, sourceId]);
 
   return (
     <div className="page">
@@ -55,7 +68,7 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
         <div className="heading">
           <h1 className="large-title">{source?.label ?? "音乐"}</h1>
           <p className="page-subtitle">
-            {filter.trim() ? `找到 ${plural(songs.length, "首歌曲")}` : plural(songs.length, "首歌曲")}
+            {plural(songs.length, "首歌曲")}
             {source && (
               <>
                 {" · "}
@@ -81,45 +94,23 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
           </button>
         </div>
       </header>
-      <div className="filter-bar">
-        <SearchField small value={filter} onChange={setFilter} placeholder="过滤歌曲、艺人或文件夹" style={{ width: 240 }} />
-        <Popup<MusicSort>
-          ariaLabel="排序方式"
-          value={sort}
-          onChange={(value) => {
-            setSort(value);
-            try {
-              localStorage.setItem("cove-music-sort", value);
-            } catch {
-              // Preferences are best effort.
-            }
-          }}
-          options={[
-            { value: "title", label: "按标题" },
-            { value: "artist", label: "按艺人" },
-            { value: "folder", label: "按文件夹" },
-            { value: "source", label: "按来源" },
-            { value: "size", label: "按大小" },
-          ]}
-        />
-      </div>
       {songs.length ? (
-        <SongTable songs={songs} library={library} onNavigate={onNavigate} resetKey={`${filter}|${sort}|${sourceId}`} />
+        <SongTable
+          songs={songs}
+          onNavigate={onNavigate}
+          resetKey={`${sort.field}|${sort.ascending}|${sourceId}`}
+          sort={sort}
+          onSort={changeSort}
+        />
       ) : (
         <EmptyState
           icon={<Music2 size={44} strokeWidth={1.3} />}
-          title={filter.trim() ? "没有匹配的歌曲" : "音乐资料库是空的"}
-          message={filter.trim() ? "试试歌曲名、艺人或文件夹名。" : "在“文件”中打开一个文件夹，把它设为音乐文件夹。"}
+          title="音乐资料库是空的"
+          message="在左侧“位置”中打开存放歌曲的文件夹，选择“添加到资料库”。"
         >
-          {filter.trim() ? (
-            <button className="btn" onClick={() => setFilter("")}>
-              清除过滤
-            </button>
-          ) : (
-            <button className="btn" onClick={() => onNavigate({ name: "files" })}>
-              前往文件
-            </button>
-          )}
+          <button className="btn" onClick={() => onNavigate({ name: "storage", accountId: "local", path: "/" })}>
+            打开本地磁盘
+          </button>
         </EmptyState>
       )}
     </div>
@@ -129,16 +120,18 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
 /** Songs list with Music.app semantics: click selects, double-click or Return plays. */
 export function SongTable({
   songs,
-  library,
   onNavigate,
   resetKey,
   limit,
+  sort,
+  onSort,
 }: {
   songs: MediaFile[];
-  library: Library;
   onNavigate: (route: Route) => void;
   resetKey: string;
   limit?: number;
+  sort?: SongSort;
+  onSort?: (field: SongSortField) => void;
 }) {
   const player = usePlayer();
   const [selected, setSelected] = useState<string | null>(null);
@@ -153,6 +146,17 @@ export function SongTable({
   }, [selected]);
 
   const play = (file: MediaFile) => void player.play(file, { queue: songs, fromStart: true });
+
+  const header = (field: SongSortField, label: string, extra = "") => {
+    if (!onSort) return <span className={`th ${extra}`}>{label}</span>;
+    const active = sort?.field === field;
+    return (
+      <button className={`th ${extra} ${active ? "sorted" : ""}`} onClick={() => onSort(field)}>
+        {label}
+        {active && (sort?.ascending ? <ChevronUp size={11} /> : <ChevronDown size={11} />)}
+      </button>
+    );
+  };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     const index = visible.findIndex((file) => file.id === selected);
@@ -194,11 +198,11 @@ export function SongTable({
     >
       <div className="table-header" role="row">
         <span className="th end">#</span>
-        <span className="th">标题</span>
-        <span className="th col-artist">艺人</span>
-        <span className="th col-folder">文件夹</span>
+        {header("title", "标题")}
+        {header("artist", "艺人", "col-artist")}
+        {header("folder", "文件夹", "col-folder")}
         <span className="th col-kind">种类</span>
-        <span className="th end">大小</span>
+        {header("size", "大小", "end")}
       </div>
       <div className="table-body">
         {visible.map((file, index) => {

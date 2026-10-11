@@ -99,13 +99,6 @@ html[data-native-vibrancy] .sidebar {
   font-size: var(--text-subhead);
   font-variant-numeric: tabular-nums;
 }
-.sidebar-item .hover-action {
-  display: none;
-}
-.sidebar-item:hover .hover-action,
-.sidebar-item:focus-within .hover-action {
-  display: inline-grid;
-}
 .sidebar-item[aria-current="page"] {
   background: var(--sidebar-selection);
 }
@@ -117,11 +110,6 @@ html[data-native-vibrancy] .sidebar {
 }
 .sidebar-item.muted > svg:first-child {
   color: var(--label-secondary);
-}
-.sidebar-footer {
-  flex-shrink: 0;
-  padding: 6px 0 10px;
-  border-top: 0.5px solid var(--separator);
 }
 
 /* Main column */
@@ -167,12 +155,6 @@ html[data-native-vibrancy] .sidebar {
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.toolbar-divider {
-  width: 0.5px;
-  height: 18px;
-  margin: 0 6px;
-  background: var(--separator);
 }
 
 /* Body with optional inspector */

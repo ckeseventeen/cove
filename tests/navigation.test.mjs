@@ -26,13 +26,13 @@ test('back and forward move through entries; a new page drops forward history', 
   assert.equal(nav.currentRoute(history).name, 'music');
   history = nav.goBack(nav.goBack(history));
   assert.equal(nav.goBack(history), history);
-  history = nav.navigate(history, { name: 'files' });
+  history = nav.navigate(history, { name: 'settings' });
   assert.equal(nav.canGoForward(history), false);
-  assert.deepEqual(history.entries.map((route) => route.name), ['home', 'files']);
+  assert.deepEqual(history.entries.map((route) => route.name), ['home', 'settings']);
 });
 
 test('replace swaps the current entry without growing history', () => {
-  const history = nav.navigate(nav.navigate(nav.initialHistory, { name: 'files' }), { name: 'search' }, { replace: true });
+  const history = nav.navigate(nav.navigate(nav.initialHistory, { name: 'settings' }), { name: 'search' }, { replace: true });
   assert.deepEqual(history.entries.map((route) => route.name), ['home', 'search']);
 });
 
@@ -46,11 +46,11 @@ test('media folder filters are distinct pages', () => {
 test('removing an account prunes its pages and merges neighbours that become equal', () => {
   let history = nav.initialHistory;
   history = nav.navigate(history, storage('/', 'gone'));
-  history = nav.navigate(history, { name: 'files' });
+  history = nav.navigate(history, { name: 'settings' });
   history = nav.navigate(history, storage('/x', 'gone'));
   const pruned = nav.pruneHistory(history, (route) => route.name === 'storage' && route.accountId === 'gone');
-  assert.deepEqual(pruned.entries.map((route) => route.name), ['home', 'files']);
-  assert.equal(nav.currentRoute(pruned).name, 'files');
+  assert.deepEqual(pruned.entries.map((route) => route.name), ['home', 'settings']);
+  assert.equal(nav.currentRoute(pruned).name, 'settings');
   const all = nav.pruneHistory(history, () => true);
   assert.equal(nav.currentRoute(all).name, 'home');
 });

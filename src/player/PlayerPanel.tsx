@@ -24,9 +24,6 @@ export function PlayerPanel() {
             { value: "queue", label: "待播清单" },
           ]}
         />
-        <button className="icon-btn small" aria-label="关闭面板" title="关闭面板" onClick={() => player.setPanel(null)}>
-          <X size={13} />
-        </button>
       </div>
       <div className="panel-body">{player.panel === "lyrics" ? <Lyrics variant="panel" /> : <QueueList />}</div>
     </aside>

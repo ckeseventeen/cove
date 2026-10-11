@@ -7,7 +7,7 @@ import { categoryOf, containingFolder, uniqueEpisodes, type MediaWork } from "..
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
-import { EmptyState, Popup, SearchField, Segmented, useIncrementalCount } from "../ui/controls";
+import { EmptyState, Popup, Segmented, useIncrementalCount } from "../ui/controls";
 
 export type MovieCategory = "all" | "movie" | "tv" | "documentary" | "animation";
 type MovieSort = "title" | "recent" | "oldest" | "rating";
@@ -42,8 +42,6 @@ type Props = {
 export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props) {
   const [category, setCategory] = useStoredState<MovieCategory>("cove-movie-category", ["all", "movie", "tv", "documentary", "animation"], "all");
   const [sort, setSort] = useStoredState<MovieSort>("cove-movie-sort", ["title", "recent", "oldest", "rating"], "title");
-  const [year, setYear] = useState("all");
-  const [filter, setFilter] = useState("");
   const source = library.sources.find((item) => item.id === sourceId);
   const { movieMetadata } = library;
 
@@ -55,37 +53,23 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
     [library.works, sourceId],
   );
 
-  const years = useMemo(
-    () => [...new Set(scoped.flatMap((work) => (movieMetadata[work.id]?.year ? [movieMetadata[work.id].year as number] : [])))].sort((a, b) => b - a),
-    [movieMetadata, scoped],
+  const shown = useMemo(
+    () =>
+      scoped
+        .filter((work) => category === "all" || categoryOf(work, movieMetadata[work.id]) === category)
+        .sort((a, b) => {
+          const left = movieMetadata[a.id];
+          const right = movieMetadata[b.id];
+          if (sort === "oldest") return (left?.year ?? 9999) - (right?.year ?? 9999);
+          if (sort === "recent") return (right?.year ?? 0) - (left?.year ?? 0);
+          if (sort === "rating") return (right?.rating ?? -1) - (left?.rating ?? -1);
+          return (left?.title ?? a.title).localeCompare(right?.title ?? b.title, "zh-CN", { numeric: true });
+        }),
+    [category, movieMetadata, scoped, sort],
   );
 
-  const shown = useMemo(() => {
-    const needle = filter.trim().toLocaleLowerCase();
-    return scoped
-      .filter((work) => {
-        const metadata = movieMetadata[work.id];
-        if (category !== "all" && categoryOf(work, metadata) !== category) return false;
-        if (year !== "all" && metadata?.year !== Number(year)) return false;
-        if (!needle) return true;
-        return [work.title, metadata?.title, metadata?.originalTitle, ...(metadata?.cast ?? []), ...work.files.map((file) => file.displayName)]
-          .filter(Boolean)
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(needle);
-      })
-      .sort((a, b) => {
-        const left = movieMetadata[a.id];
-        const right = movieMetadata[b.id];
-        if (sort === "oldest") return (left?.year ?? 9999) - (right?.year ?? 9999);
-        if (sort === "recent") return (right?.year ?? 0) - (left?.year ?? 0);
-        if (sort === "rating") return (right?.rating ?? -1) - (left?.rating ?? -1);
-        return (left?.title ?? a.title).localeCompare(right?.title ?? b.title, "zh-CN", { numeric: true });
-      });
-  }, [category, filter, movieMetadata, scoped, sort, year]);
-
-  const { count, sentinel } = useIncrementalCount(shown.length, 60, `${category}|${year}|${sort}|${filter}|${sourceId}`);
-  const filtered = category !== "all" || year !== "all" || !!filter.trim();
+  const { count, sentinel } = useIncrementalCount(shown.length, 60, `${category}|${sort}|${sourceId}`);
+  const filtered = category !== "all";
 
   return (
     <div className="page">
@@ -119,13 +103,6 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
           ]}
         />
         <div className="group">
-          <SearchField small value={filter} onChange={setFilter} placeholder="过滤" ariaLabel="过滤影视" style={{ width: 170 }} />
-          <Popup<string>
-            ariaLabel="年份"
-            value={year}
-            onChange={setYear}
-            options={[{ value: "all", label: "所有年份" }, ...years.map((value) => ({ value: String(value), label: `${value} 年` }))]}
-          />
           <Popup<MovieSort>
             ariaLabel="排序方式"
             value={sort}
@@ -160,24 +137,17 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
           title={filtered ? "没有符合条件的作品" : "影视资料库是空的"}
           message={
             filtered
-              ? "试试其他类别、年份或关键词。"
-              : "在“文件”中打开一个文件夹，把它设为影视文件夹，Cove 就会整理其中的电影和剧集。"
+              ? "这个类别下暂时没有作品。"
+              : "在左侧“位置”中打开存放影片的文件夹，选择“添加到资料库”，Cove 会整理其中的电影和剧集。"
           }
         >
           {filtered ? (
-            <button
-              className="btn"
-              onClick={() => {
-                setCategory("all");
-                setYear("all");
-                setFilter("");
-              }}
-            >
-              清除筛选
+            <button className="btn" onClick={() => setCategory("all")}>
+              显示全部
             </button>
           ) : (
-            <button className="btn" onClick={() => onNavigate({ name: "files" })}>
-              前往文件
+            <button className="btn" onClick={() => onNavigate({ name: "storage", accountId: "local", path: "/" })}>
+              打开本地磁盘
             </button>
           )}
         </EmptyState>

@@ -108,7 +108,7 @@ export function SearchView({ query, library, onNavigate, onOpenWork }: Props) {
               </button>
             )}
           </div>
-          <SongTable songs={songs} library={library} onNavigate={onNavigate} resetKey={query} limit={songLimit} />
+          <SongTable songs={songs} onNavigate={onNavigate} resetKey={query} limit={songLimit} />
         </section>
       )}
 

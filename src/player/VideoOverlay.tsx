@@ -409,9 +409,11 @@ export function VideoOverlay() {
             <Slider className="hud-volume" ariaLabel="音量" min={0} max={100} value={status.volume} onCommit={volume} />
           </div>
           <div className="hud-group center">
-            <button className="hud-icon" title="上一个" disabled={switching || index <= 0} onClick={() => step(-1)}>
-              <SkipBack size={17} fill="currentColor" strokeWidth={0} />
-            </button>
+            {queue.length > 1 && (
+              <button className="hud-icon" title="上一个" disabled={switching || index <= 0} onClick={() => step(-1)}>
+                <SkipBack size={17} fill="currentColor" strokeWidth={0} />
+              </button>
+            )}
             <button className="hud-icon" title="后退 10 秒" onClick={() => void controlPlayer("seek", -10)}>
               <RotateCcw size={17} />
             </button>
@@ -432,9 +434,11 @@ export function VideoOverlay() {
             <button className="hud-icon" title="前进 10 秒" onClick={() => void controlPlayer("seek", 10)}>
               <RotateCw size={17} />
             </button>
-            <button className="hud-icon" title="下一个" disabled={switching || index < 0 || index >= queue.length - 1} onClick={() => step(1)}>
-              <SkipForward size={17} fill="currentColor" strokeWidth={0} />
-            </button>
+            {queue.length > 1 && (
+              <button className="hud-icon" title="下一个" disabled={switching || index < 0 || index >= queue.length - 1} onClick={() => step(1)}>
+                <SkipForward size={17} fill="currentColor" strokeWidth={0} />
+              </button>
+            )}
           </div>
           <div className="hud-group end">
             {queue.length > 1 && (

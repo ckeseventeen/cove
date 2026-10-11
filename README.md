@@ -80,4 +80,4 @@ npm run bundle:mac
 
 个人 Space 定位、功能缺口、已修复问题、流程验收与架构规划见 [最新业务验收报告](docs/PERSONAL-SPACE-ACCEPTANCE.md)。
 
-本轮原生化改造的审查发现、交互变化与验收记录见 [docs/NATIVE-REDESIGN-2026-10-10.md](docs/NATIVE-REDESIGN-2026-10-10.md)。
+本轮原生化改造的审查发现、交互变化与验收记录见 [docs/NATIVE-REDESIGN-2026-10-10.md](docs/NATIVE-REDESIGN-2026-10-10.md)，界面精简见 [docs/NATIVE-REDESIGN-2026-10-11-simplify.md](docs/NATIVE-REDESIGN-2026-10-11-simplify.md)。

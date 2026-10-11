@@ -1,12 +1,12 @@
-import { ChevronRight, Film, FolderOpen, HardDrive, Music2, Play, Plus } from "lucide-react";
+import { Film, Music2, Play, Plus } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
-import { formatRemaining, plural } from "../lib/format";
-import { containingFolder, episodeLabel, providerLabel, songParts, type MediaWork } from "../lib/media";
+import { formatRemaining } from "../lib/format";
+import { containingFolder, episodeLabel, songParts, type MediaWork } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import type { MediaFile, RecentPlayback } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
-import { ProviderGlyph } from "../ui/glyphs";
+import { EmptyState } from "../ui/controls";
 
 type Props = {
   library: Library;
@@ -82,67 +82,13 @@ export function HomeView({ library, onNavigate, onOpenWork, onAddStorage }: Prop
         </section>
       )}
 
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">资料库</h2>
-        </div>
-        <div className="tile-grid">
-          <button className="tile" onClick={() => onNavigate({ name: "movies" })}>
-            <span className="glyph purple large">
-              <Film size={20} />
-            </span>
-            <span className="tile-title">影视</span>
-            <span className="tile-detail">{plural(library.works.length, "部作品")}</span>
-          </button>
-          <button className="tile" onClick={() => onNavigate({ name: "music" })}>
-            <span className="glyph pink large">
-              <Music2 size={20} />
-            </span>
-            <span className="tile-title">音乐</span>
-            <span className="tile-detail">{plural(library.songs.length, "首歌曲")}</span>
-          </button>
-          <button className="tile" onClick={() => onNavigate({ name: "files" })}>
-            <span className="glyph blue large">
-              <FolderOpen size={20} />
-            </span>
-            <span className="tile-title">文件</span>
-            <span className="tile-detail">{plural(library.accounts.length, "个位置")}</span>
-          </button>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="section-header">
-          <h2 className="section-title">位置</h2>
-          <button className="btn plain" onClick={() => onNavigate({ name: "files" })}>
-            显示全部
-          </button>
-        </div>
-        <div className="group-box">
-          {library.accounts.slice(0, 5).map((account) => (
-            <button
-              key={account.id}
-              className="group-row"
-              onClick={() => onNavigate({ name: "storage", accountId: account.id, path: "/" })}
-            >
-              <ProviderGlyph provider={account.provider} />
-              <span className="row-main">
-                <span className="row-title">{account.label}</span>
-                <span className="row-subtitle">{providerLabel(account.provider)}</span>
-              </span>
-              <ChevronRight className="chevron" size={14} />
-            </button>
-          ))}
-          {!library.accounts.length && (
-            <button className="group-row" onClick={onAddStorage}>
-              <span className="glyph gray">
-                <HardDrive size={15} />
-              </span>
-              <span className="row-main row-title">添加存储…</span>
-            </button>
-          )}
-        </div>
-      </section>
+      {!isNew && !history.length && (
+        <EmptyState
+          icon={<Play size={40} strokeWidth={1.3} />}
+          title="还没有播放记录"
+          message="在影视或音乐中开始播放后，可以在这里从上次停下的地方继续。"
+        />
+      )}
     </div>
   );
 }

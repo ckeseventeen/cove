@@ -1,5 +1,4 @@
 import {
-  AudioWaveform,
   ListMusic,
   LoaderCircle,
   MessageSquareQuote,
@@ -141,46 +140,41 @@ export function VolumeControl({ slider = true }: { slider?: boolean }) {
   );
 }
 
-/** Toolbar centre: transport and the "LCD" with artwork, title and progress. */
+/** Toolbar centre: shown only while a song plays — transport and the "LCD". */
 export function PlayerCenter() {
   const player = usePlayer();
   const file = player.nowPlaying && !player.isVideo ? player.nowPlaying : null;
-  const fallback = file ? songParts(file) : null;
-  const title = player.metadata?.title || fallback?.title || "";
-  const artist = player.metadata?.artist || fallback?.artist || "";
+  if (!file) return <div />;
+  const fallback = songParts(file);
+  const title = player.metadata?.title || fallback.title;
+  const artist = player.metadata?.artist || fallback.artist;
   const album = player.metadata?.album || "";
+  const failed = !!player.error && !player.openingId;
   return (
     <div className="mini-player">
-      <TransportButtons />
-      <div className={`lcd ${file ? "" : "idle"}`}>
-        {file ? (
-          <>
-            <button className="lcd-art" title="显示正在播放" aria-label="显示正在播放" onClick={() => player.setFullScreen(true)}>
-              <Artwork url={player.metadata?.artworkUrl} size={38} />
-            </button>
-            <div className="lcd-body">
-              <div className="lcd-title truncate" title={title}>
-                {title}
-              </div>
-              <div className={`lcd-subtitle truncate ${player.error && !player.openingId ? "error" : ""}`}>
-                {player.error && !player.openingId
-                  ? player.error
-                  : [artist || "未知艺人", album].filter(Boolean).join(" — ")}
-              </div>
-              <ProgressBar className="lcd-progress" />
-            </div>
-          </>
-        ) : (
-          <AudioWaveform className="lcd-logo" size={20} strokeWidth={1.6} />
-        )}
+      <TransportButtons extended={false} />
+      <div className="lcd">
+        <button className="lcd-art" title="显示正在播放" aria-label="显示正在播放" onClick={() => player.setFullScreen(true)}>
+          <Artwork url={player.metadata?.artworkUrl} size={38} />
+        </button>
+        <div className="lcd-body">
+          <div className="lcd-title truncate" title={title}>
+            {title}
+          </div>
+          <div className={`lcd-subtitle truncate ${failed ? "error" : ""}`}>
+            {failed ? player.error : [artist || "未知艺人", album].filter(Boolean).join(" — ")}
+          </div>
+          <ProgressBar className="lcd-progress" />
+        </div>
       </div>
     </div>
   );
 }
 
-/** Toolbar trailing: volume and the lyrics / up next inspector toggles. */
+/** Toolbar trailing: volume and the lyrics / up next inspector toggles, only while a song plays. */
 export function PlayerTools() {
   const player = usePlayer();
+  if (!player.nowPlaying || player.isVideo) return null;
   return (
     <div className="player-tools">
       <VolumeControl />
