@@ -87,3 +87,75 @@ test('music search matches folder, local path and cloud path consistently', () =
   assert.equal(media.matchesMusicQuery(song, '不存在'), false);
   assert.equal(media.matchesMusicQuery({...song,cloudPath:undefined,remotePath:undefined}, 'song'), true);
 });
+
+/* Real names from a Baidu library (2026-10-11): each case once showed one poster per episode or the wrong poster. */
+test('episode numbers glued to the resolution tag form one series', () => {
+  const folder = '/影视/电视剧/D-《大明王朝1566》DVD9高参压制1080P';
+  const files = ['大明王朝1566HD1080P01.mkv', '大明王朝1566HD1080P02.mkv', '大明王朝1566HD1080P46.mkv'].map((name) => file(name, folder));
+  assert.deepEqual(files.map(media.episodeOf), [1, 2, 46]);
+  const works = media.buildMovieWorks(files);
+  assert.equal(works.length, 1);
+  assert.equal(works[0].title, '大明王朝1566');
+  assert.equal(works[0].isSeries, true);
+});
+
+test('SE03.01 names take the show from the season folder', () => {
+  const files = [file('SE03.01.mkv', '/影视/电视剧/绝m/绝丨命毒师 第三季'), file('SE04.02.mkv', '/影视/电视剧/绝m/绝丨命毒师 第四季')];
+  assert.deepEqual(files.map(media.episodeOf), [1, 2]);
+  assert.deepEqual(files.map(media.seasonOf), [3, 4]);
+  const works = media.buildMovieWorks(files);
+  assert.equal(works.length, 1);
+  assert.equal(works[0].title, '绝命毒师');
+});
+
+test('seasons filed under different names in one show folder join', () => {
+  const english = [1, 2, 3].map((season) => file(`Black.Mirror.S0${season}E01.1080p.mp4`, `/影视/电视剧/黑镜/《黑镜》第${'一二三'[season - 1]}季`));
+  const chinese = file('S07E01.mp4', '/影视/电视剧/黑镜/黑镜第七季');
+  const works = media.buildMovieWorks([...english, chinese]);
+  assert.equal(works.length, 1);
+  assert.equal(works[0].title, 'Black Mirror');
+  assert.deepEqual(works[0].seasons, [1, 2, 3, 7]);
+  const sherlock = media.buildMovieWorks([file('神探夏洛克S01E01.mkv', '/影视/电视剧/神探夏洛克/神探夏洛克S01'), file('神探夏S04E01.mp4', '/影视/电视剧/神探夏洛克/神探夏洛克S04')]);
+  assert.equal(sherlock.length, 1);
+  assert.equal(sherlock[0].title, '神探夏洛克');
+});
+
+test('a collection of first seasons is not mistaken for one show', () => {
+  const works = media.buildMovieWorks([
+    file('01.mp4', '/影视/2024最高分英美剧/人生复本S1.2024'),
+    file('01.mp4', '/影视/2024最高分英美剧/空战群英[S01][2024]'),
+    file('01.mp4', '/影视/2024最高分英美剧/老练律师[S01][2024]'),
+  ].map((item, index) => ({ ...item, id: `c${index}` })));
+  assert.deepEqual(works.map((work) => work.title).sort(), ['人生复本', '空战群英', '老练律师']);
+});
+
+test('extras become a specials season sorted last; a long folder name mentioning 特辑 is not extras', () => {
+  const works = media.buildMovieWorks([file('01.mp4', '/影视/电视剧/Z-装腔启示录'), { ...file('01.mp4', '/影视/电视剧/Z-装腔启示录/纪录+花絮'), id: 'extra' }]);
+  assert.equal(works.length, 1);
+  assert.equal(works[0].title, '装腔启示录');
+  assert.deepEqual(works[0].seasons, [1, 0]);
+  assert.equal(media.seasonLabel(0), '特别篇');
+  const friends = file('Friends.S03E01.1080p.mkv', '/影视/电视剧/L 老友记1080P REMUX 1-10季 重聚特辑（1994）【美剧】/Friends.S03.1080p.BluRay');
+  assert.equal(media.seasonOf(friends), 3);
+});
+
+test('titles lose season words, quality brackets, tags and collection numbers', () => {
+  assert.equal(media.titleCandidateOf(file('庆余年（4k）S01E01.mp4', '/影视/电视剧/庆余年/庆余年1+4K')), '庆余年');
+  assert.equal(media.titleCandidateOf(file('Arcane Season1.E01.mp4', '/影视/动漫/英雄联盟双城之战 .2021')), 'Arcane');
+  assert.equal(media.titleCandidateOf(file('我们与恶的距离第一季.2019.E01.mp4', '/影视/电视剧/我们与恶的距离')), '我们与恶的距离');
+  assert.equal(media.titleCandidateOf(file('S02E01.mp4', '/影视/电视剧/【台剧】我们与恶的距离2')), '我们与恶的距离');
+  assert.equal(media.titleCandidateOf(file('S01E01.mp4', '/影视/电视剧/神盾局特工第1-7季/第一季')), '神盾局特工');
+  assert.equal(media.titleCandidateOf(file('10-死侍.mp4', '/影视/电影系列合集/[X战警 系列]')), '死侍');
+  assert.equal(media.titleCandidateOf(file('沉默的羔羊.双语字幕.HR-HDTV.AC3.1024X554.x264-人人影视制作.mkv')), '沉默的羔羊');
+});
+
+test('films stay films: sequels, dated parts and same-name remakes look up with their year', () => {
+  for (const name of ['唐人街探案3.mkv', '飞驰人生2.mkv', 'Harry.Potter.and.the.Deathly.Hallows.Part.1.2010.mkv', '教父2.The.Godfather.Part.II.1974.mp4']) {
+    assert.equal(media.episodeOf(file(name, '/影视/电影')), null, name);
+  }
+  const ironMan = media.buildMovieWorks(['Iron Man.2008.mp4', 'Iron Man.2010.mp4'].map((name) => file(name, '/影视/钢铁侠 1~3')));
+  assert.deepEqual(ironMan.map(media.lookupNameOf), ['Iron Man 2008', 'Iron Man 2010']);
+  const parts = media.buildMovieWorks([1, 2, 3].map((part) => file(`美国商业大亨传奇.Part${part}.The.Men.Who.Built.America.Part${part}.中英字幕.mp4`, '/影视/美国商业大亨传奇')));
+  assert.equal(parts.length, 1);
+  assert.equal(parts[0].title, '美国商业大亨传奇');
+});

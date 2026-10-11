@@ -140,6 +140,15 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 6 {
+            // Film details are now cached with the name they were looked up under ("movie-v5").
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 DELETE FROM metadata_cache WHERE kind = 'movie-v4';
+                 PRAGMA user_version = 6;
+                 COMMIT;",
+            )?;
+        }
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self {
             connection: parking_lot::Mutex::new(connection),
@@ -287,7 +296,7 @@ impl Store {
     pub fn cached_movies(&self) -> Result<std::collections::HashMap<String, serde_json::Value>> {
         let connection = self.connection.lock();
         let mut statement = connection
-            .prepare("SELECT file_id,payload FROM metadata_cache WHERE kind='movie-v4'")?;
+            .prepare("SELECT file_id,payload FROM metadata_cache WHERE kind='movie-v5'")?;
         let rows = statement.query_map([], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;

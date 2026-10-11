@@ -104,6 +104,8 @@ export type MovieMetadata = {
   posterUrl?: string;
   genres: string[];
   cast: string[];
+  /** The name it was looked up with; a work regrouped under another name needs a new lookup. */
+  query?: string;
 };
 export type RecentPlayback = { fileId: string; position: number; duration: number; updatedAt: number };
 export type ReadingProgress = {

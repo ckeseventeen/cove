@@ -244,6 +244,9 @@ mod media_name_tests {
     }
 }
 
+/// Cached film and series details. Version 5 records the name each result was looked up with.
+pub(crate) const MOVIE_CACHE: &str = "movie-v5";
+
 #[tauri::command]
 pub(crate) async fn movie_metadata(
     file_id: String,
@@ -255,13 +258,27 @@ pub(crate) async fn movie_metadata(
         && lookup_name
             .as_ref()
             .is_some_and(|name| !name.trim().is_empty());
+    let requested_name = if manual {
+        lookup_name
+    } else {
+        state.store.metadata_override(&file_id)?.or(lookup_name)
+    };
+    // A cached result counts only if it was looked up under the same name.
+    let cached = || -> Result<Option<metadata::MovieMetadata>> {
+        let Some(payload) = state.store.cached_metadata(&file_id, MOVIE_CACHE)? else {
+            return Ok(None);
+        };
+        Ok(serde_json::from_str::<metadata::MovieMetadata>(&payload)
+            .ok()
+            .filter(|metadata| {
+                requested_name
+                    .as_deref()
+                    .map_or(true, |name| metadata.query.as_deref() == Some(name.trim()))
+            }))
+    };
     if !refresh.unwrap_or(false) {
-        for cache_kind in ["movie-v4"] {
-            if let Some(cached) = state.store.cached_metadata(&file_id, cache_kind)? {
-                if let Ok(metadata) = serde_json::from_str(&cached) {
-                    return Ok(metadata);
-                }
-            }
+        if let Some(metadata) = cached()? {
+            return Ok(metadata);
         }
     }
     let _permit = METADATA_GATE
@@ -269,19 +286,10 @@ pub(crate) async fn movie_metadata(
         .await
         .map_err(|_| NimbusError::Internal("Metadata scraper semaphore closed".into()))?;
     if !refresh.unwrap_or(false) {
-        for cache_kind in ["movie-v4"] {
-            if let Some(cached) = state.store.cached_metadata(&file_id, cache_kind)? {
-                if let Ok(metadata) = serde_json::from_str(&cached) {
-                    return Ok(metadata);
-                }
-            }
+        if let Some(metadata) = cached()? {
+            return Ok(metadata);
         }
     }
-    let requested_name = if manual {
-        lookup_name
-    } else {
-        state.store.metadata_override(&file_id)?.or(lookup_name)
-    };
     let file = state.store.get_media_file(&file_id)?;
     let folder = file.cloud_path.as_deref().and_then(|path| {
         let mut parts = path
@@ -326,10 +334,13 @@ pub(crate) async fn movie_metadata(
     } else {
         stem.to_owned()
     };
-    let lookup_name = requested_name
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or(lookup_name);
-    let metadata = match metadata::movie(&lookup_name).await {
+    let query = requested_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let lookup_name = query.clone().unwrap_or(lookup_name);
+    let mut metadata = match metadata::movie(&lookup_name).await {
         Ok(metadata) => metadata,
         Err(primary_error) => {
             if let Some(folder_name) = folder.filter(|candidate| *candidate != lookup_name) {
@@ -344,8 +355,9 @@ pub(crate) async fn movie_metadata(
     if manual {
         state.store.save_metadata_override(&file_id, &lookup_name)?;
     }
+    metadata.query = query;
     state
         .store
-        .save_metadata(&file_id, "movie-v4", &serde_json::to_string(&metadata)?)?;
+        .save_metadata(&file_id, MOVIE_CACHE, &serde_json::to_string(&metadata)?)?;
     Ok(metadata)
 }

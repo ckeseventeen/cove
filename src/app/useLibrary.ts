@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildMovieWorks, type MediaWork } from "../lib/media";
+import { buildMovieWorks, lookupNameOf, type MediaWork } from "../lib/media";
 import { appendUnique, untitledName } from "../lib/playlists";
 import {
   createPlaylist as createPlaylistCommand,
@@ -100,7 +100,9 @@ export function useLibrary(notify: Notify) {
         const initial: Record<string, MovieMetadata> = {};
         for (const work of buildMovieWorks(nextFiles.filter((file) => file.mediaKind === "movie"))) {
           const metadata = cached[work.files[0].id];
-          if (metadata) initial[work.id] = { ...metadata, genres: metadata.genres ?? [], cast: metadata.cast ?? [] };
+          if (metadata && (!metadata.query || metadata.query === lookupNameOf(work))) {
+            initial[work.id] = { ...metadata, genres: metadata.genres ?? [], cast: metadata.cast ?? [] };
+          }
         }
         setMovieMetadataMap(initial);
         setStatus(nextStatus);

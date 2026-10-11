@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListVideo, LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
-import { buildMovieWorks, cleanWorkTitle, episodeLabel, episodeOf, seasonOf, uniqueEpisodes } from "../lib/media";
+import { buildMovieWorks, cleanWorkTitle, compareSeasons, episodeLabel, episodeOf, seasonLabel, seasonOf, uniqueEpisodes } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
 import {
@@ -54,7 +54,7 @@ function EpisodePanel({
   onPick: (file: MediaFile) => void;
   onClose: () => void;
 }) {
-  const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort((left, right) => left - right), [queue]);
+  const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort(compareSeasons), [queue]);
   const [season, setSeason] = useState(() => seasonOf(current));
   const list = useRef<HTMLDivElement>(null);
   useTopmostEscape(true, onClose);
@@ -75,7 +75,7 @@ function EpisodePanel({
         <div className="episode-seasons" role="tablist" aria-label="季">
           {seasons.map((item) => (
             <button key={item} role="tab" aria-selected={item === season} onClick={() => setSeason(item)}>
-              第 {item} 季
+              {seasonLabel(item)}
             </button>
           ))}
         </div>
@@ -196,13 +196,13 @@ export function VideoOverlay() {
     return { queue: episodes, work: found };
   }, [allFiles, current, playlist]);
 
-  const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort((left, right) => left - right), [queue]);
+  const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort(compareSeasons), [queue]);
   const index = queue.findIndex((file) => file.id === current?.id);
   const isSeries = !!work?.isSeries;
   const title = work?.title || (current ? cleanWorkTitle(current.displayName) || current.displayName : "");
   const subtitle =
     current && isSeries
-      ? `${seasons.length > 1 ? `第 ${seasonOf(current)} 季 · ` : ""}${episodeLabel(current, Math.max(index, 0))}`
+      ? `${seasons.length > 1 ? `${seasonLabel(seasonOf(current))} · ` : ""}${episodeLabel(current, Math.max(index, 0))}`
       : "";
 
   useEffect(() => {
@@ -362,7 +362,7 @@ export function VideoOverlay() {
     const episodes: MenuEntry[] =
       seasons.length > 1
         ? seasons.map((season) => ({
-            label: `第 ${season} 季`,
+            label: seasonLabel(season),
             submenu: queue.filter((file) => seasonOf(file) === season).map(episodeItem),
           }))
         : queue.map(episodeItem);

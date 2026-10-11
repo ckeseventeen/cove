@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { containingFolder, episodeOf, qualityOf, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { containingFolder, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
@@ -33,7 +33,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
 
   useEffect(() => {
     const generation = ++request.current;
-    getMovieMetadata(work.files[0].id, false, work.title)
+    getMovieMetadata(work.files[0].id, false, lookupNameOf(work))
       .then((value) => {
         if (generation !== request.current) return;
         setMetadata(value);
@@ -107,7 +107,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
           <div className="detail-actions">
             <button className="btn prominent large" data-autofocus disabled={!primary} onClick={() => primary && play(primary)}>
               {primary && player.openingId === primary.id ? <LoaderCircle className="spin" size={14} /> : <Play size={13} fill="currentColor" strokeWidth={0} />}
-              {work.isSeries ? (work.seasons.length > 1 ? `播放第 ${season} 季` : "播放第一集") : "播放"}
+              {work.isSeries ? (work.seasons.length > 1 ? (season === 0 ? "播放特别篇" : `播放第 ${season} 季`) : "播放第一集") : "播放"}
             </button>
             <button
               className="btn large more-btn"
@@ -174,7 +174,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
                     ariaLabel="季"
                     value={String(season)}
                     onChange={(value) => setSeason(Number(value))}
-                    options={work.seasons.map((value) => ({ value: String(value), label: `第 ${value} 季` }))}
+                    options={work.seasons.map((value) => ({ value: String(value), label: seasonLabel(value) }))}
                   />
                 )}
               </div>

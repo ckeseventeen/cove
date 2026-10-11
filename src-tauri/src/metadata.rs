@@ -21,6 +21,10 @@ pub struct MovieMetadata {
     pub genres: Vec<String>,
     #[serde(default)]
     pub cast: Vec<String>,
+    /// The name this result was looked up with. When the library groups a work differently and the
+    /// name changes, the cached result no longer applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -302,7 +306,21 @@ fn movie_query(name: &str) -> (String, Option<String>) {
 
 #[cfg(test)]
 mod tests {
-    use super::movie_query;
+    use super::{movie_query, MovieMetadata};
+
+    #[test]
+    fn cached_details_remember_their_lookup_name() {
+        let old: MovieMetadata = serde_json::from_str(
+            r#"{"tmdbId":1,"mediaType":"tv","title":"大明王朝1566","originalTitle":"","year":2007,"overview":"","rating":9.7,"posterUrl":null}"#,
+        )
+        .unwrap();
+        assert_eq!(old.query, None);
+        let mut current = old.clone();
+        current.query = Some("大明王朝1566".into());
+        let json = serde_json::to_string(&current).unwrap();
+        assert!(json.contains(r#""query":"大明王朝1566""#));
+        assert!(!serde_json::to_string(&old).unwrap().contains("query"));
+    }
 
     #[test]
     fn extracts_clean_movie_queries() {
@@ -449,6 +467,7 @@ pub async fn movie(name: &str) -> Result<MovieMetadata> {
             .map(|path| format!("https://image.tmdb.org/t/p/w500{path}")),
         genres,
         cast,
+        query: None,
     })
 }
 
