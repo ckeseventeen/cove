@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { MediaWork } from "../lib/media";
@@ -252,20 +251,6 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
   };
 
   useEffect(() => onMenuAction((id) => command.current(id)), []);
-
-  // During video the title-bar strip belongs to this window; moving there reveals the controls.
-  useEffect(() => {
-    if (!player.isVideo || !isTauri()) return;
-    let last = 0;
-    const reveal = () => {
-      const now = Date.now();
-      if (now - last < 300) return;
-      last = now;
-      void emit("cove-video-reveal").catch(() => undefined);
-    };
-    window.addEventListener("mousemove", reveal);
-    return () => window.removeEventListener("mousemove", reveal);
-  }, [player.isVideo]);
 
   // Browser layout fixture (tests/music-layout.html): start a song with long lyrics.
   const fixtureStarted = useRef(false);

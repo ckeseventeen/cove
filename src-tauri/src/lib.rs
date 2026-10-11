@@ -296,7 +296,6 @@ pub(crate) async fn stop_playback(app_handle: &tauri::AppHandle) {
     let _ = app_handle.emit("nimbus-player-state", player.cached_status());
     let _ = app_handle.emit("nimbus-player-stopped", ());
     if let Some(webview) = app_handle.get_webview_window("main") {
-        let _ = player::set_window_buttons_hidden(&webview, false);
         let _ = player.set_view_visible(&webview, false).await;
         let _ = webview.set_fullscreen(false);
         let _ = webview.set_focus();

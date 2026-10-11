@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { onFallbackMenu, type FallbackMenuRequest } from "../lib/native";
+import { onFallbackMenu, type FallbackMenuRequest, type MenuEntry } from "../lib/native";
 import { useTopmostEscape } from "./Sheet";
 
 /** HTML stand-in for NSMenu, used only in the browser preview. */
@@ -46,10 +46,16 @@ export function MenuHost() {
   };
   return (
     <div ref={menu} className="menu" role="menu" style={position} onKeyDown={move}>
-      {request.items.map((item, index) =>
+      {request.items.flatMap((item): (MenuEntry | { heading: string })[] =>
+        item !== "separator" && "submenu" in item ? ["separator", { heading: item.label }, ...item.submenu] : [item],
+      ).map((item, index) =>
         item === "separator" ? (
           <div key={index} className="menu-separator" role="separator" />
-        ) : (
+        ) : "heading" in item ? (
+          <div key={index} className="menu-heading">
+            {item.heading}
+          </div>
+        ) : "submenu" in item ? null : (
           <button
             key={index}
             role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}

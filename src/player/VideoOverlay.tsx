@@ -1,25 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  AudioLines,
-  Captions,
-  Gauge,
-  ListVideo,
-  LoaderCircle,
-  Pause,
-  Play,
-  RotateCcw,
-  RotateCw,
-  Settings2,
-  Sparkles,
-  Volume1,
-  Volume2,
-  VolumeX,
-  X,
-} from "lucide-react";
+import { LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
 import { buildMovieWorks, cleanWorkTitle, episodeLabel, episodeOf, seasonOf, uniqueEpisodes } from "../lib/media";
 import { formatClock } from "../lib/format";
-import { listen } from "@tauri-apps/api/event";
-import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
+import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
 import {
   controlPlayer,
   getCachedAiSubtitles,
@@ -33,12 +16,27 @@ import {
   type MediaFile,
   type PlayerStatus,
 } from "../lib/nimbus";
-import { Segmented, Slider } from "../ui/controls";
+import { Slider } from "../ui/controls";
 import { isModalOpen } from "../ui/Sheet";
 import { AiSubtitlesSheet } from "./AiSubtitlesSheet";
 import { EMPTY_STATUS } from "./statusStore";
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+
+/** SF Symbols-style "go backward / forward 10 seconds" glyph. */
+function SkipIcon({ forward }: { forward?: boolean }) {
+  return (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <g transform={forward ? undefined : "translate(24 0) scale(-1 1)"} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5" />
+        <path d="M9.6 1.4 12 3.5 9.6 5.6" />
+      </g>
+      <text x="12" y="12.6" textAnchor="middle" dominantBaseline="middle" fontSize="7.4" fontWeight="700" fill="currentColor">
+        10
+      </text>
+    </svg>
+  );
+}
 
 /** Transparent window that floats QuickTime-style controls over the native libmpv view. */
 export function VideoOverlay() {
@@ -53,16 +51,12 @@ export function VideoOverlay() {
   const endedFile = useRef<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [visible, setVisible] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [episodesOpen, setEpisodesOpen] = useState(false);
-  const [drawerSeason, setDrawerSeason] = useState(1);
   const [aiOpen, setAiOpen] = useState(false);
   const [cachedSrt, setCachedSrt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hideTimer = useRef<number>();
   const clickTimer = useRef<number>();
   const switchRequest = useRef(0);
-  const activeEpisode = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (status.volume > 0) previousVolume.current = status.volume;
@@ -150,20 +144,12 @@ export function VideoOverlay() {
     if (current) void setNowPlayingInfo({ fileId: current.id, title, album: subtitle }).catch(() => undefined);
   }, [current?.id, title, subtitle]);
 
-  useEffect(() => {
-    if (current && seasons.length) setDrawerSeason(seasonOf(current));
-  }, [current?.id, seasons.join(",")]);
-
-  useEffect(() => {
-    if (episodesOpen) activeEpisode.current?.scrollIntoView({ block: "center" });
-  }, [current?.id, episodesOpen, drawerSeason]);
-
   // Controls stay visible while paused, at the end, or while being used.
   useEffect(() => {
     const reveal = () => {
       setVisible(true);
       window.clearTimeout(hideTimer.current);
-      if (!episodesOpen && !aiOpen && !settingsOpen && !status.paused && !status.eofReached && !interacting) {
+      if (!aiOpen && !status.paused && !status.eofReached && !interacting) {
         hideTimer.current = window.setTimeout(() => setVisible(false), 3000);
       }
     };
@@ -177,36 +163,11 @@ export function VideoOverlay() {
       window.removeEventListener("keydown", reveal);
       window.clearTimeout(hideTimer.current);
     };
-  }, [episodesOpen, aiOpen, settingsOpen, status.paused, status.eofReached, interacting]);
-
-  // Pointer movement over the title bar arrives from the main window.
-  useEffect(() => {
-    if (!isTauri()) return;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    listen("cove-video-reveal", () => window.dispatchEvent(new Event("mousemove")))
-      .then((off) => {
-        if (disposed) off();
-        else unlisten = off;
-      })
-      .catch(() => undefined);
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
-
-  // The window's traffic lights fade together with the controls, as in QuickTime.
-  useEffect(() => {
-    if (!current) return;
-    void controlPlayer("chrome", visible ? 1 : 0).catch(() => undefined);
-  }, [visible, current?.id]);
-  useEffect(() => () => void controlPlayer("chrome", 1).catch(() => undefined), []);
+  }, [aiOpen, status.paused, status.eofReached, interacting]);
 
   const switchEpisode = async (file: MediaFile) => {
     if (switching) return;
     setSwitching(true);
-    setEpisodesOpen(false);
     const request = ++switchRequest.current;
     setError(null);
     try {
@@ -258,9 +219,7 @@ export function VideoOverlay() {
       if (event.key === "Escape") {
         if (isModalOpen()) return;
         event.preventDefault();
-        if (episodesOpen) setEpisodesOpen(false);
-        else if (settingsOpen) setSettingsOpen(false);
-        else void controlPlayer("exit_fullscreen");
+        void controlPlayer("exit_fullscreen");
         return;
       }
       if (aiOpen || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
@@ -286,7 +245,7 @@ export function VideoOverlay() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [episodesOpen, aiOpen, settingsOpen]);
+  }, [aiOpen]);
 
   // Menu bar and media keys.
   useEffect(
@@ -324,17 +283,73 @@ export function VideoOverlay() {
   const subtitleTracks = status.tracks.filter((track) => track.kind === "sub");
   const VolumeIcon = status.volume === 0 ? VolumeX : status.volume < 50 ? Volume1 : Volume2;
   const shownError = error || status.error;
+  const trackName = (track: { id: number; title: string; language: string }, fallback: string) =>
+    [track.title, track.language].filter((value) => value && value !== "未命名轨道").join(" · ") || `${fallback} ${track.id}`;
+
+  const episodeItem = (file: MediaFile, position: number): MenuEntry => ({
+    label: isSeries && (episodeOf(file) ?? 0) > 0 ? episodeLabel(file, position) : cleanWorkTitle(file.displayName) || file.displayName,
+    checked: file.id === current.id,
+    action: () => void switchEpisode(file),
+  });
+
+  /** Everything beyond play/pause lives in a native right-click menu, as in IINA and QuickTime. */
+  const videoMenu = (event: React.MouseEvent) => {
+    const episodes: MenuEntry[] =
+      seasons.length > 1
+        ? seasons.map((season) => ({
+            label: `第 ${season} 季`,
+            submenu: queue.filter((file) => seasonOf(file) === season).map(episodeItem),
+          }))
+        : queue.map(episodeItem);
+    void showContextMenu(event, [
+      { label: status.paused || status.eofReached ? "播放" : "暂停", action: togglePlay },
+      "separator",
+      ...(queue.length > 1 ? [{ label: isSeries ? "选集" : "同一文件夹", submenu: episodes }] : []),
+      {
+        label: "播放速度",
+        submenu: SPEEDS.map((speed) => ({
+          label: speed === 1 ? "正常" : `${speed}×`,
+          checked: Math.abs(status.speed - speed) < 0.01,
+          action: () => void controlPlayer("speed", speed),
+        })),
+      },
+      ...(audioTracks.length > 1
+        ? [
+            {
+              label: "音轨",
+              submenu: audioTracks.map((track) => ({
+                label: trackName(track, "音轨"),
+                checked: track.selected,
+                action: () => void controlPlayer("audio", track.id),
+              })),
+            },
+          ]
+        : []),
+      {
+        label: "字幕",
+        submenu: [
+          { label: "关闭", checked: !subtitleTracks.some((track) => track.selected), action: () => void controlPlayer("subtitle", -1) },
+          ...subtitleTracks.map((track) => ({
+            label: trackName(track, "字幕"),
+            checked: track.selected,
+            action: () => void controlPlayer("subtitle", track.id),
+          })),
+          "separator",
+          { label: cachedSrt ? "重新生成 AI 字幕…" : "生成 AI 字幕…", action: () => setAiOpen(true) },
+        ],
+      },
+      "separator",
+      { label: "全屏", action: () => void controlPlayer("fullscreen") },
+      { label: "停止播放", action: () => void controlPlayer("stop") },
+    ]);
+  };
 
   return (
-    <main className={`video-overlay ${visible ? "visible" : "idle"}`}>
+    <main className={`video-overlay ${visible ? "visible" : "idle"}`} onContextMenu={videoMenu}>
       <div
         className="video-surface"
         aria-hidden="true"
         onClick={(event) => {
-          if (settingsOpen) {
-            setSettingsOpen(false);
-            return;
-          }
           if (event.detail === 1) {
             window.clearTimeout(clickTimer.current);
             clickTimer.current = window.setTimeout(togglePlay, 240);
@@ -346,62 +361,15 @@ export function VideoOverlay() {
         }}
       />
 
-      <div className="video-top">
-        <div className="video-title">
-          <strong>{title}</strong>
-          {subtitle && <span>{subtitle}</span>}
-        </div>
+      <div className="video-title">
+        <strong>{title}</strong>
+        {subtitle && <span>{subtitle}</span>}
       </div>
 
       {shownError && (
         <div className="video-error" role="alert">
           {shownError}
         </div>
-      )}
-
-      {episodesOpen && (
-        <>
-          <button className="video-dismiss" aria-label="关闭选集" onClick={() => setEpisodesOpen(false)} />
-          <aside className="hud-panel episodes" aria-label="选集">
-            <header>
-              <strong>{isSeries ? "选集" : "同一文件夹"}</strong>
-              <span>{queue.length} 个视频</span>
-              <button className="hud-icon" aria-label="关闭选集" onClick={() => setEpisodesOpen(false)}>
-                <X size={14} />
-              </button>
-            </header>
-            {seasons.length > 1 && (
-              <div className="episodes-seasons">
-                <Segmented<string>
-                  ariaLabel="季"
-                  value={String(drawerSeason)}
-                  onChange={(value) => setDrawerSeason(Number(value))}
-                  options={seasons.map((season) => ({ value: String(season), label: `第 ${season} 季` }))}
-                />
-              </div>
-            )}
-            <div className="episodes-list">
-              {queue
-                .filter((file) => (seasons.length > 1 ? seasonOf(file) === drawerSeason : true))
-                .map((file, position) => {
-                  const active = file.id === current.id;
-                  const label = isSeries && (episodeOf(file) ?? 0) > 0 ? episodeLabel(file, position) : cleanWorkTitle(file.displayName) || file.displayName;
-                  return (
-                    <button
-                      key={file.id}
-                      ref={active ? activeEpisode : undefined}
-                      className={`episode-item ${active ? "active" : ""}`}
-                      title={file.displayName}
-                      onClick={() => void switchEpisode(file)}
-                    >
-                      <span className="truncate">{label}</span>
-                      {active && <AudioLines size={13} />}
-                    </button>
-                  );
-                })}
-            </div>
-          </aside>
-        </>
       )}
 
       <section
@@ -421,8 +389,8 @@ export function VideoOverlay() {
             <Slider className="hud-volume" ariaLabel="音量" min={0} max={100} value={status.volume} onCommit={volume} />
           </div>
           <div className="hud-group center">
-            <button className="hud-icon" title="后退 10 秒" onClick={() => void controlPlayer("seek", -10)}>
-              <RotateCcw size={17} />
+            <button className="hud-icon" title="后退 10 秒 (J)" aria-label="后退 10 秒" onClick={() => void controlPlayer("seek", -10)}>
+              <SkipIcon />
             </button>
             <button
               className="hud-icon play"
@@ -438,96 +406,11 @@ export function VideoOverlay() {
                 <Pause size={24} fill="currentColor" strokeWidth={0} />
               )}
             </button>
-            <button className="hud-icon" title="前进 10 秒" onClick={() => void controlPlayer("seek", 10)}>
-              <RotateCw size={17} />
+            <button className="hud-icon" title="前进 10 秒 (L)" aria-label="前进 10 秒" onClick={() => void controlPlayer("seek", 10)}>
+              <SkipIcon forward />
             </button>
           </div>
-          <div className="hud-group end">
-            <div className="hud-anchor">
-              <button
-                className={`hud-icon ${settingsOpen ? "active" : ""}`}
-                title="设置"
-                aria-expanded={settingsOpen}
-                onClick={() => {
-                  setSettingsOpen((value) => !value);
-                  setEpisodesOpen(false);
-                }}
-              >
-                <Settings2 size={17} />
-              </button>
-              {settingsOpen && (
-                <div className="hud-panel settings" role="dialog" aria-label="播放设置">
-                  {queue.length > 1 && (
-                    <button
-                      className="hud-setting action"
-                      onClick={() => {
-                        setEpisodesOpen(true);
-                        setSettingsOpen(false);
-                      }}
-                    >
-                      <ListVideo size={15} />
-                      <span>{isSeries ? "选集" : "同一文件夹"}</span>
-                      <span className="hud-setting-value">{subtitle || `${index + 1} / ${queue.length}`}</span>
-                    </button>
-                  )}
-                  <label className="hud-setting">
-                    <Gauge size={15} />
-                    <span>速度</span>
-                    <select aria-label="播放速度" value={status.speed} onChange={(event) => void controlPlayer("speed", Number(event.target.value))}>
-                      {SPEEDS.map((speed) => (
-                        <option key={speed} value={speed}>
-                          {speed === 1 ? "正常" : `${speed}×`}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {audioTracks.length > 0 && (
-                    <label className="hud-setting">
-                      <AudioLines size={15} />
-                      <span>音轨</span>
-                      <select
-                        aria-label="音轨"
-                        value={audioTracks.find((track) => track.selected)?.id ?? -1}
-                        onChange={(event) => void controlPlayer("audio", Number(event.target.value))}
-                      >
-                        {audioTracks.map((track) => (
-                          <option value={track.id} key={track.id}>
-                            {track.title || track.language || `音轨 ${track.id}`}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  <label className="hud-setting">
-                    <Captions size={15} />
-                    <span>字幕</span>
-                    <select
-                      aria-label="字幕"
-                      value={subtitleTracks.find((track) => track.selected)?.id ?? -1}
-                      onChange={(event) => void controlPlayer("subtitle", Number(event.target.value))}
-                    >
-                      <option value="-1">关闭</option>
-                      {subtitleTracks.map((track) => (
-                        <option value={track.id} key={track.id}>
-                          {track.title || track.language || "字幕"}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    className="hud-setting action"
-                    onClick={() => {
-                      setAiOpen(true);
-                      setSettingsOpen(false);
-                    }}
-                  >
-                    <Sparkles size={15} />
-                    <span>{cachedSrt ? "重新生成 AI 字幕…" : "生成 AI 字幕…"}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+          <div className="hud-group end" />
         </div>
         <div className="hud-progress">
           <span className="tabular">{formatClock(status.position)}</span>

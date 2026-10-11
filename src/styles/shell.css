@@ -687,6 +687,12 @@ button.th:hover {
 .menu-item.destructive:not(:hover) {
   color: var(--red);
 }
+.menu-heading {
+  padding: 4px 10px 2px;
+  color: var(--label-secondary);
+  font-size: var(--text-subhead);
+  font-weight: 600;
+}
 .menu-separator {
   height: 0.5px;
   margin: 5px 10px;

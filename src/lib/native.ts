@@ -1,6 +1,6 @@
 // Bridges to native macOS behaviour: menus, context menus and window state.
 import { listen } from "@tauri-apps/api/event";
-import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem } from "@tauri-apps/api/menu";
+import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 
 export const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -12,7 +12,22 @@ export type MenuEntry =
       checked?: boolean;
       destructive?: boolean;
     }
+  | { label: string; submenu: MenuEntry[]; enabled?: boolean }
   | "separator";
+
+type NativeItem = MenuItem | CheckMenuItem | PredefinedMenuItem | Submenu;
+
+async function buildNative(entry: MenuEntry): Promise<NativeItem> {
+  if (entry === "separator") return PredefinedMenuItem.new({ item: "Separator" });
+  if ("submenu" in entry) {
+    const items = await Promise.all(tidy(entry.submenu).map(buildNative));
+    return Submenu.new({ text: entry.label, enabled: entry.enabled ?? items.length > 0, items });
+  }
+  if (entry.checked !== undefined) {
+    return CheckMenuItem.new({ text: entry.label, enabled: entry.enabled ?? true, checked: entry.checked, action: () => entry.action() });
+  }
+  return MenuItem.new({ text: entry.label, enabled: entry.enabled ?? true, action: () => entry.action() });
+}
 
 export type FallbackMenuRequest = { x: number; y: number; items: MenuEntry[] };
 type MenuEvent = { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void };
@@ -45,20 +60,7 @@ export async function showContextMenu(event: MenuEvent, items: MenuEntry[]) {
   if (!entries.length) return;
   if (isTauri()) {
     try {
-      const built = await Promise.all(
-        entries.map((entry) => {
-          if (entry === "separator") return PredefinedMenuItem.new({ item: "Separator" });
-          if (entry.checked !== undefined) {
-            return CheckMenuItem.new({
-              text: entry.label,
-              enabled: entry.enabled ?? true,
-              checked: entry.checked,
-              action: () => entry.action(),
-            });
-          }
-          return MenuItem.new({ text: entry.label, enabled: entry.enabled ?? true, action: () => entry.action() });
-        }),
-      );
+      const built = await Promise.all(entries.map(buildNative));
       const menu = await Menu.new({ items: built });
       await menu.popup();
       // Item actions arrive asynchronously; release the native resources afterwards.
