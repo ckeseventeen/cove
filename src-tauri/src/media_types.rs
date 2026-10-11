@@ -9,6 +9,16 @@ pub const AUDIO_EXTENSIONS: &[&str] = &[
     "mp3", "m4a", "flac", "wav", "aac", "ogg", "opus", "wma", "ape", "aiff",
 ];
 
+/// Documents the library can index; the reader is PDFKit, so only PDF for now.
+pub const DOCUMENT_EXTENSIONS: &[&str] = &["pdf"];
+
+/// Check if a filename is a document the built-in reader can open.
+pub fn is_document(name: &str) -> bool {
+    name.rsplit_once('.')
+        .map(|(_, ext)| DOCUMENT_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
 /// Check if a filename has a recognized video extension.
 pub fn is_video(name: &str) -> bool {
     name.rsplit_once('.')

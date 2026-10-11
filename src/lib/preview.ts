@@ -1,5 +1,5 @@
 // Explicit browser-only QA data: /?demo=1. Never used inside the native app.
-import type { Account, CloudEntry, MediaFile, MediaSource, MovieMetadata, MusicMetadata, RecentPlayback } from './nimbus';
+import type { Account, CloudEntry, MediaFile, MediaSource, MovieMetadata, MusicMetadata, ReadingProgress, RecentPlayback } from './nimbus';
 
 export const previewAccounts: Account[] = [
   { id: 'preview', provider: 'local', label: '本地磁盘', endpoint: '/', status: 'preview' },
@@ -10,7 +10,9 @@ export const previewAccounts: Account[] = [
 export const previewSources: MediaSource[] = [
   { id: 'movies', accountId: 'preview', kind: 'movie', remoteRoot: '/演示/电影', label: '电影与剧集', lastScanAt: 1789142400 },
   { id: 'songs', accountId: 'preview', kind: 'music', remoteRoot: '/演示/音乐', label: '音乐收藏', lastScanAt: 1789142400 },
+  { id: 'docs', accountId: 'preview', kind: 'document', remoteRoot: '/演示/文档', label: '读书', lastScanAt: 1789142400 },
 ];
+const books = ['设计心理学.pdf', '人月神话.pdf', '置身事内.pdf', '万历十五年.pdf', '季度报告-2026Q3.pdf', '产品说明书.pdf'];
 
 const names = [
   '海边的信.2024.mkv', '慢慢走.2022.mkv', '远山来客.2021.mkv', '黄昏之后.2020.mkv', '春日列车.2023.mkv',
@@ -33,6 +35,15 @@ export const previewFiles: MediaFile[] = [
       displayName: name, size: 8_000_000 + (index % 9) * 3_100_000, sourceId: 'songs', sourceIds: ['songs'], mediaKind: 'music',
     };
   }),
+  ...books.map((name, index): MediaFile => ({
+    id: `doc-${index}`, accountId: 'preview', remotePath: `/演示/文档/${index < 4 ? '书' : '工作'}/${name}`, cloudPath: `/演示/文档/${index < 4 ? '书' : '工作'}/${name}`,
+    displayName: name, size: 1_200_000 + index * 2_300_000, sourceId: 'docs', sourceIds: ['docs'], mediaKind: 'document',
+  })),
+];
+
+export const previewReading: ReadingProgress[] = [
+  { docKey: 'preview:/演示/文档/书/置身事内.pdf', accountId: 'preview', path: '/演示/文档/书/置身事内.pdf', entryId: '', name: '置身事内.pdf', size: 5_800_000, page: 86, pageCount: 312, updatedAt: 1789142500 },
+  { docKey: 'preview:/演示/文档/书/设计心理学.pdf', accountId: 'preview', path: '/演示/文档/书/设计心理学.pdf', entryId: '', name: '设计心理学.pdf', size: 1_200_000, page: 12, pageCount: 280, updatedAt: 1789142000 },
 ];
 
 export const previewMetadata: Record<string, MovieMetadata> = Object.fromEntries(names.map((name, index) => [`movie-${index}`, {
@@ -54,16 +65,24 @@ export function previewEntries(path: string): CloudEntry[] {
     return [
       { id: '/演示/电影', path: '/演示/电影', name: '电影', isDir: true, size: 0, modifiedAt: day - 3600 },
       { id: '/演示/音乐', path: '/演示/音乐', name: '音乐', isDir: true, size: 0, modifiedAt: day - 7200 },
+      { id: '/演示/文档', path: '/演示/文档', name: '文档', isDir: true, size: 0, modifiedAt: day - 9000 },
       { id: '/演示/说明.md', path: '/演示/说明.md', name: '说明.md', isDir: false, size: 1200, modifiedAt: day - 86_400 },
+      { id: '/演示/年度计划.pdf', path: '/演示/年度计划.pdf', name: '年度计划.pdf', isDir: false, size: 860_000, modifiedAt: day - 86_400 * 2 },
+      { id: '/演示/旅行.mp4', path: '/演示/旅行.mp4', name: '旅行.mp4', isDir: false, size: 640_000_000, modifiedAt: day - 86_400 * 4 },
+      { id: '/演示/合影.heic', path: '/演示/合影.heic', name: '合影.heic', isDir: false, size: 3_100_000, modifiedAt: day - 86_400 * 5 },
       { id: '/演示/封面.jpg', path: '/演示/封面.jpg', name: '封面.jpg', isDir: false, size: 2_400_000, modifiedAt: day - 86_400 * 3 },
     ];
   }
-  if (path === '/演示/音乐') {
-    return ['午后', '夜航'].map((name) => ({ id: `${path}/${name}`, path: `${path}/${name}`, name, isDir: true, size: 0, modifiedAt: day }));
-  }
-  return previewFiles
-    .filter((file) => file.remotePath.startsWith(path + '/') && !file.remotePath.slice(path.length + 1).includes('/'))
-    .map((file, index) => ({ id: file.id, path: file.remotePath, name: file.displayName, isDir: false, size: file.size, modifiedAt: day - index * 5000 }));
+  // Deeper levels are derived from the demo files: immediate subfolders first, then files.
+  const prefix = `${path}/`;
+  const below = previewFiles.filter((file) => file.remotePath.startsWith(prefix));
+  const folders = [...new Set(below.map((file) => file.remotePath.slice(prefix.length)).filter((rest) => rest.includes('/')).map((rest) => rest.split('/')[0]))];
+  return [
+    ...folders.map((name): CloudEntry => ({ id: `${prefix}${name}`, path: `${prefix}${name}`, name, isDir: true, size: 0, modifiedAt: day })),
+    ...below
+      .filter((file) => !file.remotePath.slice(prefix.length).includes('/'))
+      .map((file, index): CloudEntry => ({ id: file.id, path: file.remotePath, name: file.displayName, isDir: false, size: file.size, modifiedAt: day - index * 5000 })),
+  ];
 }
 
 export function previewMusicMetadata(file: MediaFile): MusicMetadata {

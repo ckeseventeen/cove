@@ -2,18 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AudioLines,
   Captions,
-  ChevronLeft,
   Gauge,
   ListVideo,
   LoaderCircle,
-  Maximize,
   Pause,
   Play,
   RotateCcw,
   RotateCw,
   Settings2,
-  SkipBack,
-  SkipForward,
   Sparkles,
   Volume1,
   Volume2,
@@ -22,7 +18,8 @@ import {
 } from "lucide-react";
 import { buildMovieWorks, cleanWorkTitle, episodeLabel, episodeOf, seasonOf, uniqueEpisodes } from "../lib/media";
 import { formatClock } from "../lib/format";
-import { isEditableTarget, onMenuAction } from "../lib/native";
+import { listen } from "@tauri-apps/api/event";
+import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
 import {
   controlPlayer,
   getCachedAiSubtitles,
@@ -182,6 +179,30 @@ export function VideoOverlay() {
     };
   }, [episodesOpen, aiOpen, settingsOpen, status.paused, status.eofReached, interacting]);
 
+  // Pointer movement over the title bar arrives from the main window.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    listen("cove-video-reveal", () => window.dispatchEvent(new Event("mousemove")))
+      .then((off) => {
+        if (disposed) off();
+        else unlisten = off;
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // The window's traffic lights fade together with the controls, as in QuickTime.
+  useEffect(() => {
+    if (!current) return;
+    void controlPlayer("chrome", visible ? 1 : 0).catch(() => undefined);
+  }, [visible, current?.id]);
+  useEffect(() => () => void controlPlayer("chrome", 1).catch(() => undefined), []);
+
   const switchEpisode = async (file: MediaFile) => {
     if (switching) return;
     setSwitching(true);
@@ -282,17 +303,9 @@ export function VideoOverlay() {
     [],
   );
 
-  const back = (
-    <button className="hud-pill" title="停止播放并返回资料库" onClick={() => void controlPlayer("stop")}>
-      <ChevronLeft size={15} />
-      返回
-    </button>
-  );
-
   if (!current) {
     return (
       <main className="video-overlay visible loading">
-        <div className="video-top">{back}</div>
         <div className="video-status">
           {error ? (
             <p>{error}</p>
@@ -334,7 +347,6 @@ export function VideoOverlay() {
       />
 
       <div className="video-top">
-        {back}
         <div className="video-title">
           <strong>{title}</strong>
           {subtitle && <span>{subtitle}</span>}
@@ -409,11 +421,6 @@ export function VideoOverlay() {
             <Slider className="hud-volume" ariaLabel="音量" min={0} max={100} value={status.volume} onCommit={volume} />
           </div>
           <div className="hud-group center">
-            {queue.length > 1 && (
-              <button className="hud-icon" title="上一个" disabled={switching || index <= 0} onClick={() => step(-1)}>
-                <SkipBack size={17} fill="currentColor" strokeWidth={0} />
-              </button>
-            )}
             <button className="hud-icon" title="后退 10 秒" onClick={() => void controlPlayer("seek", -10)}>
               <RotateCcw size={17} />
             </button>
@@ -434,29 +441,12 @@ export function VideoOverlay() {
             <button className="hud-icon" title="前进 10 秒" onClick={() => void controlPlayer("seek", 10)}>
               <RotateCw size={17} />
             </button>
-            {queue.length > 1 && (
-              <button className="hud-icon" title="下一个" disabled={switching || index < 0 || index >= queue.length - 1} onClick={() => step(1)}>
-                <SkipForward size={17} fill="currentColor" strokeWidth={0} />
-              </button>
-            )}
           </div>
           <div className="hud-group end">
-            {queue.length > 1 && (
-              <button
-                className={`hud-icon ${episodesOpen ? "active" : ""}`}
-                title="选集"
-                onClick={() => {
-                  setEpisodesOpen((value) => !value);
-                  setSettingsOpen(false);
-                }}
-              >
-                <ListVideo size={17} />
-              </button>
-            )}
             <div className="hud-anchor">
               <button
                 className={`hud-icon ${settingsOpen ? "active" : ""}`}
-                title="播放设置"
+                title="设置"
                 aria-expanded={settingsOpen}
                 onClick={() => {
                   setSettingsOpen((value) => !value);
@@ -467,6 +457,19 @@ export function VideoOverlay() {
               </button>
               {settingsOpen && (
                 <div className="hud-panel settings" role="dialog" aria-label="播放设置">
+                  {queue.length > 1 && (
+                    <button
+                      className="hud-setting action"
+                      onClick={() => {
+                        setEpisodesOpen(true);
+                        setSettingsOpen(false);
+                      }}
+                    >
+                      <ListVideo size={15} />
+                      <span>{isSeries ? "选集" : "同一文件夹"}</span>
+                      <span className="hud-setting-value">{subtitle || `${index + 1} / ${queue.length}`}</span>
+                    </button>
+                  )}
                   <label className="hud-setting">
                     <Gauge size={15} />
                     <span>速度</span>
@@ -524,9 +527,6 @@ export function VideoOverlay() {
                 </div>
               )}
             </div>
-            <button className="hud-icon" title="全屏 (F)" onClick={() => void controlPlayer("fullscreen")}>
-              <Maximize size={16} />
-            </button>
           </div>
         </div>
         <div className="hud-progress">

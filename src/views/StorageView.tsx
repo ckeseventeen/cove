@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
   CircleAlert,
   Ellipsis,
+  FileText,
   Film,
   LoaderCircle,
   Music2,
@@ -19,6 +20,7 @@ import {
   browseAccount,
   copyEntry,
   createFolder,
+  openDocument,
   openNativePath,
   playStorageFile,
   revealNativePath,
@@ -26,7 +28,7 @@ import {
   type CloudEntry,
   type MediaSource,
 } from "../lib/nimbus";
-import { canCopyBetween, classifyEntry, isPlayableKind, storageCapabilities, validFolderName } from "../lib/storage";
+import { canCopyBetween, classifyEntry, groupByKind, isPlayableKind, storageCapabilities, validFolderName } from "../lib/storage";
 import { EmptyState, SearchField, useIncrementalCount } from "../ui/controls";
 import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
 import { Sheet } from "../ui/Sheet";
@@ -106,9 +108,10 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     loadPreference<Sort>("cove-browser-sort", { field: "name", ascending: true }, (value) => !!value && typeof value === "object" && "field" in value),
   );
   const [view, setView] = useState<ViewMode>(() => loadPreference<ViewMode>("cove-browser-view", "list", (value) => value === "list" || value === "grid"));
+  const [grouped, setGrouped] = useState<boolean>(() => loadPreference<boolean>("cove-browser-group", false, (value) => typeof value === "boolean"));
   const [quickLook, setQuickLook] = useState<CloudEntry | null>(null);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
-  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const request = useRef(0);
   const container = useRef<HTMLDivElement>(null);
@@ -155,6 +158,12 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const { count, sentinel } = useIncrementalCount(sorted.length, 300, `${account.id}|${path}|${filter}|${sort.field}|${sort.ascending}`);
   const visible = sorted.slice(0, count);
+  const sections = useMemo(
+    () => (grouped ? groupByKind(visible) : [{ kind: "all", title: "", entries: visible }]),
+    [grouped, visible],
+  );
+  // Keyboard order follows what is on screen, including kind sections.
+  const ordered = useMemo(() => sections.flatMap((section) => section.entries), [sections]);
   const selectedEntry = sorted.find((entry) => entry.id === selected) ?? null;
 
   const sourceAt = useCallback(
@@ -174,24 +183,46 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     savePreference("cove-browser-view", mode);
   };
 
+  const toggleGrouped = () => {
+    setGrouped((value) => {
+      savePreference("cove-browser-group", !value);
+      return !value;
+    });
+  };
+
   const go = (target: string) => onNavigate({ name: "storage", accountId: account.id, path: target });
 
   const play = async (entry: CloudEntry) => {
     const kind = classifyEntry(entry.name, false).kind;
     const siblings = entries.filter((item) => !item.isDir && classifyEntry(item.name, false).kind === kind);
-    setPlayingId(entry.id);
+    setBusyId(entry.id);
     try {
       await playStorageFile(account.id, entry.path, entry.name, entry.id, siblings);
     } catch (cause) {
       notify(`无法播放“${entry.name}”：${errorText(cause)}`, "error");
     } finally {
-      setPlayingId(null);
+      setBusyId(null);
+    }
+  };
+
+  /** PDFs open in the native reader; cloud copies are downloaded first. */
+  const read = async (entry: CloudEntry) => {
+    if (busyId) return;
+    setBusyId(entry.id);
+    try {
+      await openDocument(account.id, entry.path, entry.name, entry.id, entry.size);
+    } catch (cause) {
+      notify(`无法打开“${entry.name}”：${errorText(cause)}`, "error");
+    } finally {
+      setBusyId(null);
     }
   };
 
   const open = (entry: CloudEntry) => {
+    const kind = classifyEntry(entry.name, entry.isDir).kind;
     if (entry.isDir) go(entry.path);
-    else if (isPlayableKind(classifyEntry(entry.name, false).kind)) void play(entry);
+    else if (isPlayableKind(kind)) void play(entry);
+    else if (kind === "pdf") void read(entry);
     else setQuickLook(entry);
   };
 
@@ -232,16 +263,16 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       const label = name ?? folder.split("/").filter(Boolean).at(-1) ?? account.label;
       const source = await addMediaSource(account.id, kind, folder, label);
       library.addSource(source);
-      notify(`已将“${source.label}”设为${kind === "movie" ? "影视" : "音乐"}文件夹，正在扫描…`, "info");
+      notify(`已将“${source.label}”设为${kind === "movie" ? "影视" : kind === "music" ? "音乐" : "文档"}文件夹，正在扫描…`, "info");
     } catch (cause) {
       notify(`无法添加媒体文件夹：${errorText(cause)}`, "error");
     }
   };
 
   const libraryItems = (folder: string, name?: string): MenuEntry[] =>
-    (["movie", "music"] as const).map((kind) => {
+    (["movie", "music", "document"] as const).map((kind) => {
       const existing = sourceAt(kind, folder);
-      const noun = kind === "movie" ? "影视文件夹" : "音乐文件夹";
+      const noun = kind === "movie" ? "影视文件夹" : kind === "music" ? "音乐文件夹" : "文档文件夹";
       return existing
         ? { label: `移除${noun}…`, action: () => onRemoveSource(existing) }
         : { label: `设为${noun}`, enabled: folder !== "/", action: () => void addSource(kind, folder, name) };
@@ -251,9 +282,9 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     setSelected(entry.id);
     const kind = classifyEntry(entry.name, entry.isDir).kind;
     const items: MenuEntry[] = [
-      { label: entry.isDir ? "打开" : isPlayableKind(kind) ? "播放" : "打开", action: () => open(entry) },
+      { label: isPlayableKind(kind) ? "播放" : kind === "pdf" ? "阅读" : "打开", action: () => open(entry) },
     ];
-    if (!entry.isDir) items.push({ label: "快速查看", action: () => setQuickLook(entry) });
+    if (!entry.isDir && kind !== "pdf") items.push({ label: "快速查看", action: () => setQuickLook(entry) });
     if (capabilities.openNative) {
       if (!entry.isDir) items.push({ label: "用默认应用打开", action: () => void openNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
       items.push({ label: "在访达中显示", action: () => void revealNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
@@ -277,6 +308,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       { label: "刷新", action: () => setReload((value) => value + 1) },
       { label: "以列表显示", checked: view === "list", action: () => changeView("list") },
       { label: "以图标显示", checked: view === "grid", action: () => changeView("grid") },
+      { label: "按种类分组", checked: grouped, action: toggleGrouped },
       ...(path !== "/" ? (["separator", ...libraryItems(path)] as MenuEntry[]) : []),
     ]);
   };
@@ -324,9 +356,9 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (isEditableTarget(event.target)) return;
-    const index = visible.findIndex((entry) => entry.id === selected);
+    const index = ordered.findIndex((entry) => entry.id === selected);
     const select = (position: number) => {
-      const entry = visible[Math.max(0, Math.min(visible.length - 1, position))];
+      const entry = ordered[Math.max(0, Math.min(ordered.length - 1, position))];
       if (!entry) return;
       setSelected(entry.id);
       container.current?.querySelector(`[data-entry="${CSS.escape(entry.id)}"]`)?.scrollIntoView({ block: "nearest" });
@@ -351,13 +383,16 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     } else if (event.key === " " && !event.repeat) {
       event.preventDefault();
       event.stopPropagation();
-      if (selectedEntry && !selectedEntry.isDir) setQuickLook(selectedEntry);
+      if (selectedEntry && !selectedEntry.isDir) {
+        if (classifyEntry(selectedEntry.name, false).kind === "pdf") void read(selectedEntry);
+        else setQuickLook(selectedEntry);
+      }
     } else if (event.key === "Home") {
       event.preventDefault();
       select(0);
     } else if (event.key === "End") {
       event.preventDefault();
-      select(visible.length - 1);
+      select(ordered.length - 1);
     } else if (event.metaKey && event.key.toLowerCase() === "c" && selectedEntry) {
       event.preventDefault();
       if (Date.now() - lastCopy.current > 300) copy(selectedEntry);
@@ -406,6 +441,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const movieSource = sourceAt("movie", path);
   const musicSource = sourceAt("music", path);
+  const documentSource = sourceAt("document", path);
   const statusParts = [
     filter.trim() ? `${sorted.length} / ${plural(entries.length, "项")}` : plural(entries.length, "项"),
     selectedEntry ? `已选择“${selectedEntry.name}”` : null,
@@ -447,15 +483,16 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
               </button>
             </span>
           ))}
-          {(movieSource || musicSource) && (
+          {(movieSource || musicSource || documentSource) && (
             <span className="pathbar-badges">
               {movieSource && <span className="badge accent">影视文件夹</span>}
               {musicSource && <span className="badge accent">音乐文件夹</span>}
+              {documentSource && <span className="badge accent">文档文件夹</span>}
             </span>
           )}
         </nav>
         <div className="browser-tools">
-          {path !== "/" && !movieSource && !musicSource && (
+          {path !== "/" && !movieSource && !musicSource && !documentSource && (
             <button className="btn" onClick={(event) => void showContextMenu(event, libraryItems(path))}>
               <Plus size={12} />
               添加到资料库
@@ -472,6 +509,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
                 "separator",
                 { label: "以列表显示", checked: view === "list", action: () => changeView("list") },
                 { label: "以图标显示", checked: view === "grid", action: () => changeView("grid") },
+                { label: "按种类分组", checked: grouped, action: toggleGrouped },
                 "separator",
                 { label: "刷新", action: () => setReload((value) => value + 1) },
               ])
@@ -528,69 +566,91 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
               </button>
             </div>
             <div className="table-body">
-              {visible.map((entry) => {
-                const classification = classifyEntry(entry.name, entry.isDir);
-                const source = entry.isDir ? sourceAt("movie", entry.path) ?? sourceAt("music", entry.path) : undefined;
-                return (
-                  <div
-                    key={entry.id}
-                    data-entry={entry.id}
-                    role="row"
-                    aria-selected={selected === entry.id}
-                    className={`table-row ${dropTarget === entry.id ? "drop-target" : ""}`}
-                    onMouseDown={() => setSelected(entry.id)}
-                    onDoubleClick={() => open(entry)}
-                    onContextMenu={(event) => entryMenu(event, entry)}
-                    {...dragProps(entry)}
-                  >
-                    <span className="cell" title={entry.name}>
-                      {playingId === entry.id ? <LoaderCircle className="spin" size={15} /> : <EntryIcon kind={classification.kind} />}
-                      <span className="text">{entry.name}</span>
-                      {source && (
-                        <span className="badge accent">
-                          {source.kind === "movie" ? <Film size={9} /> : <Music2 size={9} />}
-                          {source.kind === "movie" ? "影视" : "音乐"}
+              {sections.map((section) => (
+                <Fragment key={section.kind}>
+                  {grouped && (
+                    <div className="kind-section" role="presentation">
+                      {section.title}
+                      <span>{section.entries.length}</span>
+                    </div>
+                  )}
+                  {section.entries.map((entry) => {
+                    const classification = classifyEntry(entry.name, entry.isDir);
+                    const source = entry.isDir
+                      ? sourceAt("movie", entry.path) ?? sourceAt("music", entry.path) ?? sourceAt("document", entry.path)
+                      : undefined;
+                    return (
+                      <div
+                        key={entry.id}
+                        data-entry={entry.id}
+                        role="row"
+                        aria-selected={selected === entry.id}
+                        className={`table-row ${dropTarget === entry.id ? "drop-target" : ""}`}
+                        onMouseDown={() => setSelected(entry.id)}
+                        onDoubleClick={() => open(entry)}
+                        onContextMenu={(event) => entryMenu(event, entry)}
+                        {...dragProps(entry)}
+                      >
+                        <span className="cell" title={entry.name}>
+                          {busyId === entry.id ? <LoaderCircle className="spin" size={15} /> : <EntryIcon kind={classification.kind} />}
+                          <span className="text">{entry.name}</span>
+                          {source && (
+                            <span className="badge accent">
+                              {source.kind === "movie" ? <Film size={9} /> : source.kind === "music" ? <Music2 size={9} /> : <FileText size={9} />}
+                              {source.kind === "movie" ? "影视" : source.kind === "music" ? "音乐" : "文档"}
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </span>
-                    <span className="cell secondary col-date">
-                      <span className="text">{formatDate(entry.modifiedAt)}</span>
-                    </span>
-                    <span className="cell end secondary tabular">{entry.isDir ? "--" : formatBytes(entry.size)}</span>
-                    <span className="cell secondary">
-                      <span className="text">{classification.label}</span>
-                    </span>
-                  </div>
-                );
-              })}
+                        <span className="cell secondary col-date">
+                          <span className="text">{formatDate(entry.modifiedAt)}</span>
+                        </span>
+                        <span className="cell end secondary tabular">{entry.isDir ? "--" : formatBytes(entry.size)}</span>
+                        <span className="cell secondary">
+                          <span className="text">{classification.label}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </Fragment>
+              ))}
               <div ref={sentinel} className="sentinel" />
             </div>
           </div>
         ) : (
           <div className={`icon-grid ${loading ? "refreshing" : ""}`} role="grid" aria-label="文件" tabIndex={0}>
-            {visible.map((entry) => {
-              const classification = classifyEntry(entry.name, entry.isDir);
-              return (
-                <div
-                  key={entry.id}
-                  data-entry={entry.id}
-                  role="gridcell"
-                  aria-selected={selected === entry.id}
-                  className={`icon-item ${dropTarget === entry.id ? "drop-target" : ""}`}
-                  title={entry.name}
-                  onMouseDown={() => setSelected(entry.id)}
-                  onDoubleClick={() => open(entry)}
-                  onContextMenu={(event) => entryMenu(event, entry)}
-                  {...dragProps(entry)}
-                >
-                  <span className="icon-item-art">
-                    {playingId === entry.id ? <LoaderCircle className="spin" size={24} /> : <EntryIcon kind={classification.kind} size={44} />}
-                  </span>
-                  <span className="icon-item-name">{entry.name}</span>
-                  <span className="icon-item-meta">{entry.isDir ? "文件夹" : formatBytes(entry.size)}</span>
-                </div>
-              );
-            })}
+            {sections.map((section) => (
+              <Fragment key={section.kind}>
+                {grouped && (
+                  <div className="kind-section" role="presentation">
+                    {section.title}
+                    <span>{section.entries.length}</span>
+                  </div>
+                )}
+                {section.entries.map((entry) => {
+                  const classification = classifyEntry(entry.name, entry.isDir);
+                  return (
+                    <div
+                      key={entry.id}
+                      data-entry={entry.id}
+                      role="gridcell"
+                      aria-selected={selected === entry.id}
+                      className={`icon-item ${dropTarget === entry.id ? "drop-target" : ""}`}
+                      title={entry.name}
+                      onMouseDown={() => setSelected(entry.id)}
+                      onDoubleClick={() => open(entry)}
+                      onContextMenu={(event) => entryMenu(event, entry)}
+                      {...dragProps(entry)}
+                    >
+                      <span className="icon-item-art">
+                        {busyId === entry.id ? <LoaderCircle className="spin" size={24} /> : <EntryIcon kind={classification.kind} size={44} />}
+                      </span>
+                      <span className="icon-item-name">{entry.name}</span>
+                      <span className="icon-item-meta">{entry.isDir ? "文件夹" : formatBytes(entry.size)}</span>
+                    </div>
+                  );
+                })}
+              </Fragment>
+            ))}
             <div ref={sentinel} className="sentinel" />
           </div>
         )}

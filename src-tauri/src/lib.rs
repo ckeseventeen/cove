@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod credentials;
 mod direct;
+mod documents;
 mod error;
 pub mod http_client;
 mod local_storage;
@@ -61,6 +62,7 @@ pub fn run() {
             app.set_menu(menu::build(app.handle())?)?;
             app.on_menu_event(|app, event| menu::handle(app, event.id().as_ref()));
             now_playing::install(app.handle().clone());
+            documents::install(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));
@@ -143,7 +145,10 @@ pub fn run() {
             commands::storage::open_native_path,
             commands::storage::reveal_native_path,
             commands::storage::read_text_preview,
-            now_playing::now_playing_info
+            now_playing::now_playing_info,
+            documents::document_open,
+            documents::document_open_file,
+            documents::document_progress_list
         ])
         .on_window_event(|window, event| {
             if window.label() == "main"
@@ -228,6 +233,20 @@ async fn run_self_test(app_handle: &tauri::AppHandle, path: &str) -> Result<()> 
     };
     let size = std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0);
     let state = app_handle.state::<AppState>();
+    if media_types::is_document(&name) {
+        let progress = documents::document_open(
+            "local".into(),
+            path.into(),
+            None,
+            name,
+            Some(size),
+            app_handle.clone(),
+            state.clone(),
+        )
+        .await?;
+        eprintln!("Cove reader self-test: page={} of {}", progress.page, progress.page_count);
+        return Ok(());
+    }
     let file_id = state
         .store
         .ensure_media_file("local", path, Some(path), &name, kind, size)?;
@@ -277,6 +296,7 @@ pub(crate) async fn stop_playback(app_handle: &tauri::AppHandle) {
     let _ = app_handle.emit("nimbus-player-state", player.cached_status());
     let _ = app_handle.emit("nimbus-player-stopped", ());
     if let Some(webview) = app_handle.get_webview_window("main") {
+        let _ = player::set_window_buttons_hidden(&webview, false);
         let _ = player.set_view_visible(&webview, false).await;
         let _ = webview.set_fullscreen(false);
         let _ = webview.set_focus();

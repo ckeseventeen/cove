@@ -6,7 +6,9 @@ import {
   listCachedMovies,
   listMediaFiles,
   listMediaSources,
+  listReadingProgress,
   listRecentPlayback,
+  onReadingProgress,
   removeAccount as removeAccountCommand,
   removeMediaSource,
   scanMediaSource,
@@ -15,6 +17,7 @@ import {
   type MediaFile,
   type MediaSource,
   type MovieMetadata,
+  type ReadingProgress,
   type RecentPlayback,
 } from "../lib/nimbus";
 import type { Notify } from "../ui/Toasts";
@@ -28,6 +31,7 @@ export function useLibrary(notify: Notify) {
   const [files, setFiles] = useState<MediaFile[]>([]);
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [recent, setRecent] = useState<RecentPlayback[]>([]);
+  const [reading, setReading] = useState<ReadingProgress[]>([]);
   const [movieMetadata, setMovieMetadataMap] = useState<Record<string, MovieMetadata>>({});
   const [loaded, setLoaded] = useState(false);
   const [scanningIds, setScanningIds] = useState<ReadonlySet<string>>(new Set());
@@ -35,6 +39,8 @@ export function useLibrary(notify: Notify) {
 
   const works = useMemo(() => buildMovieWorks(files.filter((file) => file.mediaKind === "movie")), [files]);
   const songs = useMemo(() => files.filter((file) => file.mediaKind === "music"), [files]);
+  const documents = useMemo(() => files.filter((file) => file.mediaKind === "document"), [files]);
+  const readingByKey = useMemo(() => new Map(reading.map((item) => [item.docKey, item])), [reading]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const workByFileId = useMemo(() => {
     const map = new Map<string, MediaWork>();
@@ -63,7 +69,19 @@ export function useLibrary(notify: Notify) {
       .catch(() => undefined);
   }, []);
 
+  // The reader reports page changes; keep the newest entry first.
+  useEffect(
+    () =>
+      onReadingProgress((progress) =>
+        setReading((current) => [progress, ...current.filter((item) => item.docKey !== progress.docKey)]),
+      ),
+    [],
+  );
+
   useEffect(() => {
+    void listReadingProgress()
+      .then(setReading)
+      .catch(() => undefined);
     Promise.all([getStatus(), listAccounts(), listMediaSources(), listMediaFiles(), listRecentPlayback(), listCachedMovies()])
       .then(([nextStatus, nextAccounts, nextSources, nextFiles, nextRecent, cached]) => {
         const initial: Record<string, MovieMetadata> = {};
@@ -166,6 +184,9 @@ export function useLibrary(notify: Notify) {
     recent,
     works,
     songs,
+    documents,
+    reading,
+    readingByKey,
     filesById,
     workByFileId,
     movieMetadata,

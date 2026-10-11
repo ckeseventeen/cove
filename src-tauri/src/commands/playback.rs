@@ -116,6 +116,16 @@ pub(crate) async fn player_control(
         }
         return Ok(());
     }
+    if action == "chrome" {
+        // value 1 = controls visible, 0 = hidden; the traffic lights follow the controls.
+        let main = window
+            .app_handle()
+            .get_webview_window("main")
+            .unwrap_or_else(|| window.clone());
+        let hidden = value.unwrap_or(1.0) < 0.5 && state.player.current_file_id().is_some();
+        player::set_window_buttons_hidden(&main, hidden)?;
+        return Ok(());
+    }
     if action == "controls_space" {
         state
             .player

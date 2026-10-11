@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_media_files_account_path ON media_files(account_i
 CREATE TABLE IF NOT EXISTS media_sources (
   id TEXT PRIMARY KEY,
   account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL CHECK (kind IN ('movie', 'music')),
+  kind TEXT NOT NULL CHECK (kind IN ('movie', 'music', 'document')),
   remote_root TEXT NOT NULL,
   label TEXT NOT NULL,
   last_scan_at INTEGER,

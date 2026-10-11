@@ -5,6 +5,7 @@ export type Route =
   | { name: "storage"; accountId: string; path: string }
   | { name: "movies"; sourceId?: string }
   | { name: "music"; sourceId?: string }
+  | { name: "documents"; sourceId?: string }
   | { name: "search" }
   | { name: "settings" }
   | { name: "help" };
@@ -24,7 +25,7 @@ export function sameRoute(left: Route, right: Route) {
   if (left.name === "storage" && right.name === "storage") {
     return left.accountId === right.accountId && left.path === right.path;
   }
-  if ((left.name === "movies" || left.name === "music") && left.name === right.name) {
+  if ((left.name === "movies" || left.name === "music" || left.name === "documents") && left.name === right.name) {
     return (left.sourceId ?? null) === ((right as { sourceId?: string }).sourceId ?? null);
   }
   return true;
@@ -73,6 +74,7 @@ export function sidebarKey(route: Route) {
       return `account:${route.accountId}`;
     case "movies":
     case "music":
+    case "documents":
       return route.sourceId ? `source:${route.sourceId}` : route.name;
     default:
       return route.name;

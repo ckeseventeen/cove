@@ -31,6 +31,8 @@ Google Drive 与 OneDrive 当前使用 OAuth Access Token 接入，令牌存入 
 - 媒体键、AirPods 与“控制中心”的“正在播放”（含封面）通过 `MPRemoteCommandCenter` / `MPNowPlayingInfoCenter` 接入。
 - 关闭窗口时：播放音乐则隐藏窗口继续播放（同“音乐”App）；播放视频则停止视频回到资料库。退出应用时保存播放进度。
 - 文件浏览器采用访达交互：单击选中、双击打开、空格快速查看、⌘↑ 上一级、⌘C/⌘V 拷贝粘贴、返回/前进历史。
+- 资料库分为影视、音乐、文档（PDF）；文件浏览器可按种类分组。PDF 在原生 PDFKit 窗口中阅读并记住页码，音乐记住上次的歌曲和位置。
+- 播放视频时只有一条简洁的控制条；红黄绿灯负责关闭（回到资料库）、最小化与全屏。
 
 前端结构：`src/app`（窗口外壳、导航历史、资料库数据）、`src/player`（播放状态与音乐/视频界面）、`src/views`（各页面）、`src/ui`（通用控件）、`src/styles`（设计令牌与样式）。
 
@@ -74,10 +76,10 @@ npm run bundle:mac
 
 普通构建不嵌入 `.env`。仅个人本机使用的构建可显式执行 `npm run bundle:mac:personal`；该产物包含个人开发配置，不应公开分发。百度/TMDB 也可通过运行环境变量提供配置。
 
-`NIMBUS_DATA_DIR` 可指定独立数据库目录，用于隔离测试数据。`NIMBUS_TEST_MEDIA=/绝对路径/文件` 会在启动后通过正常播放流程打开该本地文件，用于原生播放器自测。
+`NIMBUS_DATA_DIR` 可指定独立数据库目录，用于隔离测试数据。`NIMBUS_TEST_MEDIA=/绝对路径/文件` 会在启动后通过正常流程打开该本地文件（影音进入播放器，PDF 进入阅读窗口），用于原生自测。
 
 浏览器预览：`npm run dev` 后打开 `/?demo=1` 使用演示数据（含模拟播放器，可验证歌词、待播清单与全屏播放界面）；`/tests/music-layout.html` 会自动播放一首带长歌词的演示歌曲。演示环境不连接云盘，也不播放视频。
 
 个人 Space 定位、功能缺口、已修复问题、流程验收与架构规划见 [最新业务验收报告](docs/PERSONAL-SPACE-ACCEPTANCE.md)。
 
-本轮原生化改造的审查发现、交互变化与验收记录见 [docs/NATIVE-REDESIGN-2026-10-10.md](docs/NATIVE-REDESIGN-2026-10-10.md)，界面精简见 [docs/NATIVE-REDESIGN-2026-10-11-simplify.md](docs/NATIVE-REDESIGN-2026-10-11-simplify.md)。
+本轮原生化改造的审查发现、交互变化与验收记录见 [docs/NATIVE-REDESIGN-2026-10-10.md](docs/NATIVE-REDESIGN-2026-10-10.md)，界面精简见 [docs/NATIVE-REDESIGN-2026-10-11-simplify.md](docs/NATIVE-REDESIGN-2026-10-11-simplify.md)，文档分类、PDF 阅读与记忆见 [docs/DOCUMENTS-MEMORY-2026-10-11.md](docs/DOCUMENTS-MEMORY-2026-10-11.md)。

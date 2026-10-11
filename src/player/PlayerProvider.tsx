@@ -10,13 +10,17 @@ import {
   setNowPlayingInfo,
   type MediaFile,
   type MusicMetadata,
+  type RecentPlayback,
 } from "../lib/nimbus";
 import { nextQueueIndex, shuffleUpcoming, type RepeatMode } from "../lib/playback";
 import type { Notify } from "../ui/Toasts";
 import { onStatus, readStatus } from "./statusStore";
 
 export type PanelKind = "lyrics" | "queue";
-type OpenOptions = { queue?: MediaFile[]; fromStart?: boolean; keepQueue?: boolean };
+type OpenOptions = { queue?: MediaFile[]; fromStart?: boolean; keepQueue?: boolean; resume?: boolean };
+type Resume = { position: number; duration: number };
+
+const SESSION_KEY = "cove-music-session";
 
 export type PlayerApi = {
   nowPlaying: MediaFile | null;
@@ -31,6 +35,8 @@ export type PlayerApi = {
   error: string;
   panel: PanelKind | null;
   fullScreen: boolean;
+  /** A song restored from the last session: shown paused, resumes from here. */
+  resumeAt: Resume | null;
   play: (file: MediaFile, options?: OpenOptions) => Promise<void>;
   playShuffled: (files: MediaFile[]) => void;
   togglePlay: () => void;
@@ -80,10 +86,17 @@ export function PlayerProvider({
   children,
   notify,
   onPlaybackStarted,
+  songs = [],
+  recent = [],
+  loaded = false,
 }: {
   children: ReactNode;
   notify: Notify;
   onPlaybackStarted?: () => void;
+  /** Library songs and saved positions, used to restore the last session. */
+  songs?: MediaFile[];
+  recent?: RecentPlayback[];
+  loaded?: boolean;
 }) {
   const [nowPlaying, setNowPlaying] = useState<MediaFile | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -96,6 +109,8 @@ export function PlayerProvider({
   const [error, setError] = useState("");
   const [panel, setPanel] = useState<PanelKind | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
+  const [resumeAt, setResumeAt] = useState<Resume | null>(null);
+  const restoreAttempted = useRef(false);
 
   const generation = useRef(0);
   const originalOrder = useRef<string[]>([]);
@@ -126,7 +141,7 @@ export function PlayerProvider({
   }, []);
 
   const play = useCallback(
-    async (file: MediaFile, { queue: candidates, fromStart = false, keepQueue = false }: OpenOptions = {}) => {
+    async (file: MediaFile, { queue: candidates, fromStart = false, keepQueue = false, resume = false }: OpenOptions = {}) => {
       const request = ++generation.current;
       setOpeningId(file.id);
       setError("");
@@ -141,10 +156,11 @@ export function PlayerProvider({
         setNowPlaying(file);
       }
       try {
-        // Songs always start at the top; videos resume where they were left.
-        await openNativePlayer(file.id, fromStart || music);
+        // Videos resume where they were left; songs start at the top unless resuming the last session.
+        await openNativePlayer(file.id, fromStart || (music && !resume));
         if (request === generation.current) {
           setNowPlaying(file);
+          setResumeAt(null);
           started.current?.();
         }
       } catch (cause) {
@@ -159,6 +175,37 @@ export function PlayerProvider({
     },
     [notify],
   );
+
+  // Remember the song and queue so the next launch can pick up where this one stopped.
+  useEffect(() => {
+    if (!nowPlaying || !isMusic(nowPlaying)) return;
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ current: nowPlaying.id, queue: queue.slice(0, 1000).map((file) => file.id) }));
+    } catch {
+      // Session memory is best effort.
+    }
+  }, [nowPlaying, queue]);
+
+  // Restore it once the library has loaded, paused, without starting playback.
+  useEffect(() => {
+    if (restoreAttempted.current || !loaded || !songs.length) return;
+    restoreAttempted.current = true;
+    if (latest.current.nowPlaying || readStatus().fileId) return;
+    let session: { current?: string; queue?: string[] } | null = null;
+    try {
+      session = JSON.parse(localStorage.getItem(SESSION_KEY) ?? "null");
+    } catch {
+      return;
+    }
+    const byId = new Map(songs.map((file) => [file.id, file]));
+    const file = session?.current ? byId.get(session.current) : undefined;
+    if (!file) return;
+    const restored = (session?.queue ?? []).flatMap((id) => byId.get(id) ?? []);
+    setQueue(restored.some((item) => item.id === file.id) ? restored : [file]);
+    setNowPlaying(file);
+    const saved = recent.find((item) => item.fileId === file.id);
+    setResumeAt({ position: saved?.position ?? 0, duration: saved?.duration ?? 0 });
+  }, [loaded, recent, songs]);
 
   // Follow the backend: files started elsewhere, stops, and the end of a song.
   useEffect(() => {
@@ -267,6 +314,7 @@ export function PlayerProvider({
       error,
       panel,
       fullScreen,
+      resumeAt,
       play,
       playShuffled(files) {
         if (!files.length) return;
@@ -281,7 +329,8 @@ export function PlayerProvider({
         if (!nowPlaying || openingId) return;
         const status = readStatus();
         if (status.fileId !== nowPlaying.id || status.eofReached) {
-          void play(nowPlaying, { fromStart: true, keepQueue: true });
+          const resume = !!resumeAt && status.fileId !== nowPlaying.id;
+          void play(nowPlaying, { fromStart: !resume, resume, keepQueue: true });
         } else {
           command("play_pause");
         }
@@ -314,6 +363,12 @@ export function PlayerProvider({
         command("stop");
         setNowPlaying(null);
         setFullScreen(false);
+        setResumeAt(null);
+        try {
+          localStorage.removeItem(SESSION_KEY);
+        } catch {
+          // Session memory is best effort.
+        }
       },
       toggleShuffle() {
         if (queue.length < 2) return;
@@ -367,7 +422,7 @@ export function PlayerProvider({
       setPanel,
       setFullScreen,
     };
-  }, [command, currentIndex, error, fullScreen, isVideo, metadata, metadataLoading, nowPlaying, openingId, panel, play, queue, repeat, shuffle]);
+  }, [command, currentIndex, error, fullScreen, isVideo, metadata, metadataLoading, nowPlaying, openingId, panel, play, queue, repeat, resumeAt, shuffle]);
 
   return <PlayerContext.Provider value={api}>{children}</PlayerContext.Provider>;
 }

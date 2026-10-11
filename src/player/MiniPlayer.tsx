@@ -106,8 +106,12 @@ export function TransportButtons({ size = 16, extended = true }: { size?: number
 export function ProgressBar({ className = "" }: { className?: string }) {
   const player = usePlayer();
   const id = player.nowPlaying?.id;
-  const position = usePlayerStatus((status) => (status.fileId === id ? Math.floor(status.position) : 0));
-  const duration = usePlayerStatus((status) => (status.fileId === id ? Math.floor(status.duration) : 0));
+  const live = usePlayerStatus((status) => status.fileId === id && !!id);
+  const livePosition = usePlayerStatus((status) => (status.fileId === id ? Math.floor(status.position) : 0));
+  const liveDuration = usePlayerStatus((status) => (status.fileId === id ? Math.floor(status.duration) : 0));
+  // A song restored from the last session shows where it will resume.
+  const position = live ? livePosition : Math.floor(player.resumeAt?.position ?? 0);
+  const duration = live ? liveDuration : Math.floor(player.resumeAt?.duration ?? 0);
   return (
     <div className={`progress-row ${className}`}>
       <span className="time tabular">{formatClock(position)}</span>
@@ -118,7 +122,7 @@ export function ProgressBar({ className = "" }: { className?: string }) {
         max={Math.max(duration, 1)}
         value={position}
         valueText={`${formatClock(position)} / ${formatClock(duration)}`}
-        disabled={duration <= 0 || !!player.openingId}
+        disabled={!live || duration <= 0 || !!player.openingId}
         onCommit={player.seek}
       />
       <span className="time tabular">-{formatClock(Math.max(0, duration - position))}</span>

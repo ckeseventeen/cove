@@ -4,7 +4,7 @@ use rusqlite::{params, Connection};
 
 use crate::{
     error::{NimbusError, Result},
-    model::{Account, MediaFile, MediaSource, StoredAccount},
+    model::{Account, MediaFile, MediaSource, ReadingProgress, StoredAccount},
 };
 
 pub struct Store {
@@ -75,10 +75,106 @@ impl Store {
         if version < 3 {
             connection.execute_batch("BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS metadata_overrides(file_id TEXT PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE, query TEXT NOT NULL); PRAGMA user_version=3; COMMIT;")?;
         }
+        if version < 4 {
+            // Media folders may now hold documents; SQLite needs a table rebuild to change a CHECK.
+            let sources_schema: String = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_sources'",
+                [],
+                |row| row.get(0),
+            )?;
+            if !sources_schema.contains("'document'") {
+                connection.execute_batch(
+                    "PRAGMA foreign_keys = OFF;
+                     BEGIN IMMEDIATE;
+                     CREATE TABLE media_sources_v4 (
+                       id TEXT PRIMARY KEY,
+                       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                       kind TEXT NOT NULL CHECK (kind IN ('movie', 'music', 'document')),
+                       remote_root TEXT NOT NULL,
+                       label TEXT NOT NULL,
+                       last_scan_at INTEGER,
+                       created_at INTEGER NOT NULL,
+                       UNIQUE (account_id, kind, remote_root)
+                     );
+                     INSERT INTO media_sources_v4 (id, account_id, kind, remote_root, label, last_scan_at, created_at)
+                       SELECT id, account_id, kind, remote_root, label, last_scan_at, created_at FROM media_sources;
+                     DROP TABLE media_sources;
+                     ALTER TABLE media_sources_v4 RENAME TO media_sources;
+                     COMMIT;
+                     PRAGMA foreign_keys = ON;",
+                )?;
+            }
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS reading_progress (
+                   doc_key TEXT PRIMARY KEY,
+                   account_id TEXT NOT NULL,
+                   path TEXT NOT NULL,
+                   entry_id TEXT NOT NULL DEFAULT '',
+                   name TEXT NOT NULL,
+                   size INTEGER NOT NULL DEFAULT 0,
+                   page INTEGER NOT NULL DEFAULT 0,
+                   page_count INTEGER NOT NULL DEFAULT 0,
+                   updated_at INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 4;
+                 COMMIT;",
+            )?;
+        }
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self {
             connection: parking_lot::Mutex::new(connection),
         })
+    }
+
+    /// Record that a document was opened, keeping the page already reached.
+    pub fn touch_reading_document(&self, document: &ReadingProgress) -> Result<ReadingProgress> {
+        let connection = self.connection.lock();
+        connection.execute(
+            "INSERT INTO reading_progress (doc_key, account_id, path, entry_id, name, size, page, page_count, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, unixepoch())
+             ON CONFLICT(doc_key) DO UPDATE SET account_id = excluded.account_id, path = excluded.path,
+               entry_id = excluded.entry_id, name = excluded.name, size = excluded.size, updated_at = excluded.updated_at",
+            params![
+                document.doc_key,
+                document.account_id,
+                document.path,
+                document.entry_id,
+                document.name,
+                document.size
+            ],
+        )?;
+        drop(connection);
+        self.reading_progress(&document.doc_key)?
+            .ok_or_else(|| NimbusError::Internal("阅读记录写入失败".into()))
+    }
+
+    pub fn save_reading_page(&self, doc_key: &str, page: u32, page_count: u32) -> Result<()> {
+        self.connection.lock().execute(
+            "UPDATE reading_progress SET page = ?2, page_count = ?3, updated_at = unixepoch() WHERE doc_key = ?1",
+            params![doc_key, page, page_count],
+        )?;
+        Ok(())
+    }
+
+    pub fn reading_progress(&self, doc_key: &str) -> Result<Option<ReadingProgress>> {
+        let connection = self.connection.lock();
+        let mut statement = connection.prepare(
+            "SELECT doc_key, account_id, path, entry_id, name, size, page, page_count, updated_at
+             FROM reading_progress WHERE doc_key = ?1",
+        )?;
+        let mut rows = statement.query_map([doc_key], reading_row)?;
+        Ok(rows.next().transpose()?)
+    }
+
+    pub fn list_reading_progress(&self, limit: usize) -> Result<Vec<ReadingProgress>> {
+        let connection = self.connection.lock();
+        let mut statement = connection.prepare(
+            "SELECT doc_key, account_id, path, entry_id, name, size, page, page_count, updated_at
+             FROM reading_progress ORDER BY updated_at DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([limit as i64], reading_row)?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
 
     pub fn metadata_override(&self, file_id: &str) -> Result<Option<String>> {
@@ -445,6 +541,20 @@ impl Store {
         )?;
         Ok(file_id)
     }
+}
+
+fn reading_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReadingProgress> {
+    Ok(ReadingProgress {
+        doc_key: row.get(0)?,
+        account_id: row.get(1)?,
+        path: row.get(2)?,
+        entry_id: row.get(3)?,
+        name: row.get(4)?,
+        size: row.get(5)?,
+        page: row.get(6)?,
+        page_count: row.get(7)?,
+        updated_at: row.get(8)?,
+    })
 }
 
 #[cfg(test)]

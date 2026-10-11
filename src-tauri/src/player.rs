@@ -53,6 +53,19 @@ unsafe extern "C" {
     fn nimbus_attach_controls_window(parent: *mut c_void, child: *mut c_void);
     fn nimbus_detach_controls_window(child: *mut c_void);
     fn nimbus_mpv_view_clear(view: *mut c_void);
+    fn nimbus_window_buttons_set_hidden(window: *mut c_void, hidden: bool);
+}
+
+/// Show or hide the main window's traffic lights (used while video controls are hidden).
+pub fn set_window_buttons_hidden(window: &WebviewWindow, hidden: bool) -> Result<()> {
+    let native = window
+        .ns_window()
+        .map_err(|error| NimbusError::Internal(format!("无法取得主窗口：{error}")))? as usize;
+    window
+        .run_on_main_thread(move || unsafe {
+            nimbus_window_buttons_set_hidden(native as *mut c_void, hidden);
+        })
+        .map_err(|error| NimbusError::Internal(error.to_string()))
 }
 
 pub fn attach_controls_window(parent: &WebviewWindow, child: &WebviewWindow) -> Result<()> {

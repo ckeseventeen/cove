@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { MediaWork } from "../lib/media";
@@ -17,6 +18,7 @@ import { AddStorageSheet } from "../views/AddStorageSheet";
 import { HelpView } from "../views/HelpView";
 import { HomeView } from "../views/HomeView";
 import { MovieDetailSheet } from "../views/MovieDetailSheet";
+import { DocumentsView } from "../views/DocumentsView";
 import { MoviesView } from "../views/MoviesView";
 import { MusicView } from "../views/MusicView";
 import { SearchView } from "../views/SearchView";
@@ -51,7 +53,13 @@ export function MainWindow() {
   const { toasts, notify, dismiss } = useToasts();
   const library = useLibrary(notify);
   return (
-    <PlayerProvider notify={notify} onPlaybackStarted={library.refreshRecent}>
+    <PlayerProvider
+      notify={notify}
+      onPlaybackStarted={library.refreshRecent}
+      songs={library.songs}
+      recent={library.recent}
+      loaded={library.loaded}
+    >
       <Shell library={library} notify={notify} />
       <Toasts toasts={toasts} onDismiss={dismiss} />
       <MenuHost />
@@ -173,13 +181,18 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     (source: MediaSource) =>
       setAlert({
         title: `移除“${source.label}”？`,
-        message: `其中的${source.kind === "movie" ? "影片与剧集" : "歌曲"}会从资料库中移除。存储中的文件不会被删除。`,
+        message: `其中的${source.kind === "movie" ? "影片与剧集" : source.kind === "music" ? "歌曲" : "文档"}会从资料库中移除。存储中的文件不会被删除。`,
         icon: <Trash2 size={28} color="var(--red)" />,
         confirmLabel: "移除",
         destructive: true,
         onConfirm: async () => {
           if (!(await library.removeSource(source))) return;
-          moveTo(pruneHistory(historyRef.current, (item) => (item.name === "movies" || item.name === "music") && item.sourceId === source.id));
+          moveTo(
+            pruneHistory(
+              historyRef.current,
+              (item) => (item.name === "movies" || item.name === "music" || item.name === "documents") && item.sourceId === source.id,
+            ),
+          );
         },
       }),
     [library, moveTo],
@@ -204,6 +217,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return navigate({ name: "movies" });
       case "cove.go.music":
         return navigate({ name: "music" });
+      case "cove.go.documents":
+        return navigate({ name: "documents" });
       case "cove.back":
         return back();
       case "cove.forward":
@@ -238,6 +253,20 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
 
   useEffect(() => onMenuAction((id) => command.current(id)), []);
 
+  // During video the title-bar strip belongs to this window; moving there reveals the controls.
+  useEffect(() => {
+    if (!player.isVideo || !isTauri()) return;
+    let last = 0;
+    const reveal = () => {
+      const now = Date.now();
+      if (now - last < 300) return;
+      last = now;
+      void emit("cove-video-reveal").catch(() => undefined);
+    };
+    window.addEventListener("mousemove", reveal);
+    return () => window.removeEventListener("mousemove", reveal);
+  }, [player.isVideo]);
+
   // Browser layout fixture (tests/music-layout.html): start a song with long lyrics.
   const fixtureStarted = useRef(false);
   useEffect(() => {
@@ -256,6 +285,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       "1": "cove.go.home",
       "2": "cove.go.movies",
       "3": "cove.go.music",
+      "4": "cove.go.documents",
       "[": "cove.back",
       "]": "cove.forward",
       ArrowRight: "cove.next",
@@ -287,7 +317,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
   const page = (() => {
     switch (route.name) {
       case "home":
-        return <HomeView library={library} onNavigate={navigate} onOpenWork={setDetail} onAddStorage={() => setAddingStorage(true)} />;
+        return <HomeView library={library} notify={notify} onNavigate={navigate} onOpenWork={setDetail} onAddStorage={() => setAddingStorage(true)} />;
       case "storage":
         return account ? (
           <StorageView
@@ -310,8 +340,10 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return <MoviesView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onOpenWork={setDetail} onNavigate={navigate} />;
       case "music":
         return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} />;
+      case "documents":
+        return <DocumentsView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} notify={notify} />;
       case "search":
-        return <SearchView key={query.trim()} query={query} library={library} onNavigate={navigate} onOpenWork={setDetail} />;
+        return <SearchView key={query.trim()} query={query} library={library} notify={notify} onNavigate={navigate} onOpenWork={setDetail} />;
       case "settings":
         return (
           <SettingsView

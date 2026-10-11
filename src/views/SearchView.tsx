@@ -1,23 +1,27 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Film, Search } from "lucide-react";
+import { ChevronRight, Film, LoaderCircle, Search } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
 import { matchesMusicQuery, providerLabel, type MediaWork } from "../lib/media";
 import { EmptyState } from "../ui/controls";
-import { ProviderGlyph } from "../ui/glyphs";
+import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
+import type { Notify } from "../ui/Toasts";
+import { documentKey, readingLabel, useOpenDocument } from "./DocumentsView";
 import { SongTable } from "./MusicView";
 import { workSubtitle } from "./MoviesView";
 
 type Props = {
   query: string;
   library: Library;
+  notify: Notify;
   onNavigate: (route: Route) => void;
   onOpenWork: (work: MediaWork) => void;
 };
 
 /** Search across the whole library — works, songs and storage locations. */
-export function SearchView({ query, library, onNavigate, onOpenWork }: Props) {
+export function SearchView({ query, library, notify, onNavigate, onOpenWork }: Props) {
+  const { open: openDocument, openingId } = useOpenDocument(notify);
   const [workLimit, setWorkLimit] = useState(12);
   const [songLimit, setSongLimit] = useState(30);
   const needle = query.trim().toLocaleLowerCase();
@@ -41,6 +45,9 @@ export function SearchView({ query, library, onNavigate, onOpenWork }: Props) {
     [library.movieMetadata, library.works, needle],
   );
   const songs = useMemo(() => (needle ? library.songs.filter((file) => matchesMusicQuery(file, query)) : []), [library.songs, needle, query]);
+  const documents = needle
+    ? library.documents.filter((file) => matches(file.displayName) || matches(file.cloudPath) || matches(file.remotePath))
+    : [];
   const locations = needle
     ? library.accounts.filter(
         (account) =>
@@ -61,11 +68,11 @@ export function SearchView({ query, library, onNavigate, onOpenWork }: Props) {
       <header className="page-header">
         <div className="heading">
           <h1 className="large-title">“{query.trim()}”</h1>
-          <p className="page-subtitle">搜索已整理的影视、音乐和存储位置。其他文件请在“文件”中查找。</p>
+          <p className="page-subtitle">搜索已整理的影视、音乐、文档和存储位置。</p>
         </div>
       </header>
 
-      {!works.length && !songs.length && !locations.length && (
+      {!works.length && !songs.length && !documents.length && !locations.length && (
         <EmptyState icon={<Search size={40} strokeWidth={1.4} />} title="无结果" message={`没有找到与“${query.trim()}”相关的内容。试试更短的关键词。`} />
       )}
 
@@ -109,6 +116,25 @@ export function SearchView({ query, library, onNavigate, onOpenWork }: Props) {
             )}
           </div>
           <SongTable songs={songs} onNavigate={onNavigate} resetKey={query} limit={songLimit} />
+        </section>
+      )}
+
+      {documents.length > 0 && (
+        <section className="section">
+          <div className="section-header">
+            <h2 className="section-title">文档 · {plural(documents.length, "份")}</h2>
+          </div>
+          <div className="group-box">
+            {documents.slice(0, 30).map((file) => (
+              <button key={file.id} className="group-row" onClick={() => void openDocument(file)}>
+                {openingId === file.id ? <LoaderCircle className="spin" size={16} /> : <EntryIcon kind="pdf" size={18} />}
+                <span className="row-main">
+                  <span className="row-title">{file.displayName.replace(/\.pdf$/i, "")}</span>
+                  <span className="row-subtitle">{readingLabel(library.readingByKey.get(documentKey(file)))}</span>
+                </span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
 

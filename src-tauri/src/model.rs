@@ -81,6 +81,21 @@ pub struct MediaSource {
     pub last_scan_at: Option<i64>,
 }
 
+/// Where a document was last read, so the reader can reopen it on the same page.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadingProgress {
+    pub doc_key: String,
+    pub account_id: String,
+    pub path: String,
+    pub entry_id: String,
+    pub name: String,
+    pub size: u64,
+    pub page: u32,
+    pub page_count: u32,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {

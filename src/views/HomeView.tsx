@@ -1,21 +1,25 @@
-import { Film, Music2, Play, Plus } from "lucide-react";
+import { useState } from "react";
+import { FileType2, Film, LoaderCircle, Music2, Play, Plus } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
-import { formatRemaining } from "../lib/format";
+import { formatRelative, formatRemaining } from "../lib/format";
 import { containingFolder, episodeLabel, songParts, type MediaWork } from "../lib/media";
 import { showContextMenu } from "../lib/native";
-import type { MediaFile, RecentPlayback } from "../lib/nimbus";
+import { openDocument, type MediaFile, type ReadingProgress, type RecentPlayback } from "../lib/nimbus";
+import type { Notify } from "../ui/Toasts";
+import { readingLabel } from "./DocumentsView";
 import { usePlayer } from "../player/PlayerProvider";
 import { EmptyState } from "../ui/controls";
 
 type Props = {
   library: Library;
+  notify: Notify;
   onNavigate: (route: Route) => void;
   onOpenWork: (work: MediaWork) => void;
   onAddStorage: () => void;
 };
 
-export function HomeView({ library, onNavigate, onOpenWork, onAddStorage }: Props) {
+export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage }: Props) {
   const player = usePlayer();
   const history = library.recent.flatMap((item) => {
     const file = library.filesById.get(item.fileId);
@@ -23,6 +27,7 @@ export function HomeView({ library, onNavigate, onOpenWork, onAddStorage }: Prop
   });
   const cloudCount = library.accounts.filter((account) => account.provider !== "local").length;
   const isNew = library.loaded && !library.sources.length && !cloudCount;
+  const reading = library.reading.filter((item) => item.pageCount > 0);
 
   return (
     <div className="page home">
@@ -82,11 +87,24 @@ export function HomeView({ library, onNavigate, onOpenWork, onAddStorage }: Prop
         </section>
       )}
 
-      {!isNew && !history.length && (
+      {reading.length > 0 && (
+        <section className="section">
+          <div className="section-header">
+            <h2 className="section-title">继续阅读</h2>
+          </div>
+          <div className="resume-grid">
+            {reading.slice(0, 6).map((item) => (
+              <ReadingCard key={item.docKey} item={item} notify={notify} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {!isNew && !history.length && !reading.length && (
         <EmptyState
           icon={<Play size={40} strokeWidth={1.3} />}
-          title="还没有播放记录"
-          message="在影视或音乐中开始播放后，可以在这里从上次停下的地方继续。"
+          title="还没有播放或阅读记录"
+          message="播放影视、音乐或阅读 PDF 后，可以在这里从上次停下的地方继续。"
         />
       )}
     </div>
@@ -162,6 +180,37 @@ function ResumeCard({
             <span className="resume-detail">{formatRemaining(item.position, item.duration)}</span>
           </>
         )}
+      </span>
+    </button>
+  );
+}
+
+function ReadingCard({ item, notify }: { item: ReadingProgress; notify: Notify }) {
+  const [opening, setOpening] = useState(false);
+  const ratio = item.pageCount ? Math.min(1, (item.page + 1) / item.pageCount) : 0;
+  const open = async () => {
+    if (opening) return;
+    setOpening(true);
+    try {
+      await openDocument(item.accountId, item.path, item.name, item.entryId, item.size);
+    } catch (cause) {
+      notify(`无法打开“${item.name}”：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+    } finally {
+      setOpening(false);
+    }
+  };
+  return (
+    <button className="resume-card" onClick={() => void open()}>
+      <span className="resume-art document">
+        {opening ? <LoaderCircle className="spin" size={18} /> : <FileType2 size={20} strokeWidth={1.6} />}
+      </span>
+      <span className="resume-text">
+        <span className="resume-title truncate">{item.name.replace(/\.pdf$/i, "")}</span>
+        <span className="resume-detail truncate">{readingLabel(item)}</span>
+        <span className="progress">
+          <span style={{ width: `${ratio * 100}%` }} />
+        </span>
+        <span className="resume-detail">{formatRelative(item.updatedAt)}</span>
       </span>
     </button>
   );

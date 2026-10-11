@@ -93,6 +93,15 @@
 .resume-art.square {
   height: 44px;
 }
+.resume-art.document {
+  background: linear-gradient(160deg, #fff, #ececf0);
+  color: var(--red);
+}
+@media (prefers-color-scheme: dark) {
+  .resume-art.document {
+    background: linear-gradient(160deg, #3c3c40, #2c2c30);
+  }
+}
 .resume-art img {
   position: absolute;
   inset: 0;
@@ -639,6 +648,9 @@
 .entry-icon.kind-image {
   color: var(--orange);
 }
+.entry-icon.kind-pdf {
+  color: var(--red);
+}
 .entry-icon.kind-text,
 .entry-icon.kind-document {
   color: var(--gray);
@@ -832,4 +844,45 @@ kbd.keys {
   .page {
     padding-inline: 22px;
   }
+}
+
+/* Documents */
+.table.documents {
+  container-type: inline-size;
+}
+.reading-bar {
+  flex: 0 0 48px;
+  height: 3px;
+}
+@container (max-width: 520px) {
+  .table.documents .table-header,
+  .table.documents .table-row {
+    grid-template-columns: minmax(150px, 2fr) minmax(110px, 1fr) 72px !important;
+  }
+  .table.documents .col-folder {
+    display: none;
+  }
+}
+
+/* Kind sections (Group by Kind) */
+.kind-section {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 30px;
+  padding: 10px 8px 0;
+  color: var(--label);
+  font-size: var(--text-callout);
+  font-weight: 700;
+}
+.kind-section span {
+  color: var(--label-secondary);
+  font-weight: 400;
+}
+.icon-grid .kind-section {
+  grid-column: 1 / -1;
+  padding-left: 4px;
+}
+.table-body .kind-section + .table-row {
+  margin-top: 2px;
 }

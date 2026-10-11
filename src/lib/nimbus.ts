@@ -8,6 +8,7 @@ import {
   previewFiles,
   previewMetadata,
   previewMusicMetadata,
+  previewReading,
   previewRecent,
   previewSources,
 } from "./preview";
@@ -49,7 +50,7 @@ export type MediaFile = {
   mimeType?: string;
   sourceId?: string;
   sourceIds?: string[];
-  mediaKind?: "movie" | "music";
+  mediaKind?: "movie" | "music" | "document";
 };
 
 export type CloudEntry = {
@@ -64,7 +65,7 @@ export type CloudEntry = {
 export type MediaSource = {
   id: string;
   accountId: string;
-  kind: "movie" | "music";
+  kind: "movie" | "music" | "document";
   remoteRoot: string;
   label: string;
   lastScanAt?: number;
@@ -104,6 +105,17 @@ export type MovieMetadata = {
   cast: string[];
 };
 export type RecentPlayback = { fileId: string; position: number; duration: number; updatedAt: number };
+export type ReadingProgress = {
+  docKey: string;
+  accountId: string;
+  path: string;
+  entryId: string;
+  name: string;
+  size: number;
+  page: number;
+  pageCount: number;
+  updatedAt: number;
+};
 
 const APP_ONLY = "此操作需要在 Cove macOS 应用中使用";
 export const demoEnabled = !isTauri() && new URLSearchParams(window.location.search).get("demo") === "1";
@@ -406,6 +418,39 @@ export async function revealNativePath(path: string): Promise<void> {
 export async function readTextPreview(path: string): Promise<string> {
   if (isTauri()) return invoke<string>("read_text_preview", { path });
   appOnly("预览文件内容需要在 Cove macOS 应用中使用");
+}
+
+/* ---------- Documents: PDFs open in the native PDFKit reader, which remembers the page ---------- */
+
+export async function openDocument(accountId: string, path: string, name: string, entryId?: string, size?: number): Promise<ReadingProgress> {
+  if (isTauri()) return invoke<ReadingProgress>("document_open", { accountId, path, name, entryId: entryId ?? null, size: size ?? null });
+  appOnly("阅读 PDF 需要在 Cove macOS 应用中使用");
+}
+
+export async function openDocumentFile(fileId: string): Promise<ReadingProgress> {
+  if (isTauri()) return invoke<ReadingProgress>("document_open_file", { fileId });
+  appOnly("阅读 PDF 需要在 Cove macOS 应用中使用");
+}
+
+export async function listReadingProgress(): Promise<ReadingProgress[]> {
+  if (isTauri()) return invoke<ReadingProgress[]>("document_progress_list");
+  return demoEnabled ? previewReading : [];
+}
+
+export function onReadingProgress(callback: (progress: ReadingProgress) => void) {
+  if (!isTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<ReadingProgress>("reading-progress", (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
 }
 
 export async function loadAiKey(): Promise<string | null> {

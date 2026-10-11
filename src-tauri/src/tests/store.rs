@@ -187,3 +187,74 @@ fn local_file_management_to_library_and_resume_flow() {
     assert!(f.store.list_media_files().unwrap().is_empty());
     assert!(path.exists());
 }
+
+#[test]
+fn older_libraries_accept_document_folders_and_keep_memberships() {
+    let directory = std::env::temp_dir().join(format!("cove-migrate-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&directory).unwrap();
+    let path = directory.join("library.db");
+    {
+        let store = Store::open(&path).unwrap();
+        store.ensure_local_account().unwrap();
+        let connection = store.connection.lock();
+        // Recreate the pre-document schema, as an existing installation has it.
+        connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 DROP TABLE media_sources;
+                 CREATE TABLE media_sources (
+                   id TEXT PRIMARY KEY, account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                   kind TEXT NOT NULL CHECK (kind IN ('movie', 'music')), remote_root TEXT NOT NULL,
+                   label TEXT NOT NULL, last_scan_at INTEGER, created_at INTEGER NOT NULL,
+                   UNIQUE (account_id, kind, remote_root));
+                 DROP TABLE reading_progress;
+                 PRAGMA user_version = 3;
+                 PRAGMA foreign_keys = ON;
+                 INSERT INTO media_sources (id, account_id, kind, remote_root, label, created_at)
+                   VALUES ('old', 'local', 'movie', '/media/old', 'Old', unixepoch());",
+            )
+            .unwrap();
+    }
+    let store = Store::open(&path).unwrap();
+    let old = store.get_media_source("old").unwrap();
+    store
+        .replace_source_files(&old, &[file("Kept.mkv")], true)
+        .unwrap();
+    let documents = MediaSource {
+        id: "docs".into(),
+        account_id: "local".into(),
+        kind: "document".into(),
+        remote_root: "/media/docs".into(),
+        label: "Docs".into(),
+        last_scan_at: None,
+    };
+    store.insert_media_source(&documents).unwrap();
+    assert_eq!(store.list_media_sources().unwrap().len(), 2);
+    assert_eq!(store.list_media_files().unwrap().len(), 1);
+    // Removing a folder still cascades through the rebuilt table.
+    store.delete_media_source("old").unwrap();
+    assert!(store.list_media_files().unwrap().is_empty());
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
+#[test]
+fn reading_progress_survives_reopening_and_keeps_the_page() {
+    let fixture = Fixture::new();
+    let document = crate::model::ReadingProgress {
+        doc_key: "local:/books/a.pdf".into(),
+        account_id: "local".into(),
+        path: "/books/a.pdf".into(),
+        entry_id: "/books/a.pdf".into(),
+        name: "a.pdf".into(),
+        size: 10,
+        page: 0,
+        page_count: 0,
+        updated_at: 0,
+    };
+    assert_eq!(fixture.store.touch_reading_document(&document).unwrap().page, 0);
+    fixture.store.save_reading_page(&document.doc_key, 41, 300).unwrap();
+    let reopened = fixture.store.touch_reading_document(&document).unwrap();
+    assert_eq!((reopened.page, reopened.page_count), (41, 300));
+    assert_eq!(fixture.store.list_reading_progress(10).unwrap().len(), 1);
+}

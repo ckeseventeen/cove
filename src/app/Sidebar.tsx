@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Clapperboard, House, LoaderCircle, Music, Plus } from "lucide-react";
+import { Clapperboard, FileText, House, LoaderCircle, Music, Plus } from "lucide-react";
 import { showContextMenu } from "../lib/native";
 import type { Account, MediaSource } from "../lib/nimbus";
 import { SearchField } from "../ui/controls";
@@ -53,6 +53,11 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             <span className="label">音乐</span>
             <span className="trailing">{library.songs.length || ""}</span>
           </button>
+          <button className="sidebar-item" aria-current={current("documents")} onClick={() => onNavigate({ name: "documents" })}>
+            <FileText size={16} />
+            <span className="label">文档</span>
+            <span className="trailing">{library.documents.length || ""}</span>
+          </button>
         </section>
 
         <section className="sidebar-section">
@@ -95,7 +100,8 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             </h2>
             {library.sources.map((source) => {
               const scanning = library.scanningIds.has(source.id);
-              const open = () => onNavigate({ name: source.kind === "movie" ? "movies" : "music", sourceId: source.id });
+              const open = () =>
+                onNavigate({ name: source.kind === "movie" ? "movies" : source.kind === "music" ? "music" : "documents", sourceId: source.id });
               return (
                 <button
                   key={source.id}
@@ -113,7 +119,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
                     ])
                   }
                 >
-                  {source.kind === "movie" ? <Clapperboard size={16} /> : <Music size={16} />}
+                  {source.kind === "movie" ? <Clapperboard size={16} /> : source.kind === "music" ? <Music size={16} /> : <FileText size={16} />}
                   <span className="label">{source.label}</span>
                   {scanning && (
                     <span className="trailing">

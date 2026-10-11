@@ -182,3 +182,16 @@ void nimbus_mpv_view_clear(void *view_pointer) {
     if (NSThread.isMainThread) clear();
     else dispatch_async(dispatch_get_main_queue(), clear);
 }
+
+// Hide the close/minimise/zoom buttons while the video controls are hidden, as QuickTime does.
+void nimbus_window_buttons_set_hidden(void *window_pointer, bool hidden) {
+    void (^update)(void) = ^{
+        NSWindow *window = (__bridge NSWindow *)window_pointer;
+        for (NSWindowButton kind = NSWindowCloseButton; kind <= NSWindowZoomButton; kind++) {
+            NSButton *button = [window standardWindowButton:kind];
+            button.animator.alphaValue = hidden ? 0.0 : 1.0;
+        }
+    };
+    if (NSThread.isMainThread) update();
+    else dispatch_async(dispatch_get_main_queue(), update);
+}

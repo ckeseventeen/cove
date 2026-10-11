@@ -49,12 +49,12 @@ html.video-window {
   inset: 0;
   pointer-events: auto;
 }
-.video-top,
+.video-title,
 .video-hud,
 .video-error {
   transition: opacity 0.28s var(--ease), transform 0.32s var(--ease-spring);
 }
-.video-overlay.idle .video-top,
+.video-overlay.idle .video-title,
 .video-overlay.idle .video-hud,
 .video-overlay.idle .video-error {
   opacity: 0;
@@ -73,25 +73,6 @@ html.video-window {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.hud-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  height: 28px;
-  padding: 0 12px 0 8px;
-  border-radius: 14px;
-  background: var(--hud-bg);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 2px 10px rgba(0, 0, 0, 0.25);
-  color: #fff;
-  font-size: var(--text-body);
-  font-weight: 500;
-  pointer-events: auto;
-}
-.hud-pill:hover {
-  background: rgba(60, 60, 64, 0.8);
 }
 .video-title {
   position: absolute;
@@ -149,7 +130,7 @@ html.video-window {
   left: 50%;
   bottom: 22px;
   z-index: 4;
-  width: min(600px, calc(100vw - 48px));
+  width: min(520px, calc(100vw - 48px));
   padding: 10px 16px 12px;
   border-radius: 16px;
   background: var(--hud-bg);
@@ -269,6 +250,11 @@ html.video-window {
   border-radius: var(--radius-xs);
   background: rgba(255, 255, 255, 0.1);
   color: #fff;
+  font-size: var(--text-callout);
+}
+.hud-setting-value {
+  flex: 0 1 auto !important;
+  color: rgba(255, 255, 255, 0.55);
   font-size: var(--text-callout);
 }
 .hud-setting.action:hover {

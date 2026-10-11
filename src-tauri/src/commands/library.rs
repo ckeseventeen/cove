@@ -47,8 +47,8 @@ pub(crate) fn media_source_add(
     label: String,
     state: State<'_, AppState>,
 ) -> Result<MediaSource> {
-    if !matches!(kind.as_str(), "movie" | "music") {
-        return Err(NimbusError::Validation("媒体类型只能是影视或音乐".into()));
+    if !matches!(kind.as_str(), "movie" | "music" | "document") {
+        return Err(NimbusError::Validation("媒体类型只能是影视、音乐或文档".into()));
     }
     state.store.get_account(&account_id)?;
     let remote_root = if remote_root.trim().is_empty() {

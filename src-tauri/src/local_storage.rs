@@ -34,7 +34,9 @@ fn media_matches(path: &Path, kind: &str) -> bool {
         return false;
     };
     let extension = extension.to_ascii_lowercase();
-    if kind == "music" {
+    if kind == "document" {
+        crate::media_types::DOCUMENT_EXTENSIONS.contains(&extension.as_str())
+    } else if kind == "music" {
         AUDIO_EXTENSIONS.contains(&extension.as_str())
     } else {
         VIDEO_EXTENSIONS.contains(&extension.as_str())

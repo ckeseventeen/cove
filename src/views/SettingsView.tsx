@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Clapperboard, Ellipsis, LoaderCircle, Music } from "lucide-react";
+import { Clapperboard, Ellipsis, FileText, LoaderCircle, Music } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { formatRelative, plural } from "../lib/format";
@@ -104,8 +104,8 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
             const provider = library.accounts.find((account) => account.id === source.accountId)?.provider ?? "";
             return (
               <div className="group-row" key={source.id}>
-                <span className={`glyph ${source.kind === "movie" ? "purple" : "pink"}`}>
-                  {source.kind === "movie" ? <Clapperboard size={15} /> : <Music size={15} />}
+                <span className={`glyph ${source.kind === "movie" ? "purple" : source.kind === "music" ? "pink" : "orange"}`}>
+                  {source.kind === "movie" ? <Clapperboard size={15} /> : source.kind === "music" ? <Music size={15} /> : <FileText size={15} />}
                 </span>
                 <span className="row-main">
                   <span className="row-title">{source.label}</span>
