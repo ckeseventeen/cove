@@ -141,7 +141,7 @@ impl Store {
             )?;
         }
         if version < 6 {
-            // Film details are now cached with the name they were looked up under ("movie-v5").
+            // Film details are now cached with the name they were looked up under.
             connection.execute_batch(
                 "BEGIN IMMEDIATE;
                  DELETE FROM metadata_cache WHERE kind = 'movie-v4';
@@ -149,6 +149,11 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        // Film details from an earlier lookup scheme are never read again.
+        connection.execute(
+            "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
+            [crate::metadata::MOVIE_CACHE],
+        )?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Self {
             connection: parking_lot::Mutex::new(connection),
@@ -296,8 +301,8 @@ impl Store {
     pub fn cached_movies(&self) -> Result<std::collections::HashMap<String, serde_json::Value>> {
         let connection = self.connection.lock();
         let mut statement = connection
-            .prepare("SELECT file_id,payload FROM metadata_cache WHERE kind='movie-v5'")?;
-        let rows = statement.query_map([], |row| {
+            .prepare("SELECT file_id,payload FROM metadata_cache WHERE kind = ?1")?;
+        let rows = statement.query_map([crate::metadata::MOVIE_CACHE], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
         })?;
         Ok(rows

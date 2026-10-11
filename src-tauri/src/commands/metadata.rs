@@ -244,9 +244,6 @@ mod media_name_tests {
     }
 }
 
-/// Cached film and series details. Version 5 records the name each result was looked up with.
-pub(crate) const MOVIE_CACHE: &str = "movie-v5";
-
 #[tauri::command]
 pub(crate) async fn movie_metadata(
     file_id: String,
@@ -271,7 +268,7 @@ pub(crate) async fn movie_metadata(
         None => name.trim().to_owned(),
     };
     let cached = || -> Result<Option<metadata::MovieMetadata>> {
-        let Some(payload) = state.store.cached_metadata(&file_id, MOVIE_CACHE)? else {
+        let Some(payload) = state.store.cached_metadata(&file_id, metadata::MOVIE_CACHE)? else {
             return Ok(None);
         };
         Ok(serde_json::from_str::<metadata::MovieMetadata>(&payload)
@@ -364,6 +361,6 @@ pub(crate) async fn movie_metadata(
     metadata.query = query.as_deref().map(query_key);
     state
         .store
-        .save_metadata(&file_id, MOVIE_CACHE, &serde_json::to_string(&metadata)?)?;
+        .save_metadata(&file_id, metadata::MOVIE_CACHE, &serde_json::to_string(&metadata)?)?;
     Ok(metadata)
 }

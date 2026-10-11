@@ -324,7 +324,7 @@ mod tests {
         let pocahontas = [result("movie", "风中奇缘", "1995-06-10"), result("tv", "风中奇缘", "2014-10-22")];
         assert_eq!(best_result(&pocahontas, "风中奇缘", None, Some("tv")), 1);
         assert_eq!(best_result(&pocahontas, "风中奇缘", None, Some("movie")), 0);
-        let monte_cristo = [result("movie", "基督山伯爵", "2024-06-28"), result("tv", "基督山伯爵", "2024-11-04")];
+        let monte_cristo = [result("movie", "基督山伯爵", "2024-06-28"), result("tv", "基督山伯爵", "2025-01-13")];
         assert_eq!(best_result(&monte_cristo, "基督山伯爵", Some("2024"), Some("tv")), 1);
         let iron_man = [result("movie", "钢铁侠", "2008-04-30"), result("movie", "钢铁侠2", "2010-04-28")];
         assert_eq!(best_result(&iron_man, "Iron Man", Some("2010"), Some("movie")), 1);
@@ -371,9 +371,12 @@ mod tests {
     }
 }
 
-/// Pick the search result to use. A matching year counts most, then the kind of work the library
-/// found (a 35-episode "风中奇缘" is the 2014 series, not the 1995 film), then an exact title.
-/// Ties keep TMDB's own order.
+/// Cached film and series details. Bump when lookups change so earlier results are fetched again.
+pub const MOVIE_CACHE: &str = "movie-v6";
+
+/// Pick the search result to use. The kind of work the library found counts most (a 35-episode
+/// "风中奇缘" is the 2014 series, not the 1995 film; a series' first air date can be a year after the
+/// one in its folder name), then a matching year, then an exact title. Ties keep TMDB's own order.
 fn best_result(results: &[TmdbSearchResult], query: &str, year: Option<&str>, kind: Option<&str>) -> usize {
     let expected = query.to_lowercase();
     let score = |item: &TmdbSearchResult| {
@@ -384,7 +387,7 @@ fn best_result(results: &[TmdbSearchResult], query: &str, year: Option<&str>, ki
             .into_iter()
             .flatten()
             .any(|title| title.to_lowercase() == expected);
-        u8::from(year_matches) * 3 + u8::from(kind_matches) * 2 + u8::from(title_matches)
+        u8::from(kind_matches) * 4 + u8::from(year_matches) * 2 + u8::from(title_matches)
     };
     let mut best = 0;
     for (index, item) in results.iter().enumerate() {
