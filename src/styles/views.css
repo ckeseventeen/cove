@@ -547,6 +547,10 @@
 .browser:focus {
   box-shadow: none;
 }
+/* The list takes focus again whenever a folder opens; like the icon grid, focus shows in the selection colour. */
+.table.files:focus-visible {
+  box-shadow: none;
+}
 .browser-bar {
   position: sticky;
   top: 0;

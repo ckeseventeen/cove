@@ -157,9 +157,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     const searching = currentRoute(current).name === "search";
     if (value.trim()) {
       // Typing shows the results, even from Now Playing; each keystroke refines the same page.
-      setFullScreen(false);
       if (!searching) returnFromSearch.current = current;
-      moveTo(push(current, { name: "search", query: value }, { replace: searching }));
+      navigate({ name: "search", query: value }, { replace: searching });
     } else if (searching && returnFromSearch.current) {
       moveTo(returnFromSearch.current);
       returnFromSearch.current = null;
@@ -415,7 +414,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         query={query}
         onQuery={onQuery}
         onSearchKey={(event) => {
-          if (event.key === "Enter" && query.trim() && route.name !== "search") navigate({ name: "search", query });
+          // Enter shows the results, also when Now Playing covers them.
+          if (event.key === "Enter" && query.trim()) navigate({ name: "search", query });
         }}
         onNavigate={navigate}
         onAddStorage={() => setAddingStorage(true)}
