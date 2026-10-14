@@ -1,6 +1,8 @@
 // Typed bridge to the Cove native backend. Outside the app, `?demo=1` serves fixture data.
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
+import { lookupNameOf, type MediaWork } from "./media";
+import { createMovieLookups, type MovieLookup } from "./movieLookup";
 import { isTauri } from "./native";
 import {
   previewAccounts,
@@ -317,40 +319,31 @@ export async function getMusicMetadata(fileId: string, refresh = false): Promise
   return { title: "", artist: "", album: "" };
 }
 
-async function fetchMovieMetadata(fileId: string, refresh = false, lookupName?: string, series?: boolean): Promise<MovieMetadata> {
+async function fetchMovieMetadata({ fileIds, refresh, lookupName, series }: MovieLookup): Promise<MovieMetadata> {
+  const [fileId] = fileIds;
   if (isTauri()) {
-    const metadata = await invoke<MovieMetadata>("movie_metadata", { fileId, refresh, lookupName, series: series ?? null });
+    const metadata = await invoke<MovieMetadata>("movie_metadata", { fileId, fileIds, refresh: !!refresh, lookupName, series });
     return { ...metadata, genres: metadata.genres ?? [], cast: metadata.cast ?? [] };
   }
   if (demoEnabled && previewMetadata[fileId]) return previewMetadata[fileId];
   appOnly("影视资料匹配需要在 Cove macOS 应用中使用");
 }
 
-const metadataRequests = new Map<string, { expires: number; value: Promise<MovieMetadata> }>();
-let metadataActive = 0;
-const metadataWaiters: (() => void)[] = [];
+const movieLookups = createMovieLookups(fetchMovieMetadata);
 
-/** Cached, concurrency-limited TMDB lookups shared by every poster in view. */
-export function getMovieMetadata(fileId: string, refresh = false, lookupName?: string, series?: boolean): Promise<MovieMetadata> {
-  const key = `${fileId}:${series ?? ""}:${lookupName ?? ""}`;
-  const cached = metadataRequests.get(key);
-  if (!refresh && cached && cached.expires > Date.now()) return cached.value;
-  const value = (async () => {
-    if (metadataActive >= 3) await new Promise<void>((resolve) => metadataWaiters.push(resolve));
-    metadataActive++;
-    try {
-      return await fetchMovieMetadata(fileId, refresh, lookupName, series);
-    } finally {
-      metadataActive--;
-      metadataWaiters.shift()?.();
-    }
-  })();
-  const entry = { expires: Date.now() + 600_000, value };
-  metadataRequests.set(key, entry);
-  void value.catch(() => {
-    entry.expires = Date.now() + 30_000;
+/**
+ * A work's film or series details: cached, concurrency-limited TMDB lookups shared by every poster in
+ * view, the detail sheet and the library's filters. `match` looks the work up under a name the user typed
+ * (修正匹配), which the work keeps from then on; `background` prefetches behind what is on screen.
+ */
+export function getMovieMetadata(work: MediaWork, { match, background }: { match?: string; background?: boolean } = {}) {
+  return movieLookups.lookup({
+    fileIds: work.files.map((file) => file.id),
+    lookupName: match ?? lookupNameOf(work),
+    series: work.isSeries,
+    refresh: match !== undefined,
+    background,
   });
-  return value;
 }
 
 export async function listRecentPlayback(): Promise<RecentPlayback[]> {
@@ -364,7 +357,7 @@ export async function listCachedMovies(): Promise<Record<string, MovieMetadata>>
 }
 
 export async function clearMetadataCache(): Promise<void> {
-  metadataRequests.clear();
+  movieLookups.clear();
   if (isTauri()) await invoke("metadata_cache_clear");
 }
 
