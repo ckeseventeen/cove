@@ -96,6 +96,7 @@ pub(crate) async fn account_scan(
         discovered_files: 0,
         media_files: 0,
         truncated: false,
+        skipped_directories: Vec::new(),
     };
     for source in sources {
         let result = media_source_scan(source.id, state.clone()).await?;
@@ -103,17 +104,52 @@ pub(crate) async fn account_scan(
         total.discovered_files += result.discovered_files;
         total.media_files += result.media_files;
         total.truncated |= result.truncated;
+        total.skipped_directories.extend(result.skipped_directories);
     }
     Ok(total)
 }
 
+/// The Baidu sign-in waiting for the browser; 取消 (or a newer sign-in) sends on it.
+static BAIDU_SIGN_IN: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+    std::sync::Mutex::new(None);
+/// Held while a sign-in has the callback port bound.
+static BAIDU_CALLBACK_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// Stops a Baidu sign-in that is waiting for the browser. Returns once its callback port is
+/// free again, so signing in right away works.
+#[tauri::command]
+pub(crate) async fn baidu_oauth_cancel() -> Result<()> {
+    let pending = BAIDU_SIGN_IN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take();
+    if let Some(cancel) = pending {
+        let _ = cancel.send(());
+    }
+    drop(BAIDU_CALLBACK_PORT.lock().await);
+    Ok(())
+}
+
+/// Signs in to Baidu in the browser. With `account_id`, the new login replaces that account's
+/// credential and keeps its id, so its folders, playback progress and playlists stay.
 #[tauri::command]
 pub(crate) async fn baidu_oauth_connect(
     label: String,
+    account_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Account> {
+    let existing = match account_id {
+        Some(id) => {
+            let stored = state.store.get_account(&id)?;
+            if stored.account.provider != "baidu" {
+                return Err(NimbusError::Validation("这个位置不是百度网盘".into()));
+            }
+            Some(stored)
+        }
+        None => None,
+    };
     let label = label.trim();
-    if label.is_empty() {
+    if existing.is_none() && label.is_empty() {
         return Err(NimbusError::Validation("显示名称不能为空".into()));
     }
     let config = config::BaiduConfig::load()?;
@@ -128,6 +164,42 @@ pub(crate) async fn baidu_oauth_connect(
     let port = redirect
         .port()
         .ok_or_else(|| NimbusError::Validation("百度回调地址缺少端口".into()))?;
+
+    let (cancel, cancelled) = tokio::sync::oneshot::channel();
+    let previous = BAIDU_SIGN_IN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .replace(cancel);
+    if let Some(previous) = previous {
+        let _ = previous.send(());
+    }
+    let credential = tokio::select! {
+        credential = async {
+            let code = baidu_authorization_code(&config, port).await?;
+            let credential = direct::exchange_baidu_code(&code).await?;
+            direct::validate("baidu", &credential.access_token).await?;
+            Ok::<_, NimbusError>(credential)
+        } => credential?,
+        _ = cancelled => return Err(NimbusError::Validation("已取消百度网盘登录".into())),
+    };
+    let serialized = Zeroizing::new(serde_json::to_string(&credential)?);
+    if let Some(stored) = existing {
+        credentials::replace(&state.credentials, &stored, serialized).await?;
+        return Ok(stored.account);
+    }
+    let account = save_account(&state.store, "baidu", label, &serialized)?;
+    state
+        .credentials
+        .write()
+        .await
+        .insert(account.id.clone(), serialized);
+    Ok(account)
+}
+
+/// Opens Baidu's authorization page and waits up to 3 minutes for the browser to come back
+/// with a code.
+async fn baidu_authorization_code(config: &config::BaiduConfig, port: u16) -> Result<String> {
+    let _port = BAIDU_CALLBACK_PORT.lock().await;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
         .map_err(|error| {
@@ -144,63 +216,127 @@ pub(crate) async fn baidu_oauth_connect(
         .append_pair("state", &state_token);
     Command::new("open").arg(authorization.as_str()).spawn()?;
 
-    let (mut socket, _) = tokio::time::timeout(Duration::from_secs(180), listener.accept())
-        .await
-        .map_err(|_| NimbusError::Validation("百度授权等待超时，请重新连接".into()))??;
-    let mut request = vec![0u8; 8192];
-    let size = socket.read(&mut request).await?;
-    let first_line = String::from_utf8_lossy(&request[..size])
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .to_owned();
-    let target = first_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| NimbusError::Validation("百度授权回调格式无效".into()))?;
-    let callback = url::Url::parse(&format!("http://127.0.0.1:{port}{target}"))?;
-    let parameters: std::collections::HashMap<_, _> = callback.query_pairs().into_owned().collect();
-    let code = parameters.get("code").cloned();
-    let returned_state = parameters.get("state").cloned();
+    let parameters = tokio::time::timeout(
+        Duration::from_secs(180),
+        baidu_callback(&listener, port, &state_token),
+    )
+    .await
+    .map_err(|_| {
+        NimbusError::Validation(
+            "3 分钟内没有收到百度网盘的授权，已停止等待。请重新登录。".into(),
+        )
+    })??;
     let oauth_error = parameters
         .get("error_description")
         .or_else(|| parameters.get("error"))
         .cloned();
-    let success = code.is_some() && returned_state.as_deref() == Some(state_token.as_str());
-    let (status, body) = if success {
-        (
-            "200 OK",
-            "<h2>百度网盘授权成功</h2><p>可以关闭这个页面并返回 Cove。</p>",
-        )
-    } else {
-        (
-            "400 Bad Request",
-            "<h2>百度网盘授权失败</h2><p>请关闭页面并返回 Cove 重试。</p>",
-        )
-    };
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    socket.write_all(response.as_bytes()).await?;
     if let Some(error) = oauth_error {
         return Err(NimbusError::Validation(format!("百度拒绝授权：{error}")));
     }
-    if returned_state.as_deref() != Some(state_token.as_str()) {
+    if parameters.get("state").map(String::as_str) != Some(state_token.as_str()) {
         return Err(NimbusError::Validation("百度授权安全校验失败".into()));
     }
-    let credential = direct::exchange_baidu_code(
-        &code.ok_or_else(|| NimbusError::Validation("百度授权未返回授权码".into()))?,
-    )
-    .await?;
-    direct::validate("baidu", &credential.access_token).await?;
-    let serialized = serde_json::to_string(&credential)?;
-    let account = save_account(&state.store, "baidu", label, &serialized)?;
-    state
-        .credentials
-        .write()
-        .await
-        .insert(account.id.clone(), Zeroizing::new(serialized));
+    parameters
+        .get("code")
+        .cloned()
+        .ok_or_else(|| NimbusError::Validation("百度授权未返回授权码".into()))
+}
+
+/// Answers requests on the callback port until one carries Baidu's reply. Anything else, such
+/// as a favicon request or an idle preconnection, is turned away.
+async fn baidu_callback(
+    listener: &tokio::net::TcpListener,
+    port: u16,
+    state_token: &str,
+) -> Result<std::collections::HashMap<String, String>> {
+    loop {
+        let (mut socket, _) = listener.accept().await?;
+        let mut request = vec![0u8; 8192];
+        let Ok(Ok(size)) =
+            tokio::time::timeout(Duration::from_secs(10), socket.read(&mut request)).await
+        else {
+            continue;
+        };
+        let first_line = String::from_utf8_lossy(&request[..size])
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+        let parameters: std::collections::HashMap<_, _> = first_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|target| url::Url::parse(&format!("http://127.0.0.1:{port}{target}")).ok())
+            .map(|callback| callback.query_pairs().into_owned().collect())
+            .unwrap_or_default();
+        if !parameters.contains_key("code") && !parameters.contains_key("error") {
+            let _ = socket
+                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await;
+            continue;
+        }
+        let success = parameters.contains_key("code")
+            && parameters.get("state").map(String::as_str) == Some(state_token);
+        let (status, body) = if success {
+            (
+                "200 OK",
+                "<h2>百度网盘授权成功</h2><p>可以关闭这个页面并返回 Cove。</p>",
+            )
+        } else {
+            (
+                "400 Bad Request",
+                "<h2>百度网盘授权失败</h2><p>请关闭页面并返回 Cove 重试。</p>",
+            )
+        };
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        socket.write_all(response.as_bytes()).await?;
+        return Ok(parameters);
+    }
+}
+
+/// Saves a new password or token for an existing WebDAV, Google Drive or OneDrive account
+/// under the same id, so its folders, playback progress and playlists stay.
+#[tauri::command]
+pub(crate) async fn account_update_credentials(
+    account_id: String,
+    username: String,
+    password: String,
+    state: State<'_, AppState>,
+) -> Result<Account> {
+    let stored = state.store.get_account(&account_id)?;
+    let mut account = stored.account.clone();
+    let password = Zeroizing::new(password);
+    let secret = match account.provider.as_str() {
+        "webdav" => {
+            let username = username.trim();
+            webdav::validate_connection(&account.endpoint, username, &password).await?;
+            account.username = (!username.is_empty()).then(|| username.to_owned());
+            password
+        }
+        "google_drive" | "onedrive" => {
+            let token = Zeroizing::new(password.trim().to_owned());
+            direct::validate(&account.provider, &token).await?;
+            token
+        }
+        "baidu" => {
+            return Err(NimbusError::Validation(
+                "百度网盘需要在浏览器中重新登录".into(),
+            ))
+        }
+        _ => {
+            return Err(NimbusError::Validation(
+                "这个位置不需要重新连接".into(),
+            ))
+        }
+    };
+    credentials::replace(&state.credentials, &stored, secret).await?;
+    if account.username != stored.account.username {
+        state
+            .store
+            .update_account_username(&account.id, account.username.as_deref())?;
+    }
     Ok(account)
 }
 

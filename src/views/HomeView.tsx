@@ -41,7 +41,7 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
         <section className="welcome">
           <div className="welcome-copy">
             <h2>欢迎使用 Cove</h2>
-            <p>把本机磁盘和云盘里的影片、剧集与音乐放在一处。连接一个存储位置，再选择要放进资料库的文件夹。</p>
+            <p>把本机磁盘和云盘里的影片、剧集、音乐与文档放在一处。连接一个存储位置，再选择要放进资料库的文件夹。</p>
             <div className="welcome-actions">
               <button className="btn prominent large" onClick={onAddStorage}>
                 <Plus size={14} />
@@ -57,7 +57,7 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
               <span className="glyph blue small">1</span>连接本地磁盘、WebDAV 或网盘
             </li>
             <li>
-              <span className="glyph purple small">2</span>把文件夹设为影视或音乐
+              <span className="glyph purple small">2</span>把文件夹设为影视、音乐或文档
             </li>
             <li>
               <span className="glyph pink small">3</span>Cove 整理作品、剧集和歌词

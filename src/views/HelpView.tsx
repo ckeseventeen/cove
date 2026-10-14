@@ -28,7 +28,7 @@ export function HelpView() {
       <header className="page-header">
         <div className="heading">
           <h1 className="large-title">Cove 帮助</h1>
-          <p className="page-subtitle">把本机和云端的影片、剧集与音乐整理在一处。</p>
+          <p className="page-subtitle">把本机和云端的影片、剧集、音乐与文档整理在一处。</p>
         </div>
       </header>
       <section className="group">
@@ -45,14 +45,14 @@ export function HelpView() {
             <span className="glyph purple small">2</span>
             <span className="row-main">
               <span className="row-title">选择文件夹</span>
-              <span className="row-subtitle">在“位置”中打开文件夹，点“添加到资料库”选择影视或音乐，子文件夹会一并扫描。</span>
+              <span className="row-subtitle">在“位置”中打开文件夹，点“添加到资料库”选择影视、音乐或文档，子文件夹会一并扫描。</span>
             </span>
           </li>
           <li className="group-row">
             <span className="glyph pink small">3</span>
             <span className="row-main">
               <span className="row-title">开始播放</span>
-              <span className="row-subtitle">影视按作品与剧集整理，音乐显示歌词。播放进度会自动保存。</span>
+              <span className="row-subtitle">影视按作品与剧集整理，音乐显示歌词，PDF 记住读到的页。进度会自动保存。</span>
             </span>
           </li>
         </ol>

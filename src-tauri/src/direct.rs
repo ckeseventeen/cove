@@ -198,7 +198,37 @@ async fn refresh_baidu(credential: &BaiduCredential) -> Result<BaiduCredential> 
         }
     };
     let response: BaiduTokenResponse = request_send?.json().await?;
+    // A revoked grant (password change, de-authorization) cannot refresh; only a new login helps.
+    if matches!(
+        response.error.as_deref(),
+        Some("expired_token" | "invalid_grant" | "invalid_token")
+    ) {
+        return Err(login_expired("baidu"));
+    }
     response.into_credential(Some(&credential.refresh_token))
+}
+
+/// A saved login the provider no longer accepts. Settings reconnects the account in place,
+/// so its folders, playback progress and playlists stay.
+pub fn login_expired(provider: &str) -> NimbusError {
+    let name = match provider {
+        "baidu" => "百度网盘授权",
+        "google_drive" => "Google Drive 授权",
+        "onedrive" => "OneDrive 授权",
+        _ => "授权",
+    };
+    NimbusError::Validation(format!(
+        "{name}已失效。请在“设置 ▸ 存储位置”中选择“重新连接…”，资料库和播放进度会保留。"
+    ))
+}
+
+/// Baidu answers an invalid or revoked access token with errno -6 or 111.
+fn baidu_failure(errno: i64, message: String) -> NimbusError {
+    if matches!(errno, -6 | 111) {
+        login_expired("baidu")
+    } else {
+        NimbusError::Validation(message)
+    }
 }
 
 /// Resolves the token used for API calls and returns an updated serialized credential when a
@@ -350,11 +380,14 @@ pub async fn baidu_download_url(token: &str, fs_id: u64) -> Result<String> {
     }
     let metadata: BaiduMetaList = response.json().await?;
     if metadata.errno != 0 {
-        return Err(NimbusError::Validation(format!(
-            "百度网盘读取下载地址失败（{}）：{}",
+        return Err(baidu_failure(
             metadata.errno,
-            metadata.errmsg.unwrap_or_else(|| "未知错误".into())
-        )));
+            format!(
+                "百度网盘读取下载地址失败（{}）：{}",
+                metadata.errno,
+                metadata.errmsg.unwrap_or_else(|| "未知错误".into())
+            ),
+        ));
     }
     metadata
         .list
@@ -408,11 +441,14 @@ async fn list_baidu_directory(
         }
         let page: BaiduList = response.json().await?;
         if page.errno != 0 {
-            return Err(NimbusError::Validation(format!(
-                "百度网盘读取目录失败（{}）：{}",
+            return Err(baidu_failure(
                 page.errno,
-                page.errmsg.unwrap_or_else(|| "接口未返回错误说明".into())
-            )));
+                format!(
+                    "百度网盘读取目录失败（{}）：{}",
+                    page.errno,
+                    page.errmsg.unwrap_or_else(|| "接口未返回错误说明".into())
+                ),
+            ));
         }
         let count = page.list.len();
         files.extend(page.list);
@@ -498,6 +534,7 @@ async fn scan_baidu(
             discovered_files: discovered,
             media_files: media.len(),
             truncated: discovered + directories >= limit,
+            skipped_directories: Vec::new(),
         },
     ))
 }
@@ -566,6 +603,11 @@ pub async fn copy_baidu(token: &str, source: &str, destination_directory: &str) 
         .get("errno")
         .and_then(|value| value.as_i64())
         .unwrap_or(-1);
+    // In file management 111 can also mean another task is still running, so only -6 asks
+    // for a new login here.
+    if errno == -6 {
+        return Err(login_expired("baidu"));
+    }
     if errno != 0 {
         return Err(NimbusError::Validation(format!(
             "百度网盘复制失败（{errno}）"
@@ -573,6 +615,10 @@ pub async fn copy_baidu(token: &str, source: &str, destination_directory: &str) 
     }
     Ok(())
 }
+
+/// Baidu's `rtype` on a name clash: 1 renames the new entry, so nothing in the cloud is
+/// overwritten (3 would replace the existing file), as a local paste makes “副本 N”.
+const BAIDU_RENAME_ON_CONFLICT: &str = "1";
 
 pub async fn create_baidu_folder(token: &str, parent: &str, name: &str) -> Result<String> {
     let path = format!("{}/{}", parent.trim_end_matches('/'), name.trim());
@@ -589,7 +635,7 @@ pub async fn create_baidu_folder(token: &str, parent: &str, name: &str) -> Resul
             ("size", "0"),
             ("isdir", "1"),
             ("block_list", "[]"),
-            ("rtype", "3"),
+            ("rtype", BAIDU_RENAME_ON_CONFLICT),
         ])
         .send()
         .await?
@@ -600,9 +646,7 @@ pub async fn create_baidu_folder(token: &str, parent: &str, name: &str) -> Resul
         .and_then(|value| value.as_i64())
         .unwrap_or(-1);
     if errno != 0 {
-        return Err(NimbusError::Validation(format!(
-            "百度网盘新建文件夹失败（{errno}）"
-        )));
+        return Err(baidu_failure(errno, format!("百度网盘新建文件夹失败（{errno}）")));
     }
     Ok(response
         .get("path")
@@ -663,7 +707,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
             ("isdir", "0"),
             ("autoinit", "1"),
             ("block_list", block_list.as_str()),
-            ("rtype", "3"),
+            ("rtype", BAIDU_RENAME_ON_CONFLICT),
         ])
         .send()
         .await?
@@ -674,9 +718,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
         .and_then(|value| value.as_i64())
         .unwrap_or(-1);
     if errno != 0 {
-        return Err(NimbusError::Validation(format!(
-            "百度网盘预创建失败（{errno}）"
-        )));
+        return Err(baidu_failure(errno, format!("百度网盘预创建失败（{errno}）")));
     }
     if precreate
         .get("return_type")
@@ -736,7 +778,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
             ("isdir", "0"),
             ("uploadid", upload_id),
             ("block_list", block_list.as_str()),
-            ("rtype", "3"),
+            ("rtype", BAIDU_RENAME_ON_CONFLICT),
         ])
         .send()
         .await?
@@ -747,9 +789,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
         .and_then(|value| value.as_i64())
         .unwrap_or(-1);
     if errno != 0 {
-        return Err(NimbusError::Validation(format!(
-            "百度网盘合并上传失败（{errno}）"
-        )));
+        return Err(baidu_failure(errno, format!("百度网盘合并上传失败（{errno}）")));
     }
     Ok(())
 }
@@ -789,13 +829,27 @@ pub async fn upload_baidu_entry(token: &str, source: &Path, destination: &str) -
     Ok(())
 }
 
+/// A dlink only downloads with the account's token attached, as the playback proxy does.
+fn signed_dlink(dlink: &str, token: &str) -> Result<url::Url> {
+    let mut url = url::Url::parse(dlink)?;
+    if !url.query_pairs().any(|(key, _)| key == "access_token") {
+        url.query_pairs_mut().append_pair("access_token", token);
+    }
+    Ok(url)
+}
+
 async fn download_baidu_file(token: &str, fs_id: u64, target: &Path) -> Result<()> {
-    let url = url::Url::parse(&baidu_download_url(token, fs_id).await?)?;
+    let url = signed_dlink(&baidu_download_url(token, fs_id).await?, token)?;
+    // Errors leave out the URL: it carries the access token.
     let mut response = match transfer_http()?.get(url.clone()).send().await {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("Baidu transfer via default client failed ({err}), retrying directly without proxy...");
-            direct_transfer_http()?.get(url).send().await?
+            eprintln!("Baidu transfer via default client failed ({}), retrying directly without proxy...", err.without_url());
+            direct_transfer_http()?
+                .get(url)
+                .send()
+                .await
+                .map_err(reqwest::Error::without_url)?
         }
     };
     if !response.status().is_success() {
@@ -812,7 +866,7 @@ async fn download_baidu_file(token: &str, fs_id: u64, target: &Path) -> Result<(
     let expected = response.content_length();
     let mut received = 0u64;
     let mut output = tokio::fs::File::create(&temporary).await?;
-    while let Some(chunk) = response.chunk().await? {
+    while let Some(chunk) = response.chunk().await.map_err(reqwest::Error::without_url)? {
         output.write_all(&chunk).await?;
         received += chunk.len() as u64;
     }
@@ -1121,6 +1175,13 @@ async fn official_folder(
     }
     Ok(folder)
 }
+/// Google and Microsoft answer an expired or revoked token with 401.
+fn official_response(provider: &str, response: reqwest::Response) -> Result<reqwest::Response> {
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(login_expired(provider));
+    }
+    Ok(response.error_for_status()?)
+}
 async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<CloudEntry>> {
     let client = http()?;
     let (id, named) = official_folder(provider, &client, token, path).await?;
@@ -1158,7 +1219,9 @@ async fn list_official(
             if let Some(cursor) = &cursor {
                 request = request.query(&[("pageToken", cursor)]);
             }
-            let page: GoogleList = request.send().await?.error_for_status()?.json().await?;
+            let page: GoogleList = official_response(provider, request.send().await?)?
+                .json()
+                .await?;
             entries.extend(page.files.into_iter().map(|file| CloudEntry {
                 path: official_child_path(path, &file.name),
                 id: file.id,
@@ -1183,14 +1246,10 @@ async fn list_official(
             if parsed.scheme() != "https" || parsed.host_str() != Some("graph.microsoft.com") {
                 return Err(NimbusError::Validation("OneDrive 返回无效分页地址".into()));
             }
-            let page: OneDriveList = client
-                .get(parsed)
-                .bearer_auth(token)
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
+            let page: OneDriveList =
+                official_response(provider, client.get(parsed).bearer_auth(token).send().await?)?
+                    .json()
+                    .await?;
             entries.extend(page.value.into_iter().map(|file| CloudEntry {
                 path: official_child_path(path, &file.name),
                 id: file.id,
@@ -1226,6 +1285,7 @@ async fn scan_official(
         discovered_files: 0,
         media_files: 0,
         truncated: false,
+        skipped_directories: Vec::new(),
     };
     let mut files = Vec::new();
     while let Some((path, id)) = queue.pop_front() {
@@ -1323,6 +1383,36 @@ mod path_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn baidu_downloads_carry_the_access_token_once() {
+        let url = signed_dlink("https://d.pcs.baidu.com/file/abc?fid=1-2&sign=x%2By", "tok").unwrap();
+        let pairs: Vec<_> = url.query_pairs().into_owned().collect();
+        assert_eq!(
+            pairs,
+            [
+                ("fid".to_owned(), "1-2".to_owned()),
+                ("sign".to_owned(), "x+y".to_owned()),
+                ("access_token".to_owned(), "tok".to_owned()),
+            ]
+        );
+        let again = signed_dlink(url.as_str(), "tok").unwrap();
+        assert_eq!(again, url);
+    }
+
+    #[test]
+    fn revoked_logins_point_to_reconnect() {
+        for errno in [-6, 111] {
+            assert!(baidu_failure(errno, "百度网盘读取目录失败".into())
+                .to_string()
+                .contains("重新连接"));
+        }
+        assert_eq!(
+            baidu_failure(-9, "百度网盘读取目录失败（-9）".into()).to_string(),
+            "百度网盘读取目录失败（-9）"
+        );
+        assert!(login_expired("google_drive").to_string().starts_with("Google Drive 授权已失效"));
+    }
 
     #[tokio::test]
     async fn test_direct_http_connectivity() {

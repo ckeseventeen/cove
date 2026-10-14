@@ -77,6 +77,8 @@ export type ScanResult = {
   discoveredFiles: number;
   mediaFiles: number;
   truncated: boolean;
+  /** Subfolders that could not be read and were skipped; what the library had in them stays. */
+  skippedDirectories: string[];
 };
 
 export type PlayerTrack = { id: number; kind: "audio" | "sub"; title: string; language: string; selected: boolean };
@@ -157,9 +159,21 @@ export async function addAccount(input: AccountInput): Promise<Account> {
   appOnly("连接存储需要在 Cove macOS 应用中使用");
 }
 
-export async function connectBaidu(label: string): Promise<Account> {
-  if (isTauri()) return invoke<Account>("baidu_oauth_connect", { label });
+/** Sign in to Baidu in the browser; with `accountId`, renew that account's login in place. */
+export async function connectBaidu(label: string, accountId?: string): Promise<Account> {
+  if (isTauri()) return invoke<Account>("baidu_oauth_connect", { label, accountId: accountId ?? null });
   appOnly("百度网盘授权需要在 Cove macOS 应用中使用");
+}
+
+/** Stop a Baidu sign-in that is waiting for the browser. */
+export async function cancelBaiduSignIn(): Promise<void> {
+  if (isTauri()) return invoke<void>("baidu_oauth_cancel");
+}
+
+/** Save a new password or token for an account; its folders, progress and playlists stay. */
+export async function updateAccountCredentials(accountId: string, username: string, password: string): Promise<Account> {
+  if (isTauri()) return invoke<Account>("account_update_credentials", { accountId, username, password });
+  appOnly("重新连接需要在 Cove macOS 应用中使用");
 }
 
 export async function listMediaFiles(): Promise<MediaFile[]> {

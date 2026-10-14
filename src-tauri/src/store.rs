@@ -517,6 +517,15 @@ impl Store {
         Ok(())
     }
 
+    pub fn update_account_username(&self, id: &str, username: Option<&str>) -> Result<()> {
+        let connection = self.connection.lock();
+        connection.execute(
+            "UPDATE accounts SET username = ?2 WHERE id = ?1",
+            params![id, username],
+        )?;
+        Ok(())
+    }
+
     pub fn get_account(&self, id: &str) -> Result<StoredAccount> {
         let connection = self.connection.lock();
         connection

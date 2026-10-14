@@ -133,40 +133,38 @@ pub fn scan_root(
     limit: usize,
 ) -> Result<(Vec<MediaFile>, ScanResult)> {
     let root = normalized(root)?;
-    let mut queue = VecDeque::from([root]);
+    let mut queue = VecDeque::from([root.clone()]);
     let mut directories = 0;
     let mut discovered = 0;
     let mut files = Vec::new();
     let mut truncated = false;
-    while let Some(directory) = queue.pop_front() {
+    let mut skipped = Vec::new();
+    'walk: while let Some(directory) = queue.pop_front() {
         directories += 1;
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(_) => {
-                truncated = true;
-                continue;
-            }
-        };
-        for item in entries {
-            let item = match item {
-                Ok(item) => item,
-                Err(_) => {
-                    truncated = true;
-                    continue;
-                }
+        let entries = fs::read_dir(&directory);
+        let mut readable = entries.is_ok();
+        for item in entries.into_iter().flatten() {
+            let Ok(item) = item else {
+                readable = false;
+                break;
             };
             if discovered + directories >= limit {
                 truncated = true;
-                break;
+                break 'walk;
             }
             let path = item.path();
             let name = display_name(&path);
             if name.starts_with('.') {
                 continue;
             }
-            let Ok(metadata) = item.metadata() else {
-                truncated = true;
-                continue;
+            let metadata = match item.metadata() {
+                Ok(metadata) => metadata,
+                // Removed while scanning: nothing to index.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => {
+                    readable = false;
+                    break;
+                }
             };
             if metadata.is_dir() {
                 queue.push_back(path);
@@ -190,8 +188,15 @@ pub fn scan_root(
                 });
             }
         }
-        if truncated {
-            break;
+        // A subfolder that cannot be read (permissions, macOS privacy protection) is skipped
+        // and reported, and the walk goes on. Without the root there is nothing to update.
+        if !readable {
+            if directory == root {
+                return Err(NimbusError::Validation(
+                    "无法读取这个文件夹。请确认它仍然存在，并且 Cove 有权访问。".into(),
+                ));
+            }
+            skipped.push(directory.to_string_lossy().into_owned());
         }
     }
     let result = ScanResult {
@@ -199,8 +204,41 @@ pub fn scan_root(
         discovered_files: discovered,
         media_files: files.len(),
         truncated,
+        skipped_directories: skipped,
     };
     Ok((files, result))
+}
+
+/// Adds to `files` what the library already indexed for `source_id` inside folders the scan
+/// had to skip, so the scan can complete without dropping them.
+pub fn keep_skipped(
+    files: &mut Vec<MediaFile>,
+    indexed: Vec<MediaFile>,
+    source_id: &str,
+    skipped: &[String],
+) {
+    let inside = |path: &str| {
+        skipped.iter().any(|directory| {
+            path.strip_prefix(directory.trim_end_matches('/'))
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
+    };
+    let found: std::collections::HashSet<_> =
+        files.iter().map(|file| file.remote_path.clone()).collect();
+    let kept: Vec<_> = indexed
+        .into_iter()
+        .filter(|file| {
+            file.source_ids.iter().any(|id| id == source_id)
+                && inside(&file.remote_path)
+                && !found.contains(&file.remote_path)
+        })
+        .map(|file| MediaFile {
+            // Matched by path like a freshly scanned file, keeping the indexed row and its id.
+            id: Uuid::new_v4().to_string(),
+            ..file
+        })
+        .collect();
+    files.extend(kept);
 }
 
 fn available_destination(directory: &Path, name: &str) -> PathBuf {
@@ -354,11 +392,125 @@ mod tests {
 mod failure_tests {
     use super::*;
     #[test]
-    fn unavailable_root_is_partial_not_empty_success() {
+    fn unavailable_root_fails_instead_of_empty_success() {
         let root = std::env::temp_dir().join(format!("nimbus-missing-{}", Uuid::new_v4()));
-        let (files, result) = scan_root("local", root.to_str().unwrap(), "movie", 100).unwrap();
-        assert!(files.is_empty());
-        assert!(result.truncated);
+        assert!(scan_root("local", root.to_str().unwrap(), "movie", 100).is_err());
+    }
+    #[test]
+    fn unreadable_subfolder_is_skipped_and_the_scan_goes_on() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("nimbus-skip-{}", Uuid::new_v4()));
+        for folder in ["A_private", "B", "C/Deep"] {
+            fs::create_dir_all(root.join(folder)).unwrap();
+        }
+        for file in ["A_private/a.mkv", "B/b.mkv", "C/Deep/c.mkv", "top.mkv"] {
+            fs::write(root.join(file), b"fixture").unwrap();
+        }
+        let private = root.join("A_private");
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o000)).unwrap();
+        // Permissions do not stop root (the superuser); nothing to check then.
+        let enforced = fs::read_dir(&private).is_err();
+        let scanned = scan_root("local", root.to_str().unwrap(), "movie", 100);
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(&root).unwrap();
+        if !enforced {
+            return;
+        }
+        let (files, result) = scanned.unwrap();
+        let mut names: Vec<_> = files.iter().map(|file| file.display_name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["b.mkv", "c.mkv", "top.mkv"]);
+        assert!(!result.truncated);
+        assert_eq!(
+            result.skipped_directories,
+            [private.to_string_lossy().into_owned()]
+        );
+    }
+    #[test]
+    fn files_in_skipped_folders_stay_in_the_library() {
+        let file = |path: &str, sources: &[&str]| MediaFile {
+            id: Uuid::new_v4().to_string(),
+            account_id: "local".into(),
+            remote_path: path.into(),
+            cloud_path: Some(path.into()),
+            display_name: path.rsplit('/').next().unwrap().into(),
+            size: 1,
+            etag: None,
+            mime_type: None,
+            source_id: sources.first().map(|id| id.to_string()),
+            source_ids: sources.iter().map(|id| id.to_string()).collect(),
+            media_kind: Some("movie".into()),
+        };
+        let indexed = vec![
+            file("/Movies/private/a.mkv", &["movies"]),
+            file("/Movies/private/deep/b.mkv", &["other", "movies"]),
+            file("/Movies/private-2/c.mkv", &["movies"]),
+            file("/Movies/d.mkv", &["movies"]),
+            file("/Movies/private/e.mkv", &["other"]),
+        ];
+        let original = indexed[0].id.clone();
+        // A folder that failed part-way through can already have been partly scanned.
+        let mut files = vec![file("/Movies/private/deep/b.mkv", &[])];
+        keep_skipped(&mut files, indexed, "movies", &["/Movies/private".into()]);
+        let paths: Vec<_> = files.iter().map(|file| file.remote_path.as_str()).collect();
+        assert_eq!(paths, ["/Movies/private/deep/b.mkv", "/Movies/private/a.mkv"]);
+        // Re-saved by path like scanned files; the stored row keeps its own id.
+        assert_ne!(files[1].id, original);
+    }
+    #[test]
+    fn scan_with_a_skipped_folder_prunes_elsewhere_and_records_the_time() {
+        use crate::{model::MediaSource, store::Store};
+        let directory = std::env::temp_dir().join(format!("nimbus-skip-store-{}", Uuid::new_v4()));
+        let store = Store::open(&directory.join("library.db")).unwrap();
+        store.ensure_local_account().unwrap();
+        let source = MediaSource {
+            id: "movies".into(),
+            account_id: "local".into(),
+            kind: "movie".into(),
+            remote_root: "/Movies".into(),
+            label: "影视".into(),
+            last_scan_at: None,
+        };
+        store.insert_media_source(&source).unwrap();
+        let file = |path: &str| MediaFile {
+            id: Uuid::new_v4().to_string(),
+            account_id: "local".into(),
+            remote_path: path.into(),
+            cloud_path: Some(path.into()),
+            display_name: path.rsplit('/').next().unwrap().into(),
+            size: 1,
+            etag: None,
+            mime_type: None,
+            source_id: None,
+            source_ids: Vec::new(),
+            media_kind: None,
+        };
+        let first = [file("/Movies/private/a.mkv"), file("/Movies/gone.mkv"), file("/Movies/b.mkv")];
+        store.replace_source_files(&source, &first, true).unwrap();
+        store.save_playback_progress(&first[0].id, 12.0, 100.0, 1.0).unwrap();
+
+        // The next scan cannot read /Movies/private, and gone.mkv was deleted.
+        let mut files = vec![file("/Movies/b.mkv")];
+        keep_skipped(
+            &mut files,
+            store.list_media_files().unwrap(),
+            &source.id,
+            &["/Movies/private".into()],
+        );
+        store.replace_source_files(&source, &files, true).unwrap();
+
+        let mut paths: Vec<_> = store
+            .list_media_files()
+            .unwrap()
+            .into_iter()
+            .map(|file| file.remote_path)
+            .collect();
+        paths.sort();
+        assert_eq!(paths, ["/Movies/b.mkv", "/Movies/private/a.mkv"]);
+        assert_eq!(store.playback_progress(&first[0].id).unwrap(), Some((12.0, 1.0)));
+        assert!(store.get_media_source(&source.id).unwrap().last_scan_at.is_some());
+        drop(store);
+        let _ = fs::remove_dir_all(directory);
     }
     #[test]
     fn limit_signals_partial_scan() {

@@ -91,7 +91,7 @@ pub(crate) async fn media_source_scan(
         ));
     }
     let stored = state.store.get_account(&source.account_id)?;
-    let (mut files, result) = if stored.account.provider == "local" {
+    let (mut files, mut result) = if stored.account.provider == "local" {
         let account_id = stored.account.id.clone();
         let root = source.remote_root.clone();
         let kind = source.kind.clone();
@@ -132,6 +132,16 @@ pub(crate) async fn media_source_scan(
             })??
         }
     };
+    // Folders the scan could not read keep what they had, and the scan still counts as complete.
+    if !result.skipped_directories.is_empty() {
+        local_storage::keep_skipped(
+            &mut files,
+            state.store.list_media_files()?,
+            &source.id,
+            &result.skipped_directories,
+        );
+        result.media_files = files.len();
+    }
     for file in &mut files {
         file.source_id = Some(source.id.clone());
         file.media_kind = Some(source.kind.clone());

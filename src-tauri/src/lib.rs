@@ -121,6 +121,8 @@ pub fn run() {
             commands::accounts::account_add,
             commands::accounts::account_remove,
             commands::accounts::baidu_oauth_connect,
+            commands::accounts::baidu_oauth_cancel,
+            commands::accounts::account_update_credentials,
             commands::accounts::account_browse,
             commands::accounts::account_scan,
             commands::library::media_file_list,

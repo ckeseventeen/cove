@@ -52,6 +52,25 @@ pub async fn get(
     Ok((stored, token))
 }
 
+/// Replaces an account's saved password or token in place (reconnecting), inside the same
+/// boundary so a refresh in flight cannot write the old login back.
+pub async fn replace(
+    cache: &CredentialCache,
+    stored: &StoredAccount,
+    secret: Zeroizing<String>,
+) -> Result<()> {
+    let _guard = REFRESH.lock().await;
+    let reference = stored.secret_ref.clone();
+    let value = secret.clone();
+    tokio::task::spawn_blocking(move || {
+        Entry::new("app.nimbus.desktop", &reference)?.set_password(&value)
+    })
+    .await
+    .map_err(|e| NimbusError::Internal(e.to_string()))??;
+    cache.write().await.insert(stored.account.id.clone(), secret);
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) async fn ai_key_load() -> Result<Option<String>> {
     tokio::task::spawn_blocking(|| {
