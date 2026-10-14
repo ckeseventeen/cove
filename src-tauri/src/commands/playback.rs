@@ -111,7 +111,7 @@ async fn open_native(
         }
     }
     // Subtitles generated earlier come back with their video.
-    crate::ai_subtitles::restore_saved(window.app_handle(), state.inner(), &file.id).await;
+    crate::ai_subtitles::restore_saved(window.app_handle(), state, &file.id).await;
     Ok(())
 }
 
