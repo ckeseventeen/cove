@@ -72,7 +72,12 @@ pub(crate) fn relative_path(base: &Url, url: &Url) -> Option<String> {
     if !path.ends_with('/') {
         path.push('/');
     }
-    let rest = path.strip_prefix(decoded(base.path()).as_str())?;
+    // Some servers (IIS) answer with their own capitalization of the address.
+    let prefix = decoded(base.path());
+    let rest = path
+        .get(..prefix.len())
+        .filter(|head| head.eq_ignore_ascii_case(&prefix))
+        .map(|_| &path[prefix.len()..])?;
     let segments: Vec<&str> = rest.split('/').filter(|part| !part.is_empty()).collect();
     Some(format!("/{}", segments.join("/")))
 }
@@ -447,6 +452,11 @@ mod path_tests {
             relative("/remote.php/dav/files/me/%e7%94%b5%e5%bd%b1/A%20B.mkv").as_deref(),
             Some("/电影/A B.mkv")
         );
+        // A server that capitalizes the address its own way still answers for this account.
+        assert_eq!(
+            relative("/Remote.php/DAV/files/me/Movies/A.mkv").as_deref(),
+            Some("/Movies/A.mkv")
+        );
         assert_eq!(relative("/remote.php/dav/files/"), None);
         assert_eq!(relative("/remote.php/dav/files/meme/a.mkv"), None);
         let other = Url::parse("https://other.example.com/remote.php/dav/files/me/a").unwrap();
@@ -470,8 +480,11 @@ mod path_tests {
     #[test]
     fn files_played_from_files_get_their_url_and_library_path() {
         let endpoint = "https://nas.example.com/dav";
-        let (url, path) =
-            file_location(endpoint, "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/a.mkv").unwrap();
+        let (url, path) = file_location(
+            endpoint,
+            "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/a.mkv",
+        )
+        .unwrap();
         assert_eq!(url, "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/a.mkv");
         assert_eq!(path, "/电影/a.mkv");
         assert!(file_location(endpoint, "/dav/%E7%94%B5%E5%BD%B1/a.mkv").is_err());
@@ -483,7 +496,10 @@ mod path_tests {
     fn saved_server_paths_and_urls_are_located() {
         let base = validated_url("https://nas.example.com/dav").unwrap();
         let (url, path) = locate_saved(&base, "/dav/%E7%94%B5%E5%BD%B1/").unwrap();
-        assert_eq!(url.as_str(), "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/");
+        assert_eq!(
+            url.as_str(),
+            "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/"
+        );
         assert_eq!(path, "/电影");
         let (url, path) = locate_saved(&base, "https://nas.example.com/dav/M/a%20b.mkv").unwrap();
         assert_eq!(url.as_str(), "https://nas.example.com/dav/M/a%20b.mkv");
@@ -525,7 +541,11 @@ mod path_tests {
                 if let Some(end) = text.find("\r\n\r\n") {
                     let length = text
                         .lines()
-                        .find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                        .find_map(|line| {
+                            line.to_ascii_lowercase()
+                                .strip_prefix("content-length:")
+                                .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                        })
                         .unwrap_or(0);
                     if request.len() >= end + 4 + length {
                         break;
@@ -561,7 +581,10 @@ mod path_tests {
             } else {
                 (
                     "207 Multi-Status",
-                    format!(r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">{}</d:multistatus>"#, entries.join("")),
+                    format!(
+                        r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">{}</d:multistatus>"#,
+                        entries.join("")
+                    ),
                 )
             };
             let reply = format!(
@@ -582,14 +605,23 @@ mod path_tests {
         tokio::spawn(serve(listener));
 
         let root = browse(&endpoint, "/", "u", "p").await.unwrap();
-        let listed: Vec<_> = root.iter().map(|entry| (entry.path.as_str(), entry.name.as_str())).collect();
+        let listed: Vec<_> = root
+            .iter()
+            .map(|entry| (entry.path.as_str(), entry.name.as_str()))
+            .collect();
         assert_eq!(listed, [("/电影", "电影"), ("/Notes.txt", "Notes.txt")]);
 
         let movies = browse(&endpoint, &root[0].path, "u", "p").await.unwrap();
-        let listed: Vec<_> = movies.iter().map(|entry| (entry.path.as_str(), entry.name.as_str())).collect();
+        let listed: Vec<_> = movies
+            .iter()
+            .map(|entry| (entry.path.as_str(), entry.name.as_str()))
+            .collect();
         assert_eq!(
             listed,
-            [("/电影/繁花 第二季", "繁花 第二季"), ("/电影/100% #1?.mkv", "100% #1?.mkv")]
+            [
+                ("/电影/繁花 第二季", "繁花 第二季"),
+                ("/电影/100% #1?.mkv", "100% #1?.mkv")
+            ]
         );
         // The folder's own entry is left out even when the server spells it differently.
         let season = browse(&endpoint, &movies[0].path, "u", "p").await.unwrap();
@@ -604,7 +636,9 @@ mod path_tests {
             .map(|file| (file.cloud_path.clone().unwrap(), file.remote_path.clone()))
             .collect();
         assert!(scanned.contains_key("/电影/繁花 第二季/繁花 第01集.mkv"));
-        assert!(scanned.values().all(|url| url.starts_with(&format!("{endpoint}/"))));
+        assert!(scanned
+            .values()
+            .all(|url| url.starts_with(&format!("{endpoint}/"))));
         // Playing from Files resolves to exactly what the scan stored.
         for entry in season.iter().chain(&movies[1..]) {
             let (url, path) = file_location(&endpoint, &entry.id).unwrap();

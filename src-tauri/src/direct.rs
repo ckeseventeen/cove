@@ -930,26 +930,38 @@ const GOOGLE_FOLDER: &str = "application/vnd.google-apps.folder";
 // Google Drive and OneDrive are browsed by folder names, like every other provider, so a file has
 // one path in Files and in the library ("/电影/繁花/第01集.mkv"): 在文件中显示, reading memory and
 // grouping agree, and the path bar shows names. The APIs list folders by id; the ids met while
-// listing are remembered, so walking down needs no extra requests.
-fn folder_ids() -> &'static parking_lot::Mutex<HashMap<String, String>> {
-    static IDS: std::sync::OnceLock<parking_lot::Mutex<HashMap<String, String>>> =
-        std::sync::OnceLock::new();
+// listing are remembered, so walking down needs no extra requests. A path maps to the folder's id
+// and to its path spelled with names; the two differ only for id chains saved by older versions.
+type FolderIds = HashMap<String, (String, String)>;
+fn folder_ids() -> &'static parking_lot::Mutex<FolderIds> {
+    static IDS: std::sync::OnceLock<parking_lot::Mutex<FolderIds>> = std::sync::OnceLock::new();
     IDS.get_or_init(Default::default)
 }
 /// One drive is told from another by a digest of its token.
 fn folder_key(provider: &str, token: &str, path: &str) -> String {
-    format!("{provider}:{:x}:{}", md5::compute(token), path.trim_end_matches('/'))
+    format!(
+        "{provider}:{:x}:{}",
+        md5::compute(token),
+        path.trim_end_matches('/')
+    )
 }
-fn remember_folder(provider: &str, token: &str, path: &str, id: &str) {
+fn remember_folder(provider: &str, token: &str, path: &str, id: &str, named: &str) {
     let mut ids = folder_ids().lock();
     if ids.len() >= 20_000 {
         ids.clear();
     }
-    ids.insert(folder_key(provider, token, path), id.to_owned());
+    ids.insert(
+        folder_key(provider, token, path),
+        (id.to_owned(), named.to_owned()),
+    );
 }
 /// A name as one path segment. Google Drive allows "/" in names; paths show it as "／".
 fn official_child_path(parent: &str, name: &str) -> String {
-    format!("{}/{}", parent.trim_end_matches('/'), name.replace('/', "／"))
+    format!(
+        "{}/{}",
+        parent.trim_end_matches('/'),
+        name.replace('/', "／")
+    )
 }
 fn is_item_id(id: &str) -> bool {
     !id.is_empty()
@@ -963,12 +975,19 @@ fn looks_like_item_id(segment: &str) -> bool {
 }
 /// The Drive search for a child folder by name.
 fn google_folder_query(parent: &str, segment: &str) -> String {
-    let named = |name: &str| format!("name = '{}'", name.replace('\\', "\\\\").replace('\'', "\\'"));
+    let named = |name: &str| {
+        format!(
+            "name = '{}'",
+            name.replace('\\', "\\\\").replace('\'', "\\'")
+        )
+    };
     let mut names = named(segment);
     if segment.contains('／') {
         names = format!("{names} or {}", named(&segment.replace('／', "/")));
     }
-    format!("'{parent}' in parents and trashed = false and mimeType = '{GOOGLE_FOLDER}' and ({names})")
+    format!(
+        "'{parent}' in parents and trashed = false and mimeType = '{GOOGLE_FOLDER}' and ({names})"
+    )
 }
 /// OneDrive addresses an item by name below its folder: `…/items/{id}:/{name}`.
 fn onedrive_child_url(parent: &str, segment: &str) -> Result<url::Url> {
@@ -1010,7 +1029,11 @@ async fn official_child_folder(
             .error_for_status()?
             .json()
             .await?;
-        return Ok(page.files.into_iter().map(|file| file.id).find(|id| is_item_id(id)));
+        return Ok(page
+            .files
+            .into_iter()
+            .map(|file| file.id)
+            .find(|id| is_item_id(id)));
     }
     let response = client
         .get(onedrive_child_url(parent, segment)?)
@@ -1021,9 +1044,19 @@ async fn official_child_folder(
         return Ok(None);
     }
     let item: OneDriveItem = response.error_for_status()?.json().await?;
-    Ok(item.folder.is_some().then_some(item.id).filter(|id| is_item_id(id)))
+    Ok(item
+        .folder
+        .is_some()
+        .then_some(item.id)
+        .filter(|id| is_item_id(id)))
 }
-async fn official_is_folder(provider: &str, client: &Client, token: &str, id: &str) -> Result<bool> {
+/// The name of the folder with this id, or `None` when it is not a folder.
+async fn official_folder_name(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    id: &str,
+) -> Result<Option<String>> {
     let url = if provider == "google_drive" {
         format!("https://www.googleapis.com/drive/v3/files/{id}?fields=id,name,mimeType&supportsAllDrives=true")
     } else {
@@ -1034,53 +1067,64 @@ async fn official_is_folder(provider: &str, client: &Client, token: &str, id: &s
         response.status(),
         reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::BAD_REQUEST
     ) {
-        return Ok(false);
+        return Ok(None);
     }
     let response = response.error_for_status()?;
     Ok(if provider == "google_drive" {
-        response.json::<GoogleFile>().await?.mime_type == GOOGLE_FOLDER
+        let file = response.json::<GoogleFile>().await?;
+        (file.mime_type == GOOGLE_FOLDER).then_some(file.name)
     } else {
-        response.json::<OneDriveItem>().await?.folder.is_some()
+        let item = response.json::<OneDriveItem>().await?;
+        item.folder.is_some().then_some(item.name)
     })
 }
-/// The id of the folder at a name path. A segment that names no folder but is a folder's id still
-/// resolves, so media folders saved as id chains by older versions keep working.
-async fn official_folder_id(provider: &str, client: &Client, token: &str, path: &str) -> Result<String> {
+/// The id of the folder at a name path, and the path spelled with names. A segment that names no
+/// folder but is a folder's id still resolves, so media folders saved as id chains by older
+/// versions keep working, and what is listed or scanned below them gets name paths too.
+async fn official_folder(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    path: &str,
+) -> Result<(String, String)> {
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let prefix = |end: usize| format!("/{}", segments[..end].join("/"));
-    let (mut id, mut start) = ("root".to_owned(), 0);
+    let (mut folder, mut start) = (("root".to_owned(), "/".to_owned()), 0);
     {
         let ids = folder_ids().lock();
         for end in (1..=segments.len()).rev() {
             if let Some(found) = ids.get(&folder_key(provider, token, &prefix(end))) {
-                (id, start) = (found.clone(), end);
+                (folder, start) = (found.clone(), end);
                 break;
             }
         }
     }
     for end in start + 1..=segments.len() {
         let segment = segments[end - 1];
-        id = match official_child_folder(provider, client, token, &id, segment).await? {
-            Some(child) => child,
-            None if looks_like_item_id(segment)
-                && official_is_folder(provider, client, token, segment).await? =>
-            {
-                segment.to_owned()
-            }
-            None => {
-                return Err(NimbusError::Validation(format!(
-                    "找不到文件夹“{segment}”，它可能已被移动、重命名或删除"
-                )))
-            }
+        let missing = || {
+            NimbusError::Validation(format!(
+                "找不到文件夹“{segment}”，它可能已被移动、重命名或删除"
+            ))
         };
-        remember_folder(provider, token, &prefix(end), &id);
+        let child = official_child_folder(provider, client, token, &folder.0, segment).await?;
+        let (id, name) = match child {
+            Some(child) => (child, segment.to_owned()),
+            None if looks_like_item_id(segment) => {
+                let name = official_folder_name(provider, client, token, segment).await?;
+                (segment.to_owned(), name.ok_or_else(missing)?)
+            }
+            None => return Err(missing()),
+        };
+        folder = (id, official_child_path(&folder.1, &name));
+        remember_folder(provider, token, &prefix(end), &folder.0, &folder.1);
+        remember_folder(provider, token, &folder.1, &folder.0, &folder.1);
     }
-    Ok(id)
+    Ok(folder)
 }
 async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<CloudEntry>> {
     let client = http()?;
-    let id = official_folder_id(provider, &client, token, path).await?;
-    list_official(provider, &client, token, path, &id).await
+    let (id, named) = official_folder(provider, &client, token, path).await?;
+    list_official(provider, &client, token, &named, &id).await
 }
 /// The children of the folder `id`, found at the name path `path`.
 async fn list_official(
@@ -1159,7 +1203,7 @@ async fn list_official(
         }
     }
     for entry in entries.iter().filter(|entry| entry.is_dir) {
-        remember_folder(provider, token, &entry.path, &entry.id);
+        remember_folder(provider, token, &entry.path, &entry.id, &entry.path);
     }
     entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
     Ok(entries)
@@ -1174,8 +1218,8 @@ async fn scan_official(
     limit: usize,
 ) -> Result<(Vec<MediaFile>, ScanResult)> {
     let client = http()?;
-    let root_id = official_folder_id(provider, &client, token, root).await?;
-    let mut queue = VecDeque::from([(root.trim_end_matches('/').to_owned(), root_id)]);
+    let (root_id, root_path) = official_folder(provider, &client, token, root).await?;
+    let mut queue = VecDeque::from([(root_path, root_id)]);
     let mut seen = HashSet::new();
     let mut result = ScanResult {
         visited_directories: 0,

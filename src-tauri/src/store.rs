@@ -700,8 +700,7 @@ fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
     let transaction = connection.unchecked_transaction()?;
     let rows = |sql: &str, key: &str| -> Result<Vec<(String, String, String)>> {
         let mut statement = transaction.prepare(sql)?;
-        let rows =
-            statement.query_map([key], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let rows = statement.query_map([key], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     };
     let accounts = rows(
@@ -712,6 +711,8 @@ fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
         let Ok(base) = crate::webdav::validated_url(&endpoint) else {
             continue;
         };
+        let mut kept = std::collections::HashSet::new();
+        let mut moved = Vec::new();
         for (id, kind, root) in rows(
             "SELECT id, kind, remote_root FROM media_sources WHERE account_id = ?1 ORDER BY created_at, rowid",
             &account,
@@ -719,22 +720,19 @@ fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
             let Some((_, root)) = crate::webdav::locate_saved(&base, &root) else {
                 continue;
             };
-            let duplicate: bool = transaction.query_row(
-                "SELECT EXISTS(SELECT 1 FROM media_sources
-                   WHERE account_id = ?1 AND kind = ?2 AND remote_root = ?3 AND id <> ?4)",
-                params![account, kind, root, id],
-                |row| row.get(0),
-            )?;
-            if duplicate {
+            if kept.insert((kind, root.clone())) {
+                moved.push((id, root));
+            } else {
                 // "/dav/电影" and "/dav/电影/" were added as two folders; they are one now.
                 transaction.execute("DELETE FROM source_files WHERE source_id = ?1", [&id])?;
                 transaction.execute("DELETE FROM media_sources WHERE id = ?1", [&id])?;
-            } else {
-                transaction.execute(
-                    "UPDATE media_sources SET remote_root = ?1 WHERE id = ?2",
-                    params![root, id],
-                )?;
             }
+        }
+        for (id, root) in moved {
+            transaction.execute(
+                "UPDATE OR IGNORE media_sources SET remote_root = ?1 WHERE id = ?2",
+                params![root, id],
+            )?;
         }
         for (id, remote, _) in rows(
             "SELECT id, remote_path, '' FROM media_files WHERE account_id = ?1",
@@ -743,10 +741,32 @@ fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
             let Some((url, path)) = crate::webdav::locate_saved(&base, &remote) else {
                 continue;
             };
-            transaction.execute(
+            let updated = transaction.execute(
                 "UPDATE OR IGNORE media_files SET remote_path = ?1, cloud_path = ?2 WHERE id = ?3",
                 params![url.as_str(), path, id],
             )?;
+            if updated == 0 && !remote.contains("://") {
+                // Broken by playing it from Files, then scanned again as a new row: that row is
+                // the file now, so it takes over the resume position, playlists and manual match.
+                use rusqlite::OptionalExtension;
+                let Some(file) = transaction
+                    .query_row(
+                        "SELECT id FROM media_files WHERE account_id = ?1 AND remote_path = ?2",
+                        params![account, url.as_str()],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                else {
+                    continue;
+                };
+                for table in ["playback_progress", "playlist_items", "metadata_overrides"] {
+                    transaction.execute(
+                        &format!("UPDATE OR IGNORE {table} SET file_id = ?1 WHERE file_id = ?2"),
+                        params![file, id],
+                    )?;
+                }
+                transaction.execute("DELETE FROM media_files WHERE id = ?1", [&id])?;
+            }
         }
         for (key, path, entry) in rows(
             "SELECT doc_key, path, entry_id FROM reading_progress WHERE account_id = ?1",
