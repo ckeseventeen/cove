@@ -67,6 +67,8 @@ struct Service {
     model: String,
     chat: String,
     chat_model: &'static str,
+    /// A self-hosted service may have no chat model at the derived address.
+    custom: bool,
 }
 
 /// Built-in services always use their own addresses. Only the custom service takes the
@@ -86,6 +88,7 @@ fn resolve_service(config: &AiSubtitleConfig) -> Result<Service> {
         model,
         chat: chat.to_owned(),
         chat_model,
+        custom: false,
     };
     Ok(match config.provider.as_str() {
         "siliconflow" => builtin(
@@ -132,6 +135,7 @@ fn resolve_service(config: &AiSubtitleConfig) -> Result<Service> {
                 model: model("whisper-large-v3"),
                 chat,
                 chat_model: "default",
+                custom: true,
             }
         }
     })
@@ -437,6 +441,25 @@ pub async fn ai_subtitles_generate(
         );
     };
 
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(300))
+        .build()
+        .map_err(|e| NimbusError::Internal(e.to_string()))?;
+    let translate = matches!(config.mode.as_str(), "translate_zh" | "bilingual");
+
+    // Ask a custom service to translate one line first, so a missing chat model is
+    // reported now rather than after the whole film has been read and transcribed.
+    if translate && service.custom {
+        emit_progress("checking", 5, "正在检查翻译服务...");
+        let lines = ["Hello.".to_owned()];
+        let probe = translate_batch(&client, &service, config.api_key.trim(), &lines).await;
+        if let Err(reason) = probe {
+            return Err(NimbusError::Validation(format!(
+                "自定义服务无法翻译（{reason}），请选择“原文”或检查服务后重试"
+            )));
+        }
+    }
+
     emit_progress("extracting", 10, "正在从视频提取音频轨...");
 
     // One pass over the video writes the audio in chunks, so cloud files are read only once.
@@ -492,11 +515,6 @@ pub async fn ai_subtitles_generate(
         return Err(NimbusError::Internal(format!("音频提取失败：{err_msg}")));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(300))
-        .build()
-        .map_err(|e| NimbusError::Internal(e.to_string()))?;
-
     // 2. Transcribe chunk by chunk, placing each chunk's segments on the video's timeline
     let mut segments = Vec::new();
     for (index, (path, start)) in chunks.iter().enumerate() {
@@ -527,7 +545,7 @@ pub async fn ai_subtitles_generate(
     }
 
     // 3. Translate with the service's chat model when a Chinese track is requested
-    if matches!(config.mode.as_str(), "translate_zh" | "bilingual") {
+    if translate {
         let api_key = config.api_key.trim();
         let batches = segments.len().div_ceil(TRANSLATION_BATCH);
         for (index, chunk) in segments.chunks_mut(TRANSLATION_BATCH).enumerate() {
@@ -663,6 +681,7 @@ mod regression_tests {
                 .transcription
                 .starts_with(&format!("https://{host}/")));
             assert!(service.chat.starts_with(&format!("https://{host}/")));
+            assert!(!service.custom);
         }
     }
 
@@ -679,12 +698,47 @@ mod regression_tests {
             "http://192.168.1.10:8000/v1/audio/transcriptions?x=1"
         );
         assert_eq!(service.chat, "http://192.168.1.10:8000/v1/chat/completions");
+        assert!(service.custom);
         let local = resolve_service(&config("custom", Some(""), "bilingual")).unwrap();
         assert_eq!(local.chat, "http://127.0.0.1:8000/v1/chat/completions");
         // Translation needs an address the chat endpoint can be derived from.
         let other = "http://192.168.1.10:9000/asr";
         assert!(resolve_service(&config("custom", Some(other), "translate_zh")).is_err());
         assert!(resolve_service(&config("custom", Some(other), "original")).is_ok());
+    }
+
+    #[tokio::test]
+    async fn keyless_custom_service_translates_and_a_missing_chat_model_is_reported() {
+        use axum::{http::HeaderMap, routing::post, Json, Router};
+        async fn chat(headers: HeaderMap) -> Json<Value> {
+            let reply = if headers.contains_key("authorization") {
+                "带密钥"
+            } else {
+                "你好。"
+            };
+            Json(serde_json::json!({ "choices": [{ "message": { "content": reply } }] }))
+        }
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let app = Router::new().route("/v1/chat/completions", post(chat));
+        tokio::spawn(async move { axum::serve(listener, app).await });
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let lines = ["Hello.".to_owned()];
+
+        let address = format!("http://127.0.0.1:{port}/v1/audio/transcriptions");
+        let service = resolve_service(&config("custom", Some(&address), "translate_zh")).unwrap();
+        let keyless = translate_batch(&client, &service, "", &lines).await;
+        assert_eq!(keyless, Ok(vec!["你好。".to_owned()]));
+        let keyed = translate_batch(&client, &service, "sk-local", &lines).await;
+        assert_eq!(keyed, Ok(vec!["带密钥".to_owned()]));
+
+        // A transcription-only server: the check before extraction fails with the reason.
+        let address = format!("http://127.0.0.1:{port}/asr/v1/audio/transcriptions");
+        let service = resolve_service(&config("custom", Some(&address), "bilingual")).unwrap();
+        let missing = translate_batch(&client, &service, "", &lines).await;
+        assert!(missing.unwrap_err().contains("404"));
     }
 
     #[test]
