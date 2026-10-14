@@ -3,7 +3,7 @@ import { Film, LoaderCircle, Play } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
-import { categoryOf, containingFolder, displayTitleOf, lookupNameOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { categoryOf, containingFolder, displayTitleOf, lookupNameOf, uniqueEpisodes, versionCountOf, type MediaWork } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
@@ -163,7 +163,7 @@ export function workSubtitle(work: MediaWork, metadata?: MovieMetadata) {
     const seasons = work.seasons.filter((season) => season > 0).length;
     if (seasons > 1) parts.push(`${seasons} 季`);
     parts.push(`${uniqueEpisodes(work.files).length} 集`);
-  } else if (work.files.length > 1) parts.push(`${work.files.length} 个版本`);
+  } else if (versionCountOf(work) > 1) parts.push(`${versionCountOf(work)} 个版本`);
   return parts.join(" · ") || "影片";
 }
 

@@ -4,7 +4,7 @@ import type { Route } from "../app/navigation";
 import { SONGS_DRAG_TYPE, usePlaylistActions } from "../app/playlistActions";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, plural } from "../lib/format";
-import { containingFolder, musicFolderOf, songParts } from "../lib/media";
+import { compareAlbumOrder, containingFolder, musicFolderOf, songParts } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import type { MediaFile } from "../lib/nimbus";
 import { extensionOf } from "../lib/storage";
@@ -59,7 +59,9 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
         direction *
         (sort.field === "size"
           ? left.size - right.size
-          : collator.compare(key(left), key(right)) || collator.compare(songParts(left).title, songParts(right).title)),
+          : collator.compare(key(left), key(right)) ||
+            // Albums play in track order.
+            (sort.field === "folder" ? compareAlbumOrder(left, right) : collator.compare(songParts(left).title, songParts(right).title))),
     );
   }, [library.songs, sort, sourceId]);
 

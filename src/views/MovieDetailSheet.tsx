@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { containingFolder, displayTitleOf, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { containingFolder, displayTitleOf, episodeNumberOf, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
@@ -184,7 +184,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
                   return (
                     <li key={episode.id} className="episode-row">
                       <button className="episode-main" onClick={() => play(versions[0])} title={episode.displayName}>
-                        <span className="episode-number tabular">{episodeOf(episode) ?? index + 1}</span>
+                        <span className="episode-number tabular">{episodeNumberOf(episode) ?? index + 1}</span>
                         <span className="episode-name truncate">{episode.displayName.replace(/\.[^.]+$/, "")}</span>
                       </button>
                       <span className="episode-versions">

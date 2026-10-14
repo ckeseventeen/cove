@@ -174,3 +174,154 @@ test('an edition stays visible next to the TMDB title', () => {
   const [plain] = media.buildMovieWorks([file('繁花S01E01.mp4', '/影视/电视剧/繁花')]);
   assert.equal(media.displayTitleOf(plain, { title: '繁花' }), '繁花');
 });
+
+/* Library review 2026-10-14: season packs, fansub and site tags, sequel years, variety shows, films in parts, numeric titles, album order. */
+test('season packs and far-away folders do not decide the season', () => {
+  const pack = '/TV/Friends.S01-S10.1080p.BluRay';
+  const files = [file('Friends.S03E01.mkv', `${pack}/Season 3`), file('Friends.S05E01.mkv', `${pack}/Season 5`), file('Friends.S05E02.mkv', `${pack}/Season 5`)];
+  assert.deepEqual(files.map(media.seasonOf), [3, 5, 5]);
+  const works = media.buildMovieWorks(files);
+  assert.equal(works.length, 1);
+  assert.deepEqual(works[0].seasons, [3, 5]);
+  assert.equal(media.uniqueEpisodes(works[0].files).length, 3);
+  assert.equal(media.seasonOf(file('01.mkv', '/影视/老友记S01-S10/S03')), 3);
+  assert.equal(media.seasonOf(file('01.mkv', '/影视/权力的游戏S1-S8/Season 8')), 8);
+  assert.equal(media.seasonOf(file('01.mkv', '/影视/老友记第1-10季')), 1);
+  assert.equal(media.titleCandidateOf(file('E01.mkv', '/影视/老友记S01-S10/S03')), '老友记');
+  assert.equal(media.seasonOf(file('Friends.S05E01.mkv', '/Users/se7en/TV/Friends/Season 5')), 5);
+  assert.equal(media.seasonOf(file('01.mkv', '/Users/se7en/TV/Friends')), 1);
+  assert.equal(media.seasonOf(file('01.mkv', '/Volumes/Seagate S2/TV/Friends')), 1);
+  assert.equal(media.seasonOf(file('庆余年.S02EP01.mkv', '/影视/电视剧/庆余年')), 2);
+});
+
+test('fansub episodes form one series under the show title', () => {
+  const names = [
+    ['[Sakurato] Shingeki no Kyojin - NN [1080P].mkv', 'Shingeki no Kyojin'],
+    ['[桜都字幕组] 葬送的芙莉莲 [NN][1080P][简日双语].mp4', '葬送的芙莉莲'],
+    ['[Nekomoe kissaten][Spy x Family][NN][1080p].mp4', 'Spy x Family'],
+    ['[LoliHouse] Sousou no Frieren - NN [WebRip 1080p HEVC-10bit AAC SRTx2].mkv', 'Sousou no Frieren'],
+    ['[ANi] 葬送的芙莉蓮 - NN [1080P][Baha][WEB-DL][AAC AVC][CHT].mp4', '葬送的芙莉蓮'],
+  ];
+  for (const [name, title] of names) {
+    const files = ['01', '02', '05'].map((number) => file(name.replace('NN', number), '/影视/动漫'));
+    assert.deepEqual(files.map(media.episodeOf), [1, 2, 5], name);
+    const works = media.buildMovieWorks(files);
+    assert.equal(works.length, 1, name);
+    assert.equal(works[0].title, title);
+    assert.equal(works[0].isSeries, true);
+  }
+  assert.equal(media.episodeOf(file('葬送的芙莉莲 第05话.mp4', '/影视/动漫/葬送的芙莉莲')), 5);
+  // A group tag in front of a film does not make its number an episode.
+  assert.equal(media.episodeOf(file('[YTS] Apollo 13 (1995) [1080p].mkv', '/Movies')), null);
+  assert.equal(media.episodeOf(file('[Group] 300 [1080p].mkv', '/Movies')), null);
+});
+
+test('site and release-group tags in front of a title are dropped', () => {
+  const wandering = '【高清影视之家发布 www.HDBTHD.com】流浪地球2[国语配音+中文字幕].The.Wandering.Earth.II.2023.2160p.WEB-DL.mkv';
+  assert.equal(media.titleCandidateOf(file('[电影天堂www.dytt89.com]流浪地球2.HD1080p.国语中字.mp4', '/影视')), '流浪地球2');
+  assert.equal(media.titleCandidateOf(file(wandering, '/影视')), '流浪地球2');
+  assert.equal(media.titleCandidateOf(file('阳光电影www.ygdy8.com.流浪地球2.HD.1080p.国语中字.mkv', '/影视')), '流浪地球2');
+  assert.equal(media.buildMovieWorks([file(wandering, '/影视'), file('流浪地球2.2023.2160p.mkv', '/影视')]).length, 1);
+  const series = media.buildMovieWorks(['01', '02'].map((number) => file(`[BD影视分享bd2020.com]狂飙.EP${number}.HD1080P.国语中字.mp4`, '/影视')));
+  assert.equal(series.length, 1);
+  assert.equal(series[0].title, '狂飙');
+  // A title that is itself the first bracket stays.
+  assert.equal(media.titleCandidateOf(file('[让子弹飞].2010.mkv', '/影视')), '让子弹飞');
+  assert.equal(media.titleCandidateOf(file('[让子弹飞] 2010.mkv', '/影视')), '让子弹飞');
+  assert.equal(media.titleCandidateOf(file('[流浪地球]2019 1080p.mkv', '/影视')), '流浪地球');
+  assert.equal(media.titleCandidateOf(file('【流浪地球2】[国语中字].mp4', '/影视')), '流浪地球2');
+  // A group or site in front of a film named by a year.
+  assert.equal(media.titleCandidateOf(file('[YTS] 2012 [1080p].mkv', '/Movies')), '2012');
+  assert.equal(media.titleCandidateOf(file('[电影天堂www.dytt89.com]2012.BD.1080p.mkv', '/影视')), '2012');
+});
+
+test('sequel numbers and years in a title stay; the release year is the last one', () => {
+  const names = ['Blade.Runner.2049.2017.1080p.mkv', 'Wonder.Woman.1984.2020.mkv', '1917.2019.mkv', '2046.2004.mkv', '1917.mkv', '2001.A.Space.Odyssey.1968.mkv', 'Toy.Story.3.mkv', 'Iron.Man.2.mkv', '银翼杀手2049.2017.mkv', '让子弹飞2010.mkv'];
+  const lookups = names.map((name) => media.lookupNameOf(media.buildMovieWorks([file(name, '/影视/电影')])[0]));
+  assert.deepEqual(lookups, ['Blade Runner 2049 2017', 'Wonder Woman 1984 2020', '1917 2019', '2046 2004', '1917', '2001 A Space Odyssey 1968', 'Toy Story 3', 'Iron Man 2', '银翼杀手2049 2017', '让子弹飞 2010']);
+  assert.equal(media.buildMovieWorks([file('Blade.Runner.1982.mkv', '/影视/电影'), file('Blade.Runner.2049.2017.mkv', '/影视/电影')]).length, 2);
+});
+
+test('variety shows: air dates are episodes, and halves of one episode stay apart', () => {
+  const folder = '/综艺/快乐大本营';
+  const [dated, ...rest] = media.buildMovieWorks([file('快乐大本营.20230108.mp4', folder, 300), file('快乐大本营.20230101.mp4', folder, 200), file('快乐大本营.20240106.mp4', folder, 100)]);
+  assert.equal(rest.length, 0);
+  assert.equal(dated.isSeries, true);
+  assert.equal(dated.title, '快乐大本营');
+  assert.deepEqual(dated.files.map((item) => item.displayName), ['快乐大本营.20230101.mp4', '快乐大本营.20230108.mp4', '快乐大本营.20240106.mp4']);
+  assert.equal(media.episodeLabel(dated.files[0], 0), '2023-01-01');
+  assert.equal(media.episodeNumberOf(dated.files[0]), null);
+  const [dashed] = media.buildMovieWorks(['奔跑吧 2023-10-03.mp4', '奔跑吧 2023-11-03.mp4'].map((name) => file(name, '/综艺/奔跑吧')));
+  assert.equal(media.uniqueEpisodes(dashed.files).length, 2);
+  // An air date in front of the episode number is not part of the title.
+  const numbered = media.buildMovieWorks(['快乐大本营.20230101.第1期.mp4', '快乐大本营.20230108.第2期.mp4'].map((name) => file(name, folder)));
+  assert.deepEqual(numbered.map((work) => [work.title, work.files.length]), [['快乐大本营', 2]]);
+  const [season] = media.buildMovieWorks(['向往的生活第七季-20230428.mp4', '向往的生活第七季-20230505.mp4'].map((name) => file(name, '/综艺/向往的生活')));
+  assert.deepEqual([season.title, season.seasons, season.files.length], ['向往的生活', [7], 2]);
+  // A camera's timestamp is not an air date.
+  assert.equal(media.episodeOf(file('VID_20230101_123456.mp4', '/影视/家庭录像')), null);
+  const [halves] = media.buildMovieWorks(['乘风破浪 第2期上.mp4', '乘风破浪 第1期下.mp4', '乘风破浪 第1期加更.mp4', '乘风破浪 第1期上.mp4'].map((name) => file(name, '/综艺/乘风破浪')));
+  const episodes = media.uniqueEpisodes(halves.files);
+  assert.deepEqual(episodes.map((item, index) => media.episodeLabel(item, index)), ['第 1 期上', '第 1 期下', '第 1 期加更', '第 2 期上']);
+  assert.ok(episodes.every((item) => media.episodeNumberOf(item) === null));
+  const spaced = ['乘风破浪 第1期 上.mp4', '乘风破浪 第1期 下.mp4'].map((name) => file(name, '/综艺/乘风破浪'));
+  assert.equal(media.uniqueEpisodes(spaced).length, 2);
+  assert.equal(media.episodeLabel(file('乘风破浪 第3期.mp4', '/综艺/乘风破浪'), 0), '第 3 期');
+  assert.equal(media.episodeNumberOf(file('乘风破浪 第3期.mp4', '/综艺/乘风破浪')), 3);
+  // "上海" after 第1集 begins the episode's name; it is not the first half.
+  assert.equal(media.episodeOf(file('繁花 第1集上海往事.mp4', '/影视/电视剧/繁花')), 1);
+});
+
+test('a film on two discs is one work that starts with CD1; trailers, samples and featurettes are not works', () => {
+  const cases = [[['让子弹飞.2010.CD1.mkv', '让子弹飞.2010.CD2.mkv'], '/影视/电影'], [['让子弹飞.CD1.mkv', '让子弹飞.CD2.mkv'], '/影视/电影'], [['CD1.mkv', 'CD2.mkv'], '/影视/电影/让子弹飞 2010'], [['让子弹飞.2010.Part1.mkv', '让子弹飞.2010.Part2.mkv'], '/影视/电影']];
+  for (const [[first, second], folder] of cases) {
+    const works = media.buildMovieWorks([file(second, folder, 900), file(first, folder, 700)]);
+    assert.equal(works.length, 1, first);
+    assert.equal(works[0].title, '让子弹飞');
+    assert.equal(works[0].isSeries, false);
+    assert.equal(works[0].files[0].displayName, first);
+    assert.equal(media.versionCountOf(works[0]), 1);
+  }
+  const [copies] = media.buildMovieWorks([file('让子弹飞.2010.CD2.mkv', '/影视/电影', 900), file('让子弹飞.2010.CD1.mkv', '/影视/电影', 700), file('让子弹飞.2010.2160p.mkv', '/影视/电影', 9000)]);
+  assert.deepEqual(copies.files.map((item) => item.displayName), ['让子弹飞.2010.2160p.mkv', '让子弹飞.2010.CD1.mkv', '让子弹飞.2010.CD2.mkv']);
+  assert.equal(media.versionCountOf(copies), 2);
+  assert.equal(media.episodeOf(file('让子弹飞.Disc.02.mkv', '/影视/电影')), null);
+  const folder = '/Movies/Inception (2010)';
+  const works = media.buildMovieWorks([
+    file('Inception.2010.1080p.mkv', folder, 9000),
+    file('Inception.2010.sample.mkv', folder, 50),
+    file('Inception-trailer.mkv', folder),
+    file('Behind the Scenes.mkv', `${folder}/Featurettes`),
+    file('Deleted Scene 1.mkv', `${folder}/Deleted Scenes`),
+    file('Teaser.mkv', `${folder}/Trailers`),
+  ]);
+  assert.deepEqual(works.map((work) => [work.title, work.files.length]), [['Inception', 1]]);
+});
+
+test('shows named by a number keep it as their title', () => {
+  const shows = [['1883.S01E0N.1080p.mkv', '/影视/1883', '1883'], ['24.S01E0N.mkv', '/影视/24', '24'], ['1923.S01E0N.mkv', '/影视/1923 (2022)', '1923'], ['1883.S01E0N.mkv', '/TV/1883/Season 1', '1883']];
+  for (const [name, folder, title] of shows) {
+    const works = media.buildMovieWorks([1, 2, 3].map((number) => file(name.replace('N', number), folder)));
+    assert.equal(works.length, 1, folder);
+    assert.equal(works[0].title, title);
+    assert.equal(works[0].isSeries, true);
+  }
+  // A number in front of the episode is not the title when the show folder names it.
+  assert.equal(media.titleCandidateOf(file('2019.E01.mkv', '/影视/示例剧')), '示例剧');
+});
+
+test('a leading track number is not the artist, and albums sort by track', () => {
+  const song = (name, folder = '/音乐/Adele/25') => ({ ...file(name, folder), mediaKind: 'music' });
+  const parts = (name) => { const { artist, title, track } = media.songParts(song(name)); return [artist, title, track]; };
+  assert.deepEqual(parts('01 - Adele - Hello.flac'), ['Adele', 'Hello', 1]);
+  assert.deepEqual(parts('01 - Speak to Me.flac'), ['', 'Speak to Me', 1]);
+  assert.deepEqual(parts('02. Hello.flac'), ['', 'Hello', 2]);
+  assert.deepEqual(parts('周杰伦 - 晴天.mp3'), ['周杰伦', '晴天', undefined]);
+  assert.deepEqual(parts('99 Luftballons.flac'), ['', '99 Luftballons', undefined]);
+  assert.deepEqual(parts('311 - Amber.flac'), ['311', 'Amber', undefined]);
+  const album = ['03 - Adele - I Miss You.flac', '01 - Adele - Hello.flac', '02 - Adele - Send My Love.flac'].map((name) => song(name));
+  assert.deepEqual(album.sort(media.compareAlbumOrder).map((item) => item.displayName.slice(0, 2)), ['01', '02', '03']);
+  const discs = [song('02 - Breathe.flac', '/音乐/The Wall/CD1'), song('01 - Wish You Were Here.flac', '/音乐/WYWH/CD1'), song('01 - Speak to Me.flac', '/音乐/The Wall/CD1')];
+  assert.deepEqual(discs.map(media.musicFolderOf), ['The Wall › CD1', 'WYWH › CD1', 'The Wall › CD1']);
+  assert.deepEqual(discs.sort(media.compareAlbumOrder).map((item) => item.displayName), ['01 - Speak to Me.flac', '02 - Breathe.flac', '01 - Wish You Were Here.flac']);
+});
