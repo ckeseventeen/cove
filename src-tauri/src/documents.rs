@@ -101,6 +101,23 @@ async fn download(request: reqwest::RequestBuilder, target: &Path) -> Result<()>
     Ok(())
 }
 
+/// Where downloaded copies of one account's documents are kept.
+fn cache_dir(app: &AppHandle, account_id: &str) -> Result<PathBuf> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| NimbusError::Internal(error.to_string()))?
+        .join("documents")
+        .join(format!("{:x}", md5::compute(account_id))))
+}
+
+/// Delete the downloaded copies of a removed account's documents.
+pub(crate) async fn remove_cached_copies(app: &AppHandle, account_id: &str) {
+    if let Ok(cache) = cache_dir(app, account_id) {
+        let _ = tokio::fs::remove_dir_all(cache).await;
+    }
+}
+
 /// A local copy of the document: the file itself on this Mac, otherwise a cached download.
 async fn local_copy(
     app: &AppHandle,
@@ -121,12 +138,7 @@ async fn local_copy(
         return Ok(file);
     }
 
-    let cache = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| NimbusError::Internal(error.to_string()))?
-        .join("documents")
-        .join(format!("{:x}", md5::compute(account_id)));
+    let cache = cache_dir(app, account_id)?;
     let target = cache.join(format!("{:x}-{}", md5::compute(path), safe_file_name(name)));
     if let Ok(metadata) = tokio::fs::metadata(&target).await {
         if size == 0 || metadata.len() == size {

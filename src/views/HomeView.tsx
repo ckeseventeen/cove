@@ -1,11 +1,20 @@
-import { useState } from "react";
-import { FileType2, Film, LoaderCircle, Music2, Play, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { FileType2, Film, LoaderCircle, Play, Plus } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { formatRelative, formatRemaining } from "../lib/format";
-import { containingFolder, displayTitleOf, episodeLabel, songParts, type MediaWork } from "../lib/media";
+import {
+  containingFolder,
+  continueWatching,
+  displayTitleOf,
+  episodeLabel,
+  seasonLabel,
+  seasonOf,
+  type MediaWork,
+  type ResumeItem,
+} from "../lib/media";
 import { showContextMenu } from "../lib/native";
-import { openDocument, type MediaFile, type ReadingProgress, type RecentPlayback } from "../lib/nimbus";
+import { openDocument, type ReadingProgress } from "../lib/nimbus";
 import type { Notify } from "../ui/Toasts";
 import { readingLabel } from "./DocumentsView";
 import { usePlayer } from "../player/PlayerProvider";
@@ -21,13 +30,18 @@ type Props = {
 
 export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage }: Props) {
   const player = usePlayer();
-  const history = library.recent.flatMap((item) => {
-    const file = library.filesById.get(item.fileId);
-    return file ? [{ ...item, file }] : [];
-  });
+  const history = useMemo(
+    () => continueWatching(library.recent, library.filesById, library.workByFileId),
+    [library.recent, library.filesById, library.workByFileId],
+  );
   const cloudCount = library.accounts.filter((account) => account.provider !== "local").length;
   const isNew = library.loaded && !library.sources.length && !cloudCount;
-  const reading = library.reading.filter((item) => item.pageCount > 0);
+  // A document whose storage was removed can no longer be opened. Until the accounts have loaded
+  // (or if loading them failed) the list is unknown, and the native side already leaves those out.
+  const accountIds = new Set(library.accounts.map((account) => account.id));
+  const reading = library.reading.filter(
+    (item) => item.pageCount > 0 && (!accountIds.size || accountIds.has(item.accountId)),
+  );
 
   return (
     <div className="page home">
@@ -72,13 +86,12 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
             <h2 className="section-title">继续播放</h2>
           </div>
           <div className="resume-grid">
-            {history.slice(0, 6).map((item) => (
+            {history.map((item) => (
               <ResumeCard
-                key={item.fileId}
+                key={item.work.id}
                 item={item}
-                file={item.file}
                 library={library}
-                onPlay={(fromStart) => void player.play(item.file, { fromStart, queue: [item.file] })}
+                onPlay={(fromStart) => void player.play(item.file, { fromStart })}
                 onOpenWork={onOpenWork}
                 onNavigate={onNavigate}
               />
@@ -103,8 +116,8 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
       {!isNew && !history.length && !reading.length && (
         <EmptyState
           icon={<Play size={40} strokeWidth={1.3} />}
-          title="还没有播放或阅读记录"
-          message="播放影视、音乐或阅读 PDF 后，可以在这里从上次停下的地方继续。"
+          title="没有可以继续的内容"
+          message="播放影视或阅读 PDF 后，可以在这里从上次停下的地方继续。"
         />
       )}
     </div>
@@ -113,30 +126,25 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
 
 function ResumeCard({
   item,
-  file,
   library,
   onPlay,
   onOpenWork,
   onNavigate,
 }: {
-  item: RecentPlayback;
-  file: MediaFile;
+  item: ResumeItem;
   library: Library;
   onPlay: (fromStart: boolean) => void;
   onOpenWork: (work: MediaWork) => void;
   onNavigate: (route: Route) => void;
 }) {
-  const music = file.mediaKind === "music";
-  const work = music ? undefined : library.workByFileId.get(file.id);
-  const metadata = work ? library.movieMetadata[work.id] : undefined;
-  const title = music ? songParts(file).title : (work ? displayTitleOf(work, metadata) : file.displayName);
-  const detail = music
-    ? songParts(file).artist || "歌曲"
-    : work?.isSeries
-      ? episodeLabel(file, Math.max(0, work.files.indexOf(file)))
-      : metadata?.year
-        ? String(metadata.year)
-        : "影片";
+  const { file, work } = item;
+  const metadata = library.movieMetadata[work.id];
+  const title = displayTitleOf(work, metadata);
+  const detail = work.isSeries
+    ? `${work.seasons.length > 1 ? `${seasonLabel(seasonOf(file))} · ` : ""}${episodeLabel(file, Math.max(0, work.files.indexOf(file)))}`
+    : metadata?.year
+      ? String(metadata.year)
+      : "影片";
   const progress = item.duration > 0 ? Math.min(100, (item.position / item.duration) * 100) : 0;
   const folder = containingFolder(file);
   return (
@@ -145,10 +153,10 @@ function ResumeCard({
       onClick={() => onPlay(false)}
       onContextMenu={(event) =>
         void showContextMenu(event, [
-          { label: music ? "播放" : "继续播放", action: () => onPlay(false) },
-          { label: "从头播放", enabled: !music, action: () => onPlay(true) },
+          { label: progress > 0 ? "继续播放" : "播放", action: () => onPlay(false) },
+          { label: "从头播放", enabled: progress > 0, action: () => onPlay(true) },
           "separator",
-          ...(work ? [{ label: "显示简介", action: () => onOpenWork(work) }] : []),
+          { label: "显示简介", action: () => onOpenWork(work) },
           {
             label: "在文件中显示",
             enabled: !!folder,
@@ -157,11 +165,9 @@ function ResumeCard({
         ])
       }
     >
-      <span className={`resume-art ${music ? "square" : ""}`}>
+      <span className="resume-art">
         {metadata?.posterUrl ? (
           <img src={metadata.posterUrl} alt="" loading="lazy" draggable={false} />
-        ) : music ? (
-          <Music2 size={20} strokeWidth={1.6} />
         ) : (
           <Film size={20} strokeWidth={1.6} />
         )}
@@ -172,13 +178,15 @@ function ResumeCard({
       <span className="resume-text">
         <span className="resume-title truncate">{title}</span>
         <span className="resume-detail truncate">{detail}</span>
-        {!music && progress > 0 && (
+        {progress > 0 ? (
           <>
             <span className="progress">
               <span style={{ width: `${progress}%` }} />
             </span>
             <span className="resume-detail">{formatRemaining(item.position, item.duration)}</span>
           </>
+        ) : (
+          item.upNext && <span className="resume-detail">下一集</span>
         )}
       </span>
     </button>

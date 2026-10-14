@@ -32,13 +32,18 @@ pub(crate) fn account_list(state: State<'_, AppState>) -> Result<Vec<Account>> {
 }
 
 #[tauri::command]
-pub(crate) async fn account_remove(account_id: String, state: State<'_, AppState>) -> Result<()> {
+pub(crate) async fn account_remove(
+    account_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<()> {
     if state.store.get_account(&account_id)?.account.provider == "local" {
         return Err(NimbusError::Validation(
             "本地磁盘是系统存储源，不能删除".into(),
         ));
     }
     let stored = state.store.delete_account(&account_id)?;
+    crate::documents::remove_cached_copies(&app, &account_id).await;
     state.credentials.write().await.remove(&account_id);
     let secret_ref = stored.secret_ref;
     tauri::async_runtime::spawn_blocking(move || {
