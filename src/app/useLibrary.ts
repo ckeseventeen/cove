@@ -12,6 +12,7 @@ import {
   listPlaylists,
   listReadingProgress,
   listRecentPlayback,
+  onPlayerStopped,
   onReadingProgress,
   removeAccount as removeAccountCommand,
   removeMediaSource,
@@ -27,6 +28,7 @@ import {
   type ReadingProgress,
   type RecentPlayback,
 } from "../lib/nimbus";
+import { onStatus } from "../player/statusStore";
 import type { Notify } from "../ui/Toasts";
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -78,6 +80,22 @@ export function useLibrary(notify: Notify) {
       .then(setRecent)
       .catch(() => undefined);
   }, []);
+
+  // The player saves the position when it stops (also on closing the window) or moves on to another
+  // file, then reports the change: reload the saved positions so 继续播放 follows what was watched.
+  useEffect(() => {
+    let playing: string | null | undefined;
+    const offStatus = onStatus(({ fileId }) => {
+      const id = fileId ?? null;
+      if (playing !== undefined && id !== playing) refreshRecent();
+      playing = id;
+    });
+    const offStopped = onPlayerStopped(refreshRecent);
+    return () => {
+      offStatus();
+      offStopped();
+    };
+  }, [refreshRecent]);
 
   // The reader reports page changes; keep the newest entry first.
   useEffect(
@@ -180,6 +198,7 @@ export function useLibrary(notify: Notify) {
         setAccounts((current) => current.filter((item) => item.id !== account.id));
         setSources((current) => current.filter((source) => source.accountId !== account.id));
         setFiles((current) => current.filter((file) => file.accountId !== account.id));
+        setReading((current) => current.filter((item) => item.accountId !== account.id));
         notify(`已移除“${account.label}”。存储中的文件没有改动。`, "success");
         return true;
       } catch (cause) {

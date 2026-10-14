@@ -275,7 +275,8 @@ impl Store {
         let connection = self.connection.lock();
         let mut statement = connection.prepare(
             "SELECT doc_key, account_id, path, entry_id, name, size, page, page_count, updated_at
-             FROM reading_progress ORDER BY updated_at DESC LIMIT ?1",
+             FROM reading_progress WHERE account_id IN (SELECT id FROM accounts)
+             ORDER BY updated_at DESC LIMIT ?1",
         )?;
         let rows = statement.query_map([limit as i64], reading_row)?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
@@ -292,9 +293,22 @@ impl Store {
         self.connection.lock().execute("INSERT INTO metadata_overrides(file_id,query) VALUES (?1,?2) ON CONFLICT(file_id) DO UPDATE SET query=excluded.query",params![file_id,query])?;
         Ok(())
     }
+    /// Saved positions, newest first: enough videos for Home to pick one per film or series
+    /// (finished episodes included, so it can offer the next one), and only the last few songs,
+    /// so a long album cannot push the videos out.
     pub fn recent_playback(&self) -> Result<Vec<serde_json::Value>> {
         let connection = self.connection.lock();
-        let mut statement = connection.prepare("SELECT p.file_id,p.position_sec,p.duration_sec,p.updated_at FROM playback_progress p WHERE EXISTS(SELECT 1 FROM source_files sf WHERE sf.file_id=p.file_id AND sf.present=1) ORDER BY p.updated_at DESC LIMIT 12")?;
+        let mut statement = connection.prepare(
+            "WITH saved AS (
+               SELECT p.file_id, p.position_sec, p.duration_sec, p.updated_at,
+                 COALESCE((SELECT ms.kind FROM media_sources ms JOIN source_files sf ON sf.source_id=ms.id WHERE sf.file_id=p.file_id AND sf.present=1 ORDER BY sf.source_id LIMIT 1), m.media_kind) AS kind
+               FROM playback_progress p JOIN media_files m ON m.id=p.file_id
+               WHERE EXISTS(SELECT 1 FROM source_files sf WHERE sf.file_id=p.file_id AND sf.present=1))
+             SELECT * FROM (SELECT file_id, position_sec, duration_sec, updated_at FROM saved WHERE kind IS NOT 'music' ORDER BY updated_at DESC LIMIT 200)
+             UNION ALL
+             SELECT * FROM (SELECT file_id, position_sec, duration_sec, updated_at FROM saved WHERE kind IS 'music' ORDER BY updated_at DESC LIMIT 5)
+             ORDER BY updated_at DESC",
+        )?;
         let rows = statement.query_map([], |row| Ok(serde_json::json!({"fileId":row.get::<_,String>(0)?, "position":row.get::<_,f64>(1)?, "duration":row.get::<_,f64>(2)?, "updatedAt":row.get::<_,i64>(3)?})))?;
         Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
     }
@@ -549,6 +563,8 @@ impl Store {
         transaction.execute("DELETE FROM metadata_cache WHERE file_id IN (SELECT id FROM media_files WHERE account_id=?1)", [id])?;
         transaction.execute("DELETE FROM media_files WHERE account_id = ?1", [id])?;
         transaction.execute("DELETE FROM media_sources WHERE account_id = ?1", [id])?;
+        // Reading positions are keyed by account, not by a library row, so nothing cascades to them.
+        transaction.execute("DELETE FROM reading_progress WHERE account_id = ?1", [id])?;
         transaction.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
         transaction.commit()?;
         Ok(stored)

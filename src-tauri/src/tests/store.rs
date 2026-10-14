@@ -325,3 +325,94 @@ fn ensure_media_file_prefers_playable_address_over_display_path() {
         "baidu://3"
     );
 }
+
+#[test]
+fn recent_playback_keeps_videos_when_an_album_follows() {
+    let fixture = Fixture::new();
+    let movies = fixture.source("movies");
+    let music = MediaSource {
+        id: "music".into(),
+        account_id: "local".into(),
+        kind: "music".into(),
+        remote_root: "/media/music".into(),
+        label: "music".into(),
+        last_scan_at: None,
+    };
+    fixture.store.insert_media_source(&music).unwrap();
+    let film = file("Film.2020.mkv");
+    let finished = file("Show.S01E01.mkv");
+    let songs: Vec<MediaFile> = (0..12).map(|index| file(&format!("Song {index}.flac"))).collect();
+    fixture
+        .store
+        .replace_source_files(&movies, &[film.clone(), finished.clone()], true)
+        .unwrap();
+    fixture.store.replace_source_files(&music, &songs, true).unwrap();
+    let save = |id: &str, position: f64, duration: f64, at: i64| {
+        fixture.store.save_playback_progress(id, position, duration, 1.0).unwrap();
+        fixture
+            .store
+            .connection
+            .lock()
+            .execute(
+                "UPDATE playback_progress SET updated_at = ?2 WHERE file_id = ?1",
+                params![id, at],
+            )
+            .unwrap();
+    };
+    save(&film.id, 3000.0, 6000.0, 100);
+    save(&finished.id, 5900.0, 6000.0, 101);
+    for (index, song) in songs.iter().enumerate() {
+        save(&song.id, 40.0, 200.0, 200 + index as i64);
+    }
+
+    let recent = fixture.store.recent_playback().unwrap();
+    let ids: Vec<&str> = recent.iter().map(|item| item["fileId"].as_str().unwrap()).collect();
+    // The half-watched film and the finished episode (Home offers the next one) outlast the album.
+    assert!(ids.contains(&film.id.as_str()));
+    assert!(ids.contains(&finished.id.as_str()));
+    let finished_row = recent.iter().find(|item| item["fileId"] == finished.id.as_str()).unwrap();
+    assert_eq!(finished_row["position"].as_f64(), Some(0.0));
+    // Only the latest songs are kept, enough to restore the last one.
+    let song_ids: Vec<&str> = ids.iter().copied().filter(|id| songs.iter().any(|song| song.id == *id)).collect();
+    assert_eq!(song_ids.len(), 5);
+    assert_eq!(ids[0], songs[11].id);
+    let times: Vec<i64> = recent.iter().map(|item| item["updatedAt"].as_i64().unwrap()).collect();
+    assert!(times.windows(2).all(|pair| pair[0] >= pair[1]));
+}
+
+#[test]
+fn account_removal_forgets_its_reading_progress() {
+    let fixture = Fixture::new();
+    let account = Account {
+        id: "dav".into(),
+        provider: "webdav".into(),
+        label: "NAS".into(),
+        endpoint: "https://nas.example/dav".into(),
+        username: Some("me".into()),
+        status: "ok".into(),
+    };
+    fixture.store.insert_account(&account, "account:dav").unwrap();
+    let book = |account_id: &str, path: &str| crate::model::ReadingProgress {
+        doc_key: format!("{account_id}:{path}"),
+        account_id: account_id.into(),
+        path: path.into(),
+        entry_id: String::new(),
+        name: "Book.pdf".into(),
+        size: 10,
+        page: 0,
+        page_count: 0,
+        updated_at: 0,
+    };
+    fixture.store.touch_reading_document(&book("dav", "/dav/Book.pdf")).unwrap();
+    fixture.store.save_reading_page("dav:/dav/Book.pdf", 4, 100).unwrap();
+    fixture.store.touch_reading_document(&book("local", "/books/Book.pdf")).unwrap();
+
+    fixture.store.delete_account("dav").unwrap();
+    let left = fixture.store.list_reading_progress(10).unwrap();
+    assert_eq!(left.iter().map(|item| item.account_id.as_str()).collect::<Vec<_>>(), vec!["local"]);
+    assert!(fixture.store.reading_progress("dav:/dav/Book.pdf").unwrap().is_none());
+
+    // A row left behind by an account removed before this fix is not listed either.
+    fixture.store.touch_reading_document(&book("gone", "/Old.pdf")).unwrap();
+    assert_eq!(fixture.store.list_reading_progress(10).unwrap().len(), 1);
+}
