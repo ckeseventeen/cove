@@ -356,6 +356,9 @@
   --control-bg: rgba(255, 255, 255, 0.14);
   animation: np-in 240ms var(--ease);
 }
+.now-playing:focus-visible {
+  box-shadow: none;
+}
 @keyframes np-in {
   from {
     opacity: 0;

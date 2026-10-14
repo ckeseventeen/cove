@@ -186,10 +186,10 @@ export function EmptyState({
 /** Grow a rendered list as its end scrolls into view (instead of "load more" buttons). */
 export function useIncrementalCount(total: number, step: number, resetKey: unknown) {
   const [count, setCount] = useState(step);
-  const sentinel = useRef<HTMLDivElement>(null);
+  // A callback ref: switching list and icon view mounts a new sentinel, which must be observed in turn.
+  const [node, sentinel] = useState<HTMLDivElement | null>(null);
   useEffect(() => setCount(step), [resetKey, step]);
   useEffect(() => {
-    const node = sentinel.current;
     if (!node || count >= total) return;
     const observer = new IntersectionObserver(
       (entries) => {
@@ -199,6 +199,6 @@ export function useIncrementalCount(total: number, step: number, resetKey: unkno
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [count, total, step]);
+  }, [count, total, step, node]);
   return { count: Math.min(count, total), sentinel };
 }

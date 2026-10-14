@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { songParts } from "../lib/media";
 import { useTopmostEscape } from "../ui/Sheet";
 import { Lyrics } from "./Lyrics";
@@ -13,12 +14,24 @@ import { usePlayer } from "./PlayerProvider";
 export function NowPlaying() {
   const player = usePlayer();
   const open = player.fullScreen && !!player.nowPlaying && !player.isVideo;
-  useTopmostEscape(open, () => player.setFullScreen(false));
+  // Escape closes it, but it is not modal: Space and the other window shortcuts keep working.
+  useTopmostEscape(open, () => player.setFullScreen(false), false);
+  const section = useRef<HTMLElement>(null);
+  // Take the keyboard from the page underneath, so Space pauses instead of acting on a hidden list.
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    section.current?.focus({ preventScroll: true });
+    return () => {
+      const active = document.activeElement;
+      if (previous?.isConnected && (!active || active === document.body)) previous.focus({ preventScroll: true });
+    };
+  }, [open]);
   if (!open || !player.nowPlaying) return null;
   const parts = songParts(player.nowPlaying);
   const art = player.metadata?.artworkUrl;
   return (
-    <section className="now-playing" data-side={player.panel ?? "none"} aria-label="正在播放">
+    <section ref={section} className="now-playing" data-side={player.panel ?? "none"} aria-label="正在播放" tabIndex={-1}>
       <div className="np-backdrop" aria-hidden="true">
         {art && <img src={art} alt="" />}
       </div>

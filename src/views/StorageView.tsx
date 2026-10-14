@@ -31,7 +31,7 @@ import {
 import { canCopyBetween, classifyEntry, groupByKind, isPlayableKind, samePath, storageCapabilities, validFolderName } from "../lib/storage";
 import { EmptyState, SearchField, useIncrementalCount } from "../ui/controls";
 import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
-import { Sheet } from "../ui/Sheet";
+import { isModalOpen, Sheet } from "../ui/Sheet";
 import type { Notify } from "../ui/Toasts";
 import { QuickLook } from "./QuickLook";
 
@@ -39,8 +39,10 @@ export type ClipboardEntry = { accountId: string; id: string; path: string; name
 type SortField = "name" | "modified" | "size" | "kind";
 type Sort = { field: SortField; ascending: boolean };
 type ViewMode = "list" | "grid";
+type Listing = { key: string; entries: CloudEntry[]; error: string | null };
 
 const DRAG_TYPE = "application/x-cove-entry";
+const NO_ENTRIES: CloudEntry[] = [];
 const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
 
 function loadPreference<T>(key: string, fallback: T, valid: (value: unknown) => boolean): T {
@@ -78,6 +80,9 @@ function parseDragged(raw: string): ClipboardEntry | null {
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
+/** Quick Look and New Folder are portaled children: their events bubble here through React, not the page. */
+const fromBrowser = (event: React.SyntheticEvent) => event.currentTarget.contains(event.target as Node);
+
 type Props = {
   library: Library;
   account: Account;
@@ -97,9 +102,13 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
   const clipboardAccount = library.accounts.find((item) => item.id === clipboard?.accountId);
   const canPaste = !!clipboard && !!clipboardAccount && canWrite && canCopyBetween(clipboardAccount, account);
 
-  const [entries, setEntries] = useState<CloudEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // A listing belongs to one folder: while the next one loads, the previous items must not stay clickable.
+  const [listing, setListing] = useState<Listing>({ key: "", entries: NO_ENTRIES, error: null });
+  const [fetching, setFetching] = useState(true);
+  const listed = listing.key === `${account.id}|${path}`;
+  const entries = listed ? listing.entries : NO_ENTRIES;
+  const error = listed ? listing.error : null;
+  const loading = fetching || !listed;
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -119,20 +128,18 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   useEffect(() => {
     const generation = ++request.current;
-    setLoading(true);
-    setError(null);
+    const key = `${account.id}|${path}`;
+    setFetching(true);
+    setListing((current) => (current.error ? { ...current, error: null } : current));
     browseAccount(account.id, path)
       .then((next) => {
-        if (generation !== request.current) return;
-        setEntries(next);
+        if (generation === request.current) setListing({ key, entries: next, error: null });
       })
       .catch((cause) => {
-        if (generation !== request.current) return;
-        setEntries([]);
-        setError(errorText(cause));
+        if (generation === request.current) setListing({ key, entries: NO_ENTRIES, error: errorText(cause) });
       })
       .finally(() => {
-        if (generation === request.current) setLoading(false);
+        if (generation === request.current) setFetching(false);
       });
   }, [account.id, path, reload]);
 
@@ -299,7 +306,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
   };
 
   const backgroundMenu = (event: React.MouseEvent) => {
-    if ((event.target as Element).closest("[data-entry]")) return;
+    if (!fromBrowser(event) || (event.target as Element).closest("[data-entry]")) return;
     setSelected(null);
     void showContextMenu(event, [
       { label: "新建文件夹", enabled: canWrite && capabilities.createFolder, action: () => setNewFolderOpen(true) },
@@ -342,6 +349,23 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     };
   });
 
+  // Keep the keyboard (⌘↑, arrows, Space) in the browser when a folder opens, and when the focused
+  // list goes away because the folder is loading, empty or failed, or the view changes. Otherwise
+  // focus falls to the page and ⌘↑ reaches the menu bar's volume command instead.
+  const listShown = !error && sorted.length > 0;
+  const keepKeyboard = (navigated: boolean) => {
+    const node = container.current;
+    const active = document.activeElement;
+    if (!node || isModalOpen() || isEditableTarget(active)) return;
+    const lost = !active || active === document.body || active === node;
+    if (!lost && !(navigated && !node.contains(active))) return;
+    (node.querySelector<HTMLElement>(".browser-content > [role='grid']") ?? node).focus({ preventScroll: true });
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => keepKeyboard(true), [account.id, path]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => keepKeyboard(false), [listShown, view]);
+
   const columnsInGrid = () => {
     const cards = container.current?.querySelectorAll<HTMLElement>(".icon-item");
     if (!cards || cards.length < 2) return 1;
@@ -355,7 +379,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
-    if (isEditableTarget(event.target)) return;
+    if (!fromBrowser(event) || isEditableTarget(event.target)) return;
     const index = ordered.findIndex((entry) => entry.id === selected);
     const select = (position: number) => {
       const entry = ordered[Math.max(0, Math.min(ordered.length - 1, position))];
@@ -443,7 +467,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
   const musicSource = sourceAt("music", path);
   const documentSource = sourceAt("document", path);
   const statusParts = [
-    filter.trim() ? `${sorted.length} / ${plural(entries.length, "项")}` : plural(entries.length, "项"),
+    loading && !entries.length ? null : filter.trim() ? `${sorted.length} / ${plural(entries.length, "项")}` : plural(entries.length, "项"),
     selectedEntry ? `已选择“${selectedEntry.name}”` : null,
     !capabilities.copy ? "只读" : null,
     clipboard ? `剪贴板：${clipboard.name}` : null,
@@ -457,11 +481,12 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       onKeyDown={onKeyDown}
       onContextMenu={backgroundMenu}
       onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes(DRAG_TYPE) || !canWrite) return;
+        if (!fromBrowser(event) || !event.dataTransfer.types.includes(DRAG_TYPE) || !canWrite) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
       }}
       onDrop={(event) => {
+        if (!fromBrowser(event)) return;
         const dragged = parseDragged(event.dataTransfer.getData(DRAG_TYPE));
         if (!dragged || !canWrite) return;
         event.preventDefault();

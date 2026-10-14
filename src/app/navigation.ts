@@ -7,7 +7,8 @@ export type Route =
   | { name: "music"; sourceId?: string }
   | { name: "documents"; sourceId?: string }
   | { name: "playlist"; id: string }
-  | { name: "search" }
+  // The query lives in the route, so Back and Forward return to the same results.
+  | { name: "search"; query: string }
   | { name: "settings" }
   | { name: "help" };
 
@@ -30,6 +31,7 @@ export function sameRoute(left: Route, right: Route) {
     return (left.sourceId ?? null) === ((right as { sourceId?: string }).sourceId ?? null);
   }
   if (left.name === "playlist" && right.name === "playlist") return left.id === right.id;
+  if (left.name === "search" && right.name === "search") return left.query === right.query;
   return true;
 }
 

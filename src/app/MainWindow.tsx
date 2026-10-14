@@ -127,16 +127,18 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     return () => cancelAnimationFrame(frame);
   }, [history]);
 
-  const back = useCallback(() => {
-    setFullScreen(false);
-    moveTo(goBack(historyRef.current));
-    setQuery("");
-  }, [moveTo, setFullScreen]);
-  const forward = useCallback(() => {
-    setFullScreen(false);
-    moveTo(goForward(historyRef.current));
-    setQuery("");
-  }, [moveTo, setFullScreen]);
+  // Back and Forward to a search bring its query back into the search field.
+  const travel = useCallback(
+    (result: History) => {
+      setFullScreen(false);
+      moveTo(result);
+      const destination = currentRoute(result);
+      setQuery(destination.name === "search" ? destination.query : "");
+    },
+    [moveTo, setFullScreen],
+  );
+  const back = useCallback(() => travel(goBack(historyRef.current)), [travel]);
+  const forward = useCallback(() => travel(goForward(historyRef.current)), [travel]);
 
   const toggleSidebar = useCallback(() => {
     setSidebar((value) => {
@@ -151,14 +153,17 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
 
   const onQuery = (value: string) => {
     setQuery(value);
+    const current = historyRef.current;
+    const searching = currentRoute(current).name === "search";
     if (value.trim()) {
-      if (route.name !== "search") {
-        returnFromSearch.current = history;
-        moveTo(push(history, { name: "search" }));
-      }
-    } else if (route.name === "search" && returnFromSearch.current) {
+      // Typing shows the results, even from Now Playing; each keystroke refines the same page.
+      if (!searching) returnFromSearch.current = current;
+      navigate({ name: "search", query: value }, { replace: searching });
+    } else if (searching && returnFromSearch.current) {
       moveTo(returnFromSearch.current);
       returnFromSearch.current = null;
+    } else if (searching) {
+      moveTo(push(current, { name: "search", query: "" }, { replace: true }));
     }
   };
 
@@ -327,7 +332,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       ArrowDown: "cove.volume-down",
     };
     const onKey = (event: KeyboardEvent) => {
-      if (player.isVideo) return;
+      // A focused list or control already used the key (Space opening a document, ⌘↑ in Files).
+      if (player.isVideo || event.defaultPrevented) return;
       // In the native app these arrive through the menu bar instead.
       if (!isTauri() && event.metaKey && !event.altKey && !event.ctrlKey && keys[event.key]) {
         if (isEditableTarget(event.target) && event.key.startsWith("Arrow")) return;
@@ -378,7 +384,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       case "documents":
         return <DocumentsView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} notify={notify} />;
       case "search":
-        return <SearchView key={query.trim()} query={query} library={library} notify={notify} onNavigate={navigate} onOpenWork={setDetail} />;
+        return <SearchView key={route.query.trim()} query={route.query} library={library} notify={notify} onNavigate={navigate} onOpenWork={setDetail} />;
       case "settings":
         return (
           <SettingsView
@@ -409,7 +415,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         query={query}
         onQuery={onQuery}
         onSearchKey={(event) => {
-          if (event.key === "Enter" && query.trim() && route.name !== "search") navigate({ name: "search" });
+          // Enter shows the results, also when Now Playing covers them.
+          if (event.key === "Enter" && query.trim()) navigate({ name: "search", query });
         }}
         onNavigate={navigate}
         onAddStorage={() => setAddingStorage(true)}

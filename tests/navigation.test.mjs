@@ -36,6 +36,22 @@ test('replace swaps the current entry without growing history', () => {
   assert.deepEqual(history.entries.map((route) => route.name), ['home', 'search']);
 });
 
+test('a search keeps its query in history, so Back and Forward return to the results', () => {
+  let history = nav.navigate(nav.initialHistory, { name: 'music' });
+  history = nav.navigate(history, { name: 'search', query: '云' });
+  // Typing refines the same entry instead of adding one per keystroke.
+  history = nav.navigate(history, { name: 'search', query: '云上' }, { replace: true });
+  assert.equal(nav.navigate(history, { name: 'search', query: '云上' }, { replace: true }), history);
+  history = nav.navigate(history, storage('/NAS', 'nas'));
+  assert.deepEqual(history.entries.map((route) => route.name), ['home', 'music', 'search', 'storage']);
+  history = nav.goBack(history);
+  assert.deepEqual(nav.currentRoute(history), { name: 'search', query: '云上' });
+  history = nav.goBack(history);
+  assert.equal(nav.currentRoute(nav.goForward(history)).query, '云上');
+  assert.equal(nav.sameRoute({ name: 'search', query: 'a' }, { name: 'search', query: 'b' }), false);
+  assert.equal(nav.sidebarKey({ name: 'search', query: 'a' }), 'search');
+});
+
 test('media folder filters are distinct pages', () => {
   assert.equal(nav.sameRoute({ name: 'music' }, { name: 'music', sourceId: undefined }), true);
   assert.equal(nav.sameRoute({ name: 'music', sourceId: 'a' }, { name: 'music' }), false);
