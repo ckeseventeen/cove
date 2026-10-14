@@ -603,8 +603,15 @@ pub async fn copy_baidu(token: &str, source: &str, destination_directory: &str) 
         .get("errno")
         .and_then(|value| value.as_i64())
         .unwrap_or(-1);
+    // In file management 111 can also mean another task is still running, so only -6 asks
+    // for a new login here.
+    if errno == -6 {
+        return Err(login_expired("baidu"));
+    }
     if errno != 0 {
-        return Err(baidu_failure(errno, format!("百度网盘复制失败（{errno}）")));
+        return Err(NimbusError::Validation(format!(
+            "百度网盘复制失败（{errno}）"
+        )));
     }
     Ok(())
 }

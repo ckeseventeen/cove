@@ -27,8 +27,8 @@ import {
   type ReadingProgress,
   type RecentPlayback,
 } from "../lib/nimbus";
-import { scanSummary } from "../lib/scan";
 import type { Notify } from "../ui/Toasts";
+import { scanSummary } from "../lib/scan";
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 

@@ -206,7 +206,12 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
           <button type="button" className="btn" disabled={!cancellable} onClick={cancel}>
             取消
           </button>
-          <button type="submit" className="btn prominent" disabled={!ready || saving}>
+          <button
+            type="submit"
+            className="btn prominent"
+            disabled={!ready || saving}
+            data-autofocus={account && provider === "baidu" ? true : undefined}
+          >
             {saving && <LoaderCircle className="spin" size={12} />}
             {provider === "baidu" ? "登录" : account ? "重新连接" : "连接"}
           </button>
