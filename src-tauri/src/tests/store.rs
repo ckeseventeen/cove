@@ -286,3 +286,42 @@ fn playlists_keep_order_skip_missing_songs_and_cascade() {
         .unwrap();
     assert_eq!(orphans, 0);
 }
+
+#[test]
+fn ensure_media_file_prefers_playable_address_over_display_path() {
+    let fixture = Fixture::new();
+    let old = fixture
+        .store
+        .ensure_media_file("local", "baidu://1", Some("/影视/a.mkv"), "a.mkv", "movie", 1)
+        .unwrap();
+    // The same display path, reached by its old address again, keeps its identity.
+    let again = fixture
+        .store
+        .ensure_media_file("local", "baidu://1", Some("/影视/a.mkv"), "a.mkv", "movie", 1)
+        .unwrap();
+    assert_eq!(again, old);
+    // A file already known by another address is never confused with the old one.
+    let other = fixture
+        .store
+        .ensure_media_file("local", "baidu://2", Some("/影视/b.mkv"), "b.mkv", "movie", 1)
+        .unwrap();
+    let replaced = fixture
+        .store
+        .ensure_media_file("local", "baidu://2", Some("/影视/a.mkv"), "a.mkv", "movie", 1)
+        .unwrap();
+    assert_eq!(replaced, other);
+    assert_eq!(
+        fixture.store.get_media_file(&replaced).unwrap().remote_path,
+        "baidu://2"
+    );
+    // Only the display path matches: the row follows the file to its new address.
+    let moved = fixture
+        .store
+        .ensure_media_file("local", "baidu://3", Some("/影视/a.mkv"), "a.mkv", "movie", 1)
+        .unwrap();
+    assert_eq!(moved, old);
+    assert_eq!(
+        fixture.store.get_media_file(&moved).unwrap().remote_path,
+        "baidu://3"
+    );
+}

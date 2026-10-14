@@ -74,13 +74,13 @@ pub(crate) async fn storage_play_file(
             }
             (format!("baidu://{fs_id}"), path.clone())
         } else if account.account.provider == "google_drive" {
-            let id = entry_id.unwrap_or_default();
+            let id = cloud_file_id(entry_id)?;
             (
                 format!("https://www.googleapis.com/drive/v3/files/{id}?alt=media&supportsAllDrives=true"),
                 path.clone(),
             )
         } else if account.account.provider == "onedrive" {
-            let id = entry_id.unwrap_or_default();
+            let id = cloud_file_id(entry_id)?;
             (
                 format!("https://graph.microsoft.com/v1.0/me/drive/items/{id}/content"),
                 path.clone(),
@@ -167,6 +167,14 @@ pub(crate) async fn storage_play_file(
 
     commands::playback::player_open_native(file_id.clone(), Some(false), window, state).await?;
     Ok(file_id)
+}
+
+/// Google Drive and OneDrive address files by id; without one the request would hit the drive root.
+fn cloud_file_id(entry_id: Option<String>) -> Result<String> {
+    entry_id
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| NimbusError::Validation("未能获取云盘文件信息，请刷新后重试".into()))
 }
 
 fn existing_local_path(path: &str) -> Result<std::path::PathBuf> {
@@ -262,5 +270,11 @@ mod file_flow_tests {
         assert!(existing_local_path("https://example.com").is_err());
         assert!(existing_local_path("-a").is_err());
         assert!(existing_local_path("/this-file-must-not-exist-cove-test").is_err());
+    }
+    #[test]
+    fn cloud_playback_requires_a_file_id() {
+        assert!(cloud_file_id(None).is_err());
+        assert!(cloud_file_id(Some("  ".into())).is_err());
+        assert_eq!(cloud_file_id(Some("abc".into())).unwrap(), "abc");
     }
 }

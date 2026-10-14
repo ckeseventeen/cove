@@ -623,17 +623,37 @@ impl Store {
         media_kind: &str,
         size: u64,
     ) -> Result<String> {
+        use rusqlite::OptionalExtension;
         let connection = self.connection.lock();
         let cp = cloud_path.unwrap_or(remote_path);
-        if let Ok(id) = connection.query_row(
-            "SELECT id FROM media_files WHERE account_id = ?1 AND (remote_path = ?2 OR (cloud_path = ?3 AND cloud_path IS NOT NULL))",
-            rusqlite::params![account_id, remote_path, cp],
-            |row| row.get::<_, String>(0),
-        ) {
-            let _ = connection.execute(
-                "UPDATE media_files SET remote_path = ?1, cloud_path = ?2, display_name = ?3 WHERE id = ?4",
-                rusqlite::params![remote_path, cp, name, id],
-            );
+        // The playable address identifies the file; the display path is only a fallback, so a
+        // file replaced at the same path (a new Baidu fs_id) never resolves to the old one.
+        let by_remote = connection
+            .query_row(
+                "SELECT id FROM media_files WHERE account_id = ?1 AND remote_path = ?2",
+                rusqlite::params![account_id, remote_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(id) = by_remote {
+            connection.execute(
+                "UPDATE media_files SET cloud_path = ?1, display_name = ?2 WHERE id = ?3",
+                rusqlite::params![cp, name, id],
+            )?;
+            return Ok(id);
+        }
+        let by_cloud = connection
+            .query_row(
+                "SELECT id FROM media_files WHERE account_id = ?1 AND cloud_path = ?2 ORDER BY rowid LIMIT 1",
+                rusqlite::params![account_id, cp],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(id) = by_cloud {
+            connection.execute(
+                "UPDATE media_files SET remote_path = ?1, display_name = ?2 WHERE id = ?3",
+                rusqlite::params![remote_path, name, id],
+            )?;
             return Ok(id);
         }
         let file_id = uuid::Uuid::new_v4().to_string();

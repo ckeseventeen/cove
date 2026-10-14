@@ -240,6 +240,16 @@ async fn stream(
             }
         }
 
+        if !from_cache
+            && resolved_url.is_none()
+            && !remote_url.starts_with("http://")
+            && !remote_url.starts_with("https://")
+        {
+            return error_response(
+                StatusCode::BAD_GATEWAY,
+                "未能获取百度网盘文件链接，请刷新目录后重试",
+            );
+        }
         // A cached link already carries the access token; only fresh links need it.
         if !from_cache {
             match url::Url::parse(&remote_url) {

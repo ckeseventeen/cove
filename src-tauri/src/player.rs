@@ -502,13 +502,9 @@ fn request(path: &Path, command: Value) -> Result<Value> {
     let mut reader = BufReader::new(stream);
     let deadline = Instant::now() + Duration::from_secs(3);
     loop {
-        if Instant::now() >= deadline {
+        let Some(line) = read_reply_line(&mut reader, deadline)? else {
             return Err(NimbusError::Validation("播放器命令等待超时".into()));
-        }
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Err(NimbusError::Validation("播放器连接已关闭".into()));
-        }
+        };
         let response: Value = serde_json::from_str(&line)?;
         if response.get("request_id").and_then(Value::as_i64) != Some(1) {
             continue;
@@ -520,6 +516,37 @@ fn request(path: &Path, command: Value) -> Result<Value> {
             )));
         }
         return Ok(response.get("data").cloned().unwrap_or(Value::Null));
+    }
+}
+/// One line from mpv, waiting until `deadline`. The socket's 1 s read timeout only
+/// paces the wait; a slow reply (seeking in a buffering cloud stream) is not an error.
+fn read_reply_line(
+    reader: &mut BufReader<UnixStream>,
+    deadline: Instant,
+) -> Result<Option<String>> {
+    let mut line = Vec::new();
+    loop {
+        if Instant::now() >= deadline {
+            return Ok(None);
+        }
+        match reader.read_until(b'\n', &mut line) {
+            Ok(0) => return Err(NimbusError::Validation("播放器连接已关闭".into())),
+            Ok(_) if line.ends_with(b"\n") => {
+                return Ok(Some(String::from_utf8_lossy(&line).into_owned()))
+            }
+            Ok(_) => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                continue
+            }
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 fn query(path: &Path, property: &str) -> Result<Value> {
@@ -561,13 +588,9 @@ fn read_status(path: &Path) -> Result<PlayerStatus> {
     let mut values = std::collections::HashMap::new();
     let deadline = Instant::now() + Duration::from_secs(3);
     while values.len() < properties.len() {
-        if Instant::now() >= deadline {
+        let Some(line) = read_reply_line(&mut reader, deadline)? else {
             return Err(NimbusError::Validation("播放器状态等待超时".into()));
-        }
-        let mut line = String::new();
-        if reader.read_line(&mut line)? == 0 {
-            return Err(NimbusError::Validation("播放器状态通道中断".into()));
-        }
+        };
         let value: Value = serde_json::from_str(&line)?;
         if let Some(id) = value
             .get("request_id")
