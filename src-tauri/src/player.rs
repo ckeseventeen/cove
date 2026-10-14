@@ -136,9 +136,17 @@ impl PlayerController {
     async fn send_subtitle(&self, path: &str, title: Option<&str>) -> Result<()> {
         let command = json!(["sub-add", path, "select", title.unwrap_or("AI 字幕")]);
         let socket = self.socket_path.clone();
-        tokio::task::spawn_blocking(move || send(&socket, command))
-            .await
-            .map_err(|error| NimbusError::Internal(error.to_string()))??;
+        let path = path.to_owned();
+        tokio::task::spawn_blocking(move || {
+            // A regenerated file replaces its earlier track instead of being listed twice.
+            let tracks = query(&socket, "track-list").unwrap_or_default();
+            for id in subtitle_tracks_from(&tracks, &path) {
+                let _ = send(&socket, json!(["sub-remove", id]));
+            }
+            send(&socket, command)
+        })
+        .await
+        .map_err(|error| NimbusError::Internal(error.to_string()))??;
         Ok(())
     }
     pub async fn add_subtitle(&self, path: &str, title: Option<&str>) -> Result<()> {
@@ -551,6 +559,17 @@ fn read_reply_line(
 }
 fn query(path: &Path, property: &str) -> Result<Value> {
     request(path, json!(["get_property", property]))
+}
+/// Ids of the subtitle tracks already loaded from `file`, from mpv's `track-list`.
+fn subtitle_tracks_from(tracks: &Value, file: &str) -> Vec<i64> {
+    tracks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|track| track.get("type").and_then(Value::as_str) == Some("sub"))
+        .filter(|track| track.get("external-filename").and_then(Value::as_str) == Some(file))
+        .filter_map(|track| track.get("id").and_then(Value::as_i64))
+        .collect()
 }
 fn empty_status() -> PlayerStatus {
     PlayerStatus {

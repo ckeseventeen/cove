@@ -42,6 +42,18 @@ fn closed_connection_returns_error() {
     fs::remove_file(path).unwrap();
 }
 #[test]
+fn regenerated_subtitle_replaces_only_its_own_track() {
+    let tracks = json!([
+        {"id": 1, "type": "video"},
+        {"id": 1, "type": "sub", "external": false},
+        {"id": 2, "type": "sub", "external": true, "external-filename": "/s/a.srt"},
+        {"id": 3, "type": "sub", "external": true, "external-filename": "/s/b.srt"},
+        {"id": 1, "type": "audio", "external-filename": "/s/a.srt"},
+    ]);
+    assert_eq!(subtitle_tracks_from(&tracks, "/s/a.srt"), vec![2]);
+    assert!(subtitle_tracks_from(&Value::Null, "/s/a.srt").is_empty());
+}
+#[test]
 fn cancelled_open_does_not_wait_for_timeout() {
     assert!(!wait_for_media(
         Path::new("/nonexistent"),
