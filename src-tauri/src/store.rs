@@ -149,6 +149,9 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 7 {
+            migrate_webdav_paths(&connection)?;
+        }
         // Film details from an earlier lookup scheme are never read again.
         connection.execute(
             "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
@@ -686,6 +689,81 @@ fn write_playlist_items(
         )?;
         position += inserted as i64;
     }
+    Ok(())
+}
+
+/// WebDAV paths used to be stored as the server spelled them ("/dav/%E7%94%B5%E5%BD%B1/"); they are
+/// now decoded and relative to the account's address ("/电影"), as Files shows them. Media folders,
+/// library files and reading memory move to the new paths in place, keeping their ids, progress and
+/// pages. Files played from Files before had only a bare server path as address; they get a URL.
+fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
+    let transaction = connection.unchecked_transaction()?;
+    let rows = |sql: &str, key: &str| -> Result<Vec<(String, String, String)>> {
+        let mut statement = transaction.prepare(sql)?;
+        let rows =
+            statement.query_map([key], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    };
+    let accounts = rows(
+        "SELECT id, endpoint, '' FROM accounts WHERE provider = ?1",
+        "webdav",
+    )?;
+    for (account, endpoint, _) in accounts {
+        let Ok(base) = crate::webdav::validated_url(&endpoint) else {
+            continue;
+        };
+        for (id, kind, root) in rows(
+            "SELECT id, kind, remote_root FROM media_sources WHERE account_id = ?1 ORDER BY created_at, rowid",
+            &account,
+        )? {
+            let Some((_, root)) = crate::webdav::locate_saved(&base, &root) else {
+                continue;
+            };
+            let duplicate: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM media_sources
+                   WHERE account_id = ?1 AND kind = ?2 AND remote_root = ?3 AND id <> ?4)",
+                params![account, kind, root, id],
+                |row| row.get(0),
+            )?;
+            if duplicate {
+                // "/dav/电影" and "/dav/电影/" were added as two folders; they are one now.
+                transaction.execute("DELETE FROM source_files WHERE source_id = ?1", [&id])?;
+                transaction.execute("DELETE FROM media_sources WHERE id = ?1", [&id])?;
+            } else {
+                transaction.execute(
+                    "UPDATE media_sources SET remote_root = ?1 WHERE id = ?2",
+                    params![root, id],
+                )?;
+            }
+        }
+        for (id, remote, _) in rows(
+            "SELECT id, remote_path, '' FROM media_files WHERE account_id = ?1",
+            &account,
+        )? {
+            let Some((url, path)) = crate::webdav::locate_saved(&base, &remote) else {
+                continue;
+            };
+            transaction.execute(
+                "UPDATE OR IGNORE media_files SET remote_path = ?1, cloud_path = ?2 WHERE id = ?3",
+                params![url.as_str(), path, id],
+            )?;
+        }
+        for (key, path, entry) in rows(
+            "SELECT doc_key, path, entry_id FROM reading_progress WHERE account_id = ?1",
+            &account,
+        )? {
+            let saved = if entry.contains("://") { entry } else { path };
+            let Some((_, path)) = crate::webdav::locate_saved(&base, &saved) else {
+                continue;
+            };
+            transaction.execute(
+                "UPDATE OR IGNORE reading_progress SET doc_key = ?1, path = ?2 WHERE doc_key = ?3",
+                params![format!("{account}:{path}"), path, key],
+            )?;
+        }
+    }
+    transaction.execute_batch("PRAGMA user_version = 7;")?;
+    transaction.commit()?;
     Ok(())
 }
 

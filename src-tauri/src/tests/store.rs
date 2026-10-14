@@ -260,6 +260,82 @@ fn reading_progress_survives_reopening_and_keeps_the_page() {
 }
 
 #[test]
+fn webdav_libraries_move_to_decoded_paths_and_keep_progress() {
+    let f = Fixture::new();
+    let account = crate::model::Account {
+        id: "dav".into(),
+        provider: "webdav".into(),
+        label: "NAS".into(),
+        endpoint: "https://nas.example.com/dav".into(),
+        username: Some("me".into()),
+        status: "ok".into(),
+    };
+    f.store.insert_account(&account, "account:dav").unwrap();
+    // As an older version stored them: encoded server paths, one folder added twice.
+    let source = |id: &str, root: &str| {
+        let source = MediaSource {
+            id: id.into(),
+            account_id: "dav".into(),
+            kind: "movie".into(),
+            remote_root: root.into(),
+            label: id.into(),
+            last_scan_at: None,
+        };
+        f.store.insert_media_source(&source).unwrap();
+        source
+    };
+    let movies = source("movies", "/dav/%E7%94%B5%E5%BD%B1/");
+    let twin = source("twin", "/dav/%E7%94%B5%E5%BD%B1");
+    let episode = MediaFile {
+        account_id: "dav".into(),
+        remote_path: "https://nas.example.com/dav/%E7%94%B5%E5%BD%B1/%E7%AC%AC01%E9%9B%86.mkv".into(),
+        cloud_path: Some("/dav/%E7%94%B5%E5%BD%B1/%E7%AC%AC01%E9%9B%86.mkv".into()),
+        ..file("第01集.mkv")
+    };
+    f.store.replace_source_files(&movies, &[episode.clone()], true).unwrap();
+    f.store.replace_source_files(&twin, &[episode.clone()], true).unwrap();
+    f.store.save_playback_progress(&episode.id, 1200.0, 3000.0, 1.0).unwrap();
+    // Played from Files before the fix: a bare server path as its address.
+    let played = f
+        .store
+        .ensure_media_file("dav", "/dav/M/a%20b.mkv", Some("/dav/M/a%20b.mkv"), "a b.mkv", "movie", 1)
+        .unwrap();
+    let document = crate::model::ReadingProgress {
+        doc_key: "dav:/dav/%E4%B9%A6/a.pdf".into(),
+        account_id: "dav".into(),
+        path: "/dav/%E4%B9%A6/a.pdf".into(),
+        entry_id: "https://nas.example.com/dav/%E4%B9%A6/a.pdf".into(),
+        name: "a.pdf".into(),
+        size: 10,
+        page: 0,
+        page_count: 0,
+        updated_at: 0,
+    };
+    f.store.touch_reading_document(&document).unwrap();
+    f.store.save_reading_page(&document.doc_key, 30, 100).unwrap();
+    f.store
+        .connection
+        .lock()
+        .execute_batch("PRAGMA user_version = 6;")
+        .unwrap();
+
+    let store = Store::open(&f.directory.join("library.db")).unwrap();
+    let sources = store.list_media_sources().unwrap();
+    assert_eq!(sources.len(), 1);
+    assert_eq!((sources[0].id.as_str(), sources[0].remote_root.as_str()), ("movies", "/电影"));
+    let migrated = store.get_media_file(&episode.id).unwrap();
+    assert_eq!(migrated.cloud_path.as_deref(), Some("/电影/第01集.mkv"));
+    assert_eq!(migrated.remote_path, episode.remote_path);
+    assert_eq!(store.playback_progress(&episode.id).unwrap(), Some((1200.0, 1.0)));
+    assert_eq!(store.list_media_files().unwrap().len(), 1);
+    let repaired = store.get_media_file(&played).unwrap();
+    assert_eq!(repaired.remote_path, "https://nas.example.com/dav/M/a%20b.mkv");
+    assert_eq!(repaired.cloud_path.as_deref(), Some("/M/a b.mkv"));
+    assert_eq!(store.reading_progress("dav:/书/a.pdf").unwrap().map(|p| p.page), Some(30));
+    assert!(store.reading_progress(&document.doc_key).unwrap().is_none());
+}
+
+#[test]
 fn playlists_keep_order_skip_missing_songs_and_cascade() {
     let fixture = Fixture::new();
     let source = fixture.source("songs");

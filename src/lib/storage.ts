@@ -14,6 +14,11 @@ export function canCopyBetween(source: Account, destination: Account): boolean {
     (source.provider === 'baidu' && (destination.provider === 'local' ||
       (destination.provider === 'baidu' && source.id === destination.id)));
 }
+/** One folder however it is spelled: "/电影/" and "/电影" are the same media folder. */
+export function samePath(left: string, right: string): boolean {
+  const trimmed = (path: string) => path.replace(/\/+$/, '') || '/';
+  return trimmed(left) === trimmed(right);
+}
 export function validFolderName(name: string): boolean {
   const value = name.trim();
   return value.length > 0 && value !== '.' && value !== '..' && !/[\/\x00]/.test(value);
