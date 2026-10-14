@@ -36,9 +36,11 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
   );
   const cloudCount = library.accounts.filter((account) => account.provider !== "local").length;
   const isNew = library.loaded && !library.sources.length && !cloudCount;
-  // A document whose storage was removed can no longer be opened.
+  // A document whose storage was removed can no longer be opened. Until the accounts have loaded
+  // (or if loading them failed) the list is unknown, and the native side already leaves those out.
+  const accountIds = new Set(library.accounts.map((account) => account.id));
   const reading = library.reading.filter(
-    (item) => item.pageCount > 0 && library.accounts.some((account) => account.id === item.accountId),
+    (item) => item.pageCount > 0 && (!accountIds.size || accountIds.has(item.accountId)),
   );
 
   return (
