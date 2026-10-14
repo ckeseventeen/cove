@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListVideo, LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
-import { buildMovieWorks, cleanWorkTitle, compareSeasons, episodeLabel, episodeOf, seasonLabel, seasonOf, uniqueEpisodes } from "../lib/media";
+import { buildMovieWorks, cleanWorkTitle, compareSeasons, episodeLabel, episodeNumberOf, episodeOf, seasonLabel, seasonOf, uniqueEpisodes } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
 import {
@@ -59,7 +59,8 @@ function EpisodePanel({
   const list = useRef<HTMLDivElement>(null);
   useTopmostEscape(true, onClose);
   const shown = seasons.length > 1 ? queue.filter((file) => seasonOf(file) === season) : queue;
-  const numbered = isSeries && shown.every((file) => (episodeOf(file) ?? 0) > 0);
+  // Air dates and halves ("第1期上") show their label in a list instead.
+  const numbered = isSeries && shown.every((file) => (episodeNumberOf(file) ?? 0) > 0);
 
   useEffect(() => {
     list.current?.querySelector<HTMLElement>("[aria-current='true']")?.scrollIntoView({ block: "nearest" });

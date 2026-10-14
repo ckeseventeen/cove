@@ -15,21 +15,34 @@ export function providerName(accountId: string, accounts: Account[]) {
 
 export type MediaWork = { id: string; title: string; year?: string; files: MediaFile[]; seasons: number[]; isSeries: boolean };
 const CATEGORY_FOLDER = /^(影视|电影|电视剧|动漫|动画|综艺|纪录片|豆瓣.*|.*(?:合集|榜|top\d+|最高分.*)|\d{4}(?:\s|$)|4k|1080p|720p|season\s*\d+|外挂)$/i;
-/** Folders that hold one season: "第二季", "Season 2", "神探夏洛克S04", "冰与火之歌S03.冰雨的风暴". */
-const SEASON_FOLDER = /第[零一二两三四五六七八九十百\d]+季|season\s*\d{1,2}|(?:^|[^a-z])s\d{1,2}(?!\d)/i;
 const PURE_SEASON_FOLDER = /^(?:s\d+|season\s*\d+|第.+季)$/i;
 /** Extras live in their own short-named folder ("花絮", "纪录+花絮", "Extras") and become season 0, shown as "特别篇". */
 const EXTRAS_FOLDER = /^(?:.{0,6}(?:花絮|特辑|幕后|彩蛋).{0,6}|extras?|featurettes?|bonus|specials?)$/i;
+/** Trailers, samples and featurettes beside a film; they are not works of their own. */
+const FILM_EXTRAS_FOLDER = /^(?:trailers?|teasers?|samples?|deleted scenes|behind the scenes|interviews|shorts|featurettes?|extras?|预告片?)$/i;
 /** "第二季", "第1-7季". */
 const SEASON_WORD = String.raw`第[零一二两三四五六七八九十百\d\-~～至、]+季`;
+/** A pack of seasons ("Friends.S01-S10", "Season 1-3") names no single season. */
+const SEASON_RANGE = /(?:season\s*|s)\d{1,2}\s*[-~～–—]\s*(?:season\s*|s)?\d{1,2}(?!\d)/gi;
 const QUALITY = String.raw`4k|2160p?|1080p?|720p?|bluray|blu-ray|web-?dl|webrip|remux|hdr|hd`;
 const RELEASE_TAG = String.raw`${QUALITY}|中字|双语|国语|粤语|简日|繁日|字幕`;
 /** Leading tags such as 【台剧】 or [国语] that are not part of a title. */
 const LEADING_TAG = /^[【\[](?:台剧|美剧|韩剧|日剧|英剧|港剧|泰剧|国产剧|国剧|国语|粤语|中字|双语|高清|超清|蓝光|4k|1080p|完结|全\d+集|更新至\d+集)[】\]]\s*/i;
+/** A release group or site in front of the title: "[电影天堂www.dytt89.com]", "[Sakurato] ", "阳光电影www.ygdy8.com.". */
+const LEADING_GROUP = /^[\[【][^\]】]*[\]】]\s*(?=\S)/;
+const LEADING_SITE = /^[^\s.\[【]*?www\.[\w-]+\.(?:com|net|org|cc|cn|me|tv|la)[ ._-]*/i;
+/** One film on several files: "让子弹飞.CD1", "Disc 2". */
+const DISC = /[ ._-]*\b(?:cd|dis[ck])[ ._-]?0?([1-9])$/i;
 
 export function stemOf(name: string) { return name.replace(/\.(mkv|mp4|m4v|mov|avi|webm|ts|m2ts|flv|wmv|mp3|flac|m4a|aac|wav|ogg|opus|ape)$/i, ""); }
 export function cleanWorkTitle(value: string) {
-  return stemOf(value)
+  const stem = stemOf(value);
+  const untagged = stem.replace(LEADING_GROUP, "").replace(LEADING_SITE, "");
+  // A title that is itself the first bracket ("[让子弹飞].2010") keeps it.
+  return (untagged !== stem && cleanTitleText(untagged)) || cleanTitleText(stem);
+}
+function cleanTitleText(stem: string) {
+  return stem
     // Characters inserted to dodge takedowns: 绝丨命毒师 → 绝命毒师.
     .replace(/(?<=[一-鿿])[丨｜|│](?=[一-鿿])/g, "")
     .replace(/^[a-z][~-]/i, "")
@@ -45,10 +58,12 @@ export function cleanWorkTitle(value: string) {
     // Release notes after the title: "沉默的羔羊 双语字幕 HR-HDTV", "地心抢险记 超清国英双语".
     .replace(/\s(?:中英|双语|国英|国语|粤语|中字|中文字幕|特效字幕|官方正式版|高码|超清|高清|蓝光).*$/, "")
     .replace(/\s(?:bd-?hr|hr-hdtv|hdtv|bdrip|x26[45]|h\.?26[45]|hevc|aac|ac3|dts(?:-hd)?|\d{3,4}x\d{3,4})\b.*$/i, "")
-    .replace(/[ (（]+(?:19|20)\d{2}.*$/, "")
-    .replace(new RegExp(String.raw`(?:[ ._-]*)(?:${QUALITY})\b.*$`, "i"), "")
+    // The release year is the last one: "Blade Runner 2049 2017" keeps 2049; "让子弹飞2010" drops it.
+    .replace(/(?:[ (（]+|(?<=[一-鿿]))(?:19|20)\d{2}(?![\da-z])(?!.*(?:[ (（]|[一-鿿])(?:19|20)\d{2}(?![\da-z])).*$/i, "")
+    .replace(new RegExp(String.raw`(?:[ ._-]*)(?:(?:hd|bd)[ ._-]?)?(?:${QUALITY})\b.*$`, "i"), "")
     .replace(/[（(]\s*\d{1,2}\s*[）)]$/, "")
-    .replace(new RegExp(String.raw`\s*(?:${SEASON_WORD}|season\s*\d{1,2}|(?<=[一-鿿\s])s\d{1,2})\s*$`, "i"), "")
+    .replace(DISC, "")
+    .replace(new RegExp(String.raw`\s*(?:${SEASON_WORD}|season\s*\d{1,2}|(?<=[一-鿿\s])s\d{1,2}(?:\s*[-~～]\s*s?\d{1,2})?)\s*$`, "i"), "")
     .replace(/[\s(（《._\-–—:：·]+$/, "")
     .replace(/\s+/g, " ").trim();
 }
@@ -65,26 +80,55 @@ export function chineseNumber(text: string): number {
   return result + current;
 }
 const foldersOf = (file: MediaFile) => (file.cloudPath ?? "").split("/").filter(Boolean).slice(0, -1);
+/** The one season a name holds: "S03E01", "SE03.01", "Season 2", "神探夏洛克S04", "冰与火之歌S03.冰雨的风暴", "第二季". */
+function seasonIn(name: string): number | null {
+  const single = name.replace(SEASON_RANGE, " ");
+  const numeric = single.match(/season\s*0?(\d{1,2})(?!\d)|(?:^|[^a-z])se?0?(\d{1,2})(?=ep?\d|[^a-z\d]|$)/i);
+  if (numeric) return Number(numeric[1] ?? numeric[2]);
+  const chinese = single.match(/第([零一二两三四五六七八九十百\d]+)季/)?.[1];
+  return chinese ? chineseNumber(chinese) : null;
+}
 export function seasonOf(file: MediaFile) {
-  if (EXTRAS_FOLDER.test(foldersOf(file).at(-1) ?? "")) return 0;
-  const text = `${file.cloudPath ?? ""}/${file.displayName}`;
-  const numeric = text.match(/(?:^|[^a-z])s(?:eason|e)?\s*0?(\d{1,2})(?!\d)/i)?.[1];
-  return numeric ? Number(numeric) : chineseNumber(text.match(/第([零一二两三四五六七八九十\d]+)季/)?.[1] ?? "1");
+  const folders = foldersOf(file);
+  if (EXTRAS_FOLDER.test(folders.at(-1) ?? "")) return 0;
+  // The file's own marker, else the nearer of its two folders. Folders farther up are libraries, drives or
+  // accounts ("/Volumes/Seagate S2", "/Users/se7en"), and a pack ("Friends.S01-S10") names no season.
+  for (const name of [stemOf(file.displayName), ...folders.slice(-2).reverse()]) {
+    const season = seasonIn(name);
+    if (season !== null) return season;
+  }
+  return 1;
 }
 /** Specials (season 0) sort after the regular seasons. */
 export function compareSeasons(left: number, right: number) { return (left || 10_000) - (right || 10_000); }
 export function seasonLabel(season: number) { return season === 0 ? "特别篇" : `第 ${season} 季`; }
 
-/** Where an episode marker starts in a file name, and the episode number it gives. */
-function episodeMatch(stem: string): { episode: number; at: number } | null {
-  const zh = stem.match(/第([零一二两三四五六七八九十百千\d]+)[集话期回]/);
-  if (zh?.index !== undefined) return { episode: chineseNumber(zh[1]), at: zh.index };
+/** Halves and extras of one variety episode stay apart and in order: "第1期上", "第1期（下）", "第1期加更". */
+const EPISODE_PART: Record<string, number> = { 上: 0.1, 中: 0.2, 下: 0.3, 加更: 0.5, 会员版: 0.6 };
+/** Variety shows by air date: "快乐大本营.20230101", "奔跑吧 2023-10-27". */
+const AIR_DATE = /(?<!\d)((?:19|20)\d{2})([-._]?)(0[1-9]|1[0-2])\2(0[1-9]|[12]\d|3[01])(?!\d)/;
+
+/** Where an episode marker starts in a file name, the episode number it gives, and its label when "第 N 集" does not fit. */
+function episodeMatch(name: string): { episode: number; at: number; label?: string } | null {
+  // "让子弹飞.Disc.02" is the second half of a film, not episode 2.
+  const stem = name.replace(DISC, "");
+  const zh = stem.match(/第([零一二两三四五六七八九十百千\d]+)([集话期回])(?:[（(]?([上中下])[）)]?[集篇部]?(?![一-鿿])|(加更|会员版))?/);
+  if (zh?.index !== undefined) {
+    const episode = chineseNumber(zh[1]);
+    const part = zh[3] ?? zh[4];
+    const unit = zh[2] === "期" ? "期" : "集";
+    return { episode: episode + (part ? EPISODE_PART[part] : 0), at: zh.index, label: part || unit === "期" ? `第 ${episode} ${unit}${part ?? ""}` : undefined };
+  }
   const patterns: RegExp[] = [
     /s\d{1,2}[ ._-]?e(\d{1,3})/i,
     /(?<![a-z])se\d{1,2}[ ._-](\d{1,3})(?!\d)/i,
     /(?<![a-z])(?:ep|episode)[ ._-]?(\d{1,3})(?!\d)/i,
     /(?<![a-z])e(\d{1,3})(?!\d)/i,
-    /[\[【（(](\d{1,3})[\]】）)](?!.*[\[【（(]\d)/,
+    AIR_DATE,
+    // Fansub numbering: "[桜都字幕组] 葬送的芙莉莲 [01][1080P]"; a later bracketed number wins.
+    /[\[【（(](\d{1,3})[\]】）)](?!.*[\[【（(]\d{1,3}[\]】）)])/,
+    // "[Sakurato] Shingeki no Kyojin - 01 [1080P]", after a group tag so "Apollo 13 (1995)" stays a film.
+    /(?<=^[\[【][^\]】]+[\]】].*?)\s[-–—]\s(\d{2,3})(?:v\d)?\s*(?=[\[【(（]|$)/,
     // "大明王朝1566HD1080P01": the number follows the resolution tag directly.
     /(?:hd|bd)?[ ._-]?(?:4k|2160p|1080p|720p)[ ._-]?(\d{2,3})$/i,
     new RegExp(String.raw`[ ._-]+(0\d{1,2}|\d{2,3})(?:$|[ ._-]+(?:${RELEASE_TAG}).*$)`, "i"),
@@ -94,7 +138,9 @@ function episodeMatch(stem: string): { episode: number; at: number } | null {
   ];
   for (const pattern of patterns) {
     const match = stem.match(pattern);
-    if (match?.index !== undefined) return { episode: Number(match[1]), at: match.index };
+    if (match?.index === undefined) continue;
+    if (pattern === AIR_DATE) return { episode: Number(match[1] + match[3] + match[4]), at: match.index, label: `${match[1]}-${match[3]}-${match[4]}` };
+    return { episode: Number(match[1]), at: match.index };
   }
   // Mini-series split into "Part1…Part4". A dated name ("…Part.1.2010") is a film in parts and stays a film.
   const part = /(?:19|20)\d{2}/.test(stem) ? null : stem.match(/(?<![a-z])part[ ._-]?(\d{1,2})(?!\d)/i);
@@ -127,6 +173,8 @@ export function titleCandidateOf(file: MediaFile) {
     const title = cleanWorkTitle(stem.slice(0, match.at));
     if (usableTitle(title)) return title;
     const folder = folderTitle(file);
+    // A show named by a number ("24", "1883") in a folder of that name, or in no named folder.
+    if (/^\d+$/.test(title) && (!folder || foldersOf(file).slice(-2).some((name) => cleanWorkTitle(name) === title))) return title;
     if (folder) return folder;
   }
   // Films may be named by a number alone: "300", "1917", "2012".
@@ -134,7 +182,15 @@ export function titleCandidateOf(file: MediaFile) {
   if (title && !/^(4k|1080|2160|720)/i.test(title)) return title;
   return folderTitle(file) ?? stem;
 }
-export function episodeLabel(file: MediaFile, index: number) { return `第 ${episodeOf(file) ?? index + 1} 集`; }
+export function episodeLabel(file: MediaFile, index: number) {
+  const match = episodeMatch(stemOf(file.displayName));
+  return match?.label ?? `第 ${match?.episode ?? index + 1} 集`;
+}
+/** The number to show in a numbered episode list; null for an air date or a half ("第1期上"), shown by their label. */
+export function episodeNumberOf(file: MediaFile) {
+  const episode = episodeOf(file);
+  return episode !== null && Number.isInteger(episode) && episode < 10_000 ? episode : null;
+}
 
 /** The show folder above a season folder ("黑镜" above "《黑镜》第四季"), used to join shows named differently per season. */
 function showFolderOf(file: MediaFile) {
@@ -142,19 +198,36 @@ function showFolderOf(file: MediaFile) {
   const seasonFolder = folders.at(-1);
   const show = folders.at(-2);
   if (!seasonFolder || !show || CATEGORY_FOLDER.test(show)) return null;
-  if (!SEASON_FOLDER.test(seasonFolder) && !EXTRAS_FOLDER.test(seasonFolder)) return null;
+  if (seasonIn(seasonFolder) === null && !EXTRAS_FOLDER.test(seasonFolder)) return null;
   return { show: folders.slice(0, -1).join("/"), seasonFolder: folders.join("/") };
 }
 
 const titleKeyOf = (title: string) => title.toLocaleLowerCase().replace(/[\s·:：._\-【】\[\]（）()]+/g, "");
+/** The release year is the last one in a name ("Blade.Runner.2049.2017", "1917.2019"); a name that starts with one ("2012.mkv") is a title. */
+function releaseYearOf(stem: string) {
+  return [...stem.matchAll(/(?<![\da-z])(?:19|20)\d{2}(?![\da-z])/gi)].filter((match) => match.index).at(-1)?.[0] ?? "";
+}
+/** Which part of a film split across files this is: "让子弹飞.2010.CD2", "Disc 2", "….2010.Part2". 0 for a whole film. */
+function filmPartOf(file: MediaFile) {
+  const stem = stemOf(file.displayName);
+  return Number((stem.match(DISC) ?? stem.match(/(?:19|20)\d{2}\b.*[ ._-]part[ ._-]?0?([1-9])$/i))?.[1] ?? 0);
+}
+/** How many copies of a film the library holds; the discs of a film in parts count once. */
+export function versionCountOf(work: MediaWork) { return work.files.filter((file) => filmPartOf(file) <= 1).length; }
+/** Samples, trailers and featurettes beside a film; an episode in an extras folder is a special and stays. */
+function isFilmExtra(file: MediaFile) {
+  if (/(?:^|[ ._-])(?:sample|trailer|teaser)$/i.test(stemOf(file.displayName))) return true;
+  return FILM_EXTRAS_FOLDER.test(foldersOf(file).at(-1) ?? "") && episodeOf(file) === null;
+}
 
 export function buildMovieWorks(movieFiles: MediaFile[]) {
   type Group = { files: MediaFile[]; titles: Map<string, number>; year: string; series: boolean };
   const groups = new Map<string, Group>();
   const showFolders = new Map<string, { groups: Set<string>; seasons: Map<string, number> }>();
   for (const file of movieFiles) {
+    if (isFilmExtra(file)) continue;
     const series = episodeOf(file) !== null;
-    const year = !series ? stemOf(file.displayName).match(/(?:19|20)\d{2}/)?.[0] ?? "" : "";
+    const year = !series ? releaseYearOf(stemOf(file.displayName)) : "";
     const title = titleCandidateOf(file);
     const key = `${titleKeyOf(title)}:${year}`;
     const group: Group = groups.get(key) ?? { files: [], titles: new Map(), year, series: false };
@@ -194,7 +267,8 @@ export function buildMovieWorks(movieFiles: MediaFile[]) {
   }
 
   return [...groups.entries()].map(([id, group]): MediaWork => {
-    const files = group.files.sort((a, b) => compareSeasons(seasonOf(a), seasonOf(b)) || (episodeOf(a) ?? 9999) - (episodeOf(b) ?? 9999) || b.size - a.size);
+    // A film in parts plays from CD1, not from the largest file.
+    const files = group.files.sort((a, b) => compareSeasons(seasonOf(a), seasonOf(b)) || (episodeOf(a) ?? Infinity) - (episodeOf(b) ?? Infinity) || filmPartOf(a) - filmPartOf(b) || b.size - a.size);
     const seasons = [...new Set(files.map(seasonOf))].sort(compareSeasons);
     // The name most files agree on ("Game of Thrones" over "权力的游戏" when most seasons use it).
     const title = [...group.titles.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? titleCandidateOf(files[0]);
@@ -226,7 +300,12 @@ export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<M
 export function episodeKey(name: string) { return name.match(/s\d{1,2}e\d{1,3}|第?\d{1,3}[集话]|^\d{1,3}/i)?.[0].toLowerCase() ?? name.replace(/\.[^.]+$/, "").replace(/4k|2160p|1080p|720p|remux|hdr|中字|字幕/gi, "").trim().toLowerCase(); }
 export function qualityOf(file: MediaFile) { const name = file.displayName.toLowerCase(); if (/4k|2160/.test(name)) return "4K"; if (/1080/.test(name)) return "1080p"; if (/720/.test(name)) return "720p"; return `${readableSize(file.size)}`; }
 export function musicTitleOf(file: MediaFile) { return file.displayName.replace(/\.[^.]+$/, "").trim(); }
-export function musicFolderOf(file: MediaFile) { const parts = (file.cloudPath || file.remotePath || "").split("/").filter(Boolean); return parts.at(-2) || "未分类"; }
+export function musicFolderOf(file: MediaFile) {
+  const parts = (file.cloudPath || file.remotePath || "").split("/").filter(Boolean);
+  const folder = parts.at(-2);
+  // A disc folder is named with its album: "The Wall › CD1".
+  return folder && /^(?:cd|dis[ck])\s*\d+$/i.test(folder) && parts.length > 2 ? `${parts.at(-3)} › ${folder}` : folder || "未分类";
+}
 export function musicSourceOf(file: MediaFile, sources: MediaSource[], accounts: Account[]) { return sources.find((source) => source.id === file.sourceId)?.label || providerName(file.accountId, accounts); }
 export function formatTime(seconds: number) { const value = Math.max(0, Math.floor(seconds || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
 export function parseSyncedLyrics(value?: string) {
@@ -257,11 +336,22 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 export function providerLabel(provider: string) { return PROVIDER_LABELS[provider] ?? provider; }
 
-/** "Artist - Title.flac" → { title, artist }; other names keep the whole stem as the title. */
-export function songParts(file: MediaFile): { title: string; artist: string } {
+/** "Artist - Title.flac" → { title, artist }; other names keep the whole stem as the title. A leading track
+ * number ("01 - Adele - Hello", "01. Hello") becomes `track`; "99 Luftballons" and "311 - Amber" keep theirs. */
+export function songParts(file: MediaFile): { title: string; artist: string; track?: number } {
   const stem = musicTitleOf(file);
-  const match = stem.match(/^(.+?)\s+[-–—]\s+(.+)$/);
-  return match ? { artist: match[1].trim(), title: match[2].trim() } : { title: stem, artist: "" };
+  const numbered = stem.match(/^(\d{1,2}|0\d{2})\s*(?:[.、](?!\d)\s*|\s+[-–—]\s+)(.+)$/);
+  const rest = numbered?.[2] ?? stem;
+  const track = numbered ? Number(numbered[1]) : undefined;
+  const match = rest.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  return match ? { artist: match[1].trim(), title: match[2].trim(), track } : { title: rest.trim(), artist: "", track };
+}
+const albumCollator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+/** Album order within a folder: track number, then title. Folders of the same name ("CD1") stay apart. */
+export function compareAlbumOrder(left: MediaFile, right: MediaFile) {
+  const a = songParts(left);
+  const b = songParts(right);
+  return albumCollator.compare(containingFolder(left) ?? "", containingFolder(right) ?? "") || (a.track ?? Infinity) - (b.track ?? Infinity) || albumCollator.compare(a.title, b.title);
 }
 
 /** Folder that holds a file, for "Show in Files". */

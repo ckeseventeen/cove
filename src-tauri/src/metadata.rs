@@ -155,6 +155,60 @@ fn clean_name(name: &str) -> String {
         .join(" ")
 }
 
+/// A year word, or a year glued to a title ("基督山伯爵2024"): the title part and the year.
+fn year_in(word: &str) -> Option<(&str, &str)> {
+    let is_year = |value: &str| {
+        value.len() == 4
+            && value.chars().all(|value| value.is_ascii_digit())
+            && (value.starts_with("19") || value.starts_with("20"))
+    };
+    if is_year(word) {
+        return Some(("", word));
+    }
+    let character_starts = word
+        .char_indices()
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    if character_starts.len() > 4 {
+        let split = character_starts[character_starts.len() - 4];
+        if is_year(&word[split..]) {
+            return Some((
+                word[..split].trim_end_matches(['-', ' ', '.']),
+                &word[split..],
+            ));
+        }
+    }
+    None
+}
+
+/// Drops a copy number such as the "(1)" in "《驯鹿宝贝》(1)"; a sequel number stays.
+fn without_copy_numbers(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(['(', '（']) {
+        let open = rest[start..].chars().next().map_or(1, char::len_utf8);
+        let inside = &rest[start + open..];
+        let digits = inside.bytes().take_while(u8::is_ascii_digit).count();
+        let close = inside[digits..]
+            .chars()
+            .next()
+            .filter(|value| matches!(value, ')' | '）'));
+        result.push_str(&rest[..start]);
+        match close {
+            Some(close) if (1..=2).contains(&digits) => {
+                result.push(' ');
+                rest = &inside[digits + close.len_utf8()..];
+            }
+            _ => {
+                result.push_str(&rest[start..start + open]);
+                rest = inside;
+            }
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
 fn movie_query(name: &str) -> (String, Option<String>) {
     let repaired = name
         .replace(['｜', '丨', '|'], "")
@@ -171,7 +225,7 @@ fn movie_query(name: &str) -> (String, Option<String>) {
         })
         .map(|(stem, _)| stem)
         .unwrap_or(&repaired);
-    let mut normalized = stem.replace(
+    let mut normalized = without_copy_numbers(stem).replace(
         [
             '.', '_', '[', ']', '(', ')', '【', '】', '《', '》', '{', '}',
         ],
@@ -185,7 +239,16 @@ fn movie_query(name: &str) -> (String, Option<String>) {
     }
     let mut words = Vec::new();
     let mut year = None;
-    for word in normalized.split_whitespace() {
+    let parts = normalized.split_whitespace().collect::<Vec<_>>();
+    // Only the last year is the release year: "Blade Runner 2049 2017", "1917 2019". A name that is
+    // only a year ("2046") is a title.
+    let release = parts
+        .iter()
+        .rposition(|word| year_in(word).is_some())
+        .filter(|index| {
+            *index > 0 || year_in(parts[0]).is_some_and(|(title, _)| !title.is_empty())
+        });
+    for (index, word) in parts.iter().copied().enumerate() {
         let lower = word.to_ascii_lowercase();
         if lower == "season"
             || lower.strip_prefix("season").is_some_and(|suffix| {
@@ -210,29 +273,13 @@ fn movie_query(name: &str) -> (String, Option<String>) {
         {
             continue;
         }
-        let character_starts = word
-            .char_indices()
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        if character_starts.len() > 4 {
-            let split = character_starts[character_starts.len() - 4];
-            let suffix = &word[split..];
-            if suffix.chars().all(|value| value.is_ascii_digit())
-                && (suffix.starts_with("19") || suffix.starts_with("20"))
-            {
-                let title = word[..split].trim_end_matches(['-', ' ', '.']);
+        if Some(index) == release {
+            if let Some((title, found)) = year_in(word) {
                 if !title.is_empty() {
                     words.push(title);
                 }
-                year = Some(suffix.to_owned());
-                break;
+                year = Some(found.to_owned());
             }
-        }
-        if word.len() == 4
-            && word.chars().all(|value| value.is_ascii_digit())
-            && (word.starts_with("19") || word.starts_with("20"))
-        {
-            year = Some(word.to_owned());
             break;
         }
         if lower.starts_with('s')
@@ -266,7 +313,11 @@ fn movie_query(name: &str) -> (String, Option<String>) {
         {
             break;
         }
-        if lower.chars().all(|value| value.is_ascii_digit()) && lower.len() <= 2 {
+        // "01" is an episode number; "Toy Story 3" and "12 Monkeys" keep theirs.
+        if lower.len() <= 2
+            && lower.starts_with('0')
+            && lower.chars().all(|value| value.is_ascii_digit())
+        {
             continue;
         }
         if [
@@ -369,10 +420,32 @@ mod tests {
         assert_eq!(movie_query("轩丨辕J之天之痕").0, "轩辕剑之天之痕");
         assert_eq!(movie_query("豺狼de日子.2024").0, "豺狼的日子");
     }
+
+    #[test]
+    fn sequel_numbers_and_years_in_titles_stay_in_the_query() {
+        let query = |name: &str, title: &str, year: Option<&str>| {
+            assert_eq!(
+                movie_query(name),
+                (title.to_owned(), year.map(str::to_owned)),
+                "{name}"
+            );
+        };
+        query("Blade Runner 2049 2017", "Blade Runner 2049", Some("2017"));
+        query("Wonder Woman 1984 2020", "Wonder Woman 1984", Some("2020"));
+        query("1917 2019", "1917", Some("2019"));
+        query("2046", "2046", None);
+        query("银翼杀手2049 2017", "银翼杀手2049", Some("2017"));
+        query("Toy Story 3", "Toy Story 3", None);
+        query("Iron Man 2", "Iron Man 2", None);
+        query("12 Monkeys 1995", "12 Monkeys", Some("1995"));
+        query("2 Fast 2 Furious 2003", "2 Fast 2 Furious", Some("2003"));
+        query("基督山伯爵2024", "基督山伯爵", Some("2024"));
+        query("示例剧 01", "示例剧", None);
+    }
 }
 
 /// Cached film and series details. Bump when lookups change so earlier results are fetched again.
-pub const MOVIE_CACHE: &str = "movie-v6";
+pub const MOVIE_CACHE: &str = "movie-v7";
 
 /// Pick the search result to use. The kind of work the library found counts most (a 35-episode
 /// "风中奇缘" is the 2014 series, not the 1995 film; a series' first air date can be a year after the
