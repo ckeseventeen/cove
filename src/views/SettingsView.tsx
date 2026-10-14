@@ -8,6 +8,7 @@ import { showContextMenu } from "../lib/native";
 import { clearMetadataCache, type Account, type MediaSource } from "../lib/nimbus";
 import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
+import { AddStorageSheet } from "./AddStorageSheet";
 
 type Props = {
   library: Library;
@@ -31,6 +32,7 @@ function StatusValue({ state, on, off }: { state: boolean | undefined; on: strin
 /** System Settings–style grouped form. */
 export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource }: Props) {
   const [pending, setPending] = useState<"clear" | "refresh" | null>(null);
+  const [reconnecting, setReconnecting] = useState<Account | null>(null);
   const { status } = library;
 
   const run = async (action: "clear" | "refresh") => {
@@ -78,7 +80,11 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
                   void showContextMenu(event, [
                     { label: "打开", action: () => onNavigate({ name: "storage", accountId: account.id, path: "/" }) },
                     ...(account.provider !== "local"
-                      ? (["separator", { label: "移除…", destructive: true, action: () => onRemoveAccount(account) }] as const)
+                      ? ([
+                          { label: "重新连接…", action: () => setReconnecting(account) },
+                          "separator",
+                          { label: "移除…", destructive: true, action: () => onRemoveAccount(account) },
+                        ] as const)
                       : []),
                   ])
                 }
@@ -89,7 +95,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           ))}
         </div>
         <p className="group-footer">
-          密码与授权令牌只保存在 macOS 钥匙串中，移除账号不会改动存储中的文件。{" "}
+          密码与授权令牌只保存在 macOS 钥匙串中，失效时可在“更多”菜单中选择“重新连接…”。移除账号不会改动存储中的文件。{" "}
           <button className="btn plain inline" onClick={onAddStorage}>
             添加存储…
           </button>
@@ -206,6 +212,17 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           </div>
         </div>
       </section>
+
+      {reconnecting && (
+        <AddStorageSheet
+          account={reconnecting}
+          onClose={() => setReconnecting(null)}
+          onAdded={(account) => {
+            notify(`已重新连接“${account.label}”`, "success");
+            void library.refresh().catch(() => undefined);
+          }}
+        />
+      )}
     </div>
   );
 }

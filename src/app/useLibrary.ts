@@ -27,6 +27,7 @@ import {
   type ReadingProgress,
   type RecentPlayback,
 } from "../lib/nimbus";
+import { scanSummary } from "../lib/scan";
 import type { Notify } from "../ui/Toasts";
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
@@ -129,13 +130,8 @@ export function useLibrary(notify: Notify) {
       try {
         const result = await scanMediaSource(source.id);
         await refresh();
-        const unit = source.kind === "music" ? "首歌曲" : "个视频";
-        notify(
-          result.truncated
-            ? `“${source.label}”只扫描了一部分，已保留原有索引。可以选择更小的文件夹后重试。`
-            : `“${source.label}”已更新，共 ${result.mediaFiles} ${unit}`,
-          result.truncated ? "info" : "success",
-        );
+        const summary = scanSummary(source.label, source.kind, result);
+        notify(summary.message, summary.tone);
       } catch (cause) {
         notify(`无法扫描“${source.label}”：${errorText(cause)}`, "error");
       } finally {

@@ -171,7 +171,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     (account: Account) =>
       setAlert({
         title: `移除“${account.label}”？`,
-        message: "Cove 会移除这个账号、它的媒体文件夹与本地索引。存储中的文件不会被删除。",
+        message:
+          "Cove 会移除这个账号、它的媒体文件夹与本地索引，包括播放进度和播放列表中的条目。存储中的文件不会被删除。如果只是登录失效，请在“设置”中改用“重新连接…”。",
         icon: <Trash2 size={28} color="var(--red)" />,
         confirmLabel: "移除",
         destructive: true,

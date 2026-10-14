@@ -283,6 +283,7 @@ pub async fn scan(
         discovered_files,
         media_files: files.len(),
         truncated,
+        skipped_directories: Vec::new(),
     };
     Ok((files, result))
 }

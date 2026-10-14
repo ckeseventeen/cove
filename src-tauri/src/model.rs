@@ -113,4 +113,7 @@ pub struct ScanResult {
     pub discovered_files: usize,
     pub media_files: usize,
     pub truncated: bool,
+    /// Subfolders that could not be read and were skipped; what the library already had in
+    /// them is kept.
+    pub skipped_directories: Vec<String>,
 }
