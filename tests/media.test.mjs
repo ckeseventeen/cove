@@ -227,7 +227,12 @@ test('site and release-group tags in front of a title are dropped', () => {
   assert.equal(series[0].title, '狂飙');
   // A title that is itself the first bracket stays.
   assert.equal(media.titleCandidateOf(file('[让子弹飞].2010.mkv', '/影视')), '让子弹飞');
+  assert.equal(media.titleCandidateOf(file('[让子弹飞] 2010.mkv', '/影视')), '让子弹飞');
+  assert.equal(media.titleCandidateOf(file('[流浪地球]2019 1080p.mkv', '/影视')), '流浪地球');
   assert.equal(media.titleCandidateOf(file('【流浪地球2】[国语中字].mp4', '/影视')), '流浪地球2');
+  // A group or site in front of a film named by a year.
+  assert.equal(media.titleCandidateOf(file('[YTS] 2012 [1080p].mkv', '/Movies')), '2012');
+  assert.equal(media.titleCandidateOf(file('[电影天堂www.dytt89.com]2012.BD.1080p.mkv', '/影视')), '2012');
 });
 
 test('sequel numbers and years in a title stay; the release year is the last one', () => {
@@ -248,10 +253,19 @@ test('variety shows: air dates are episodes, and halves of one episode stay apar
   assert.equal(media.episodeNumberOf(dated.files[0]), null);
   const [dashed] = media.buildMovieWorks(['奔跑吧 2023-10-03.mp4', '奔跑吧 2023-11-03.mp4'].map((name) => file(name, '/综艺/奔跑吧')));
   assert.equal(media.uniqueEpisodes(dashed.files).length, 2);
+  // An air date in front of the episode number is not part of the title.
+  const numbered = media.buildMovieWorks(['快乐大本营.20230101.第1期.mp4', '快乐大本营.20230108.第2期.mp4'].map((name) => file(name, folder)));
+  assert.deepEqual(numbered.map((work) => [work.title, work.files.length]), [['快乐大本营', 2]]);
+  const [season] = media.buildMovieWorks(['向往的生活第七季-20230428.mp4', '向往的生活第七季-20230505.mp4'].map((name) => file(name, '/综艺/向往的生活')));
+  assert.deepEqual([season.title, season.seasons, season.files.length], ['向往的生活', [7], 2]);
+  // A camera's timestamp is not an air date.
+  assert.equal(media.episodeOf(file('VID_20230101_123456.mp4', '/影视/家庭录像')), null);
   const [halves] = media.buildMovieWorks(['乘风破浪 第2期上.mp4', '乘风破浪 第1期下.mp4', '乘风破浪 第1期加更.mp4', '乘风破浪 第1期上.mp4'].map((name) => file(name, '/综艺/乘风破浪')));
   const episodes = media.uniqueEpisodes(halves.files);
   assert.deepEqual(episodes.map((item, index) => media.episodeLabel(item, index)), ['第 1 期上', '第 1 期下', '第 1 期加更', '第 2 期上']);
   assert.ok(episodes.every((item) => media.episodeNumberOf(item) === null));
+  const spaced = ['乘风破浪 第1期 上.mp4', '乘风破浪 第1期 下.mp4'].map((name) => file(name, '/综艺/乘风破浪'));
+  assert.equal(media.uniqueEpisodes(spaced).length, 2);
   assert.equal(media.episodeLabel(file('乘风破浪 第3期.mp4', '/综艺/乘风破浪'), 0), '第 3 期');
   assert.equal(media.episodeNumberOf(file('乘风破浪 第3期.mp4', '/综艺/乘风破浪')), 3);
   // "上海" after 第1集 begins the episode's name; it is not the first half.

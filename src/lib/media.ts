@@ -31,15 +31,21 @@ const LEADING_TAG = /^[【\[](?:台剧|美剧|韩剧|日剧|英剧|港剧|泰剧
 /** A release group or site in front of the title: "[电影天堂www.dytt89.com]", "[Sakurato] ", "阳光电影www.ygdy8.com.". */
 const LEADING_GROUP = /^[\[【][^\]】]*[\]】]\s*(?=\S)/;
 const LEADING_SITE = /^[^\s.\[【]*?www\.[\w-]+\.(?:com|net|org|cc|cn|me|tv|la)[ ._-]*/i;
+/** A year, or a date or timestamp that starts with one ("20230101", "20230101123456"). */
+const YEAR_WORD = String.raw`(?:19|20)\d{2}(?:[01]\d[0-3]\d\d*)?(?![\da-z])`;
 /** One film on several files: "让子弹飞.CD1", "Disc 2". */
 const DISC = /[ ._-]*\b(?:cd|dis[ck])[ ._-]?0?([1-9])$/i;
 
 export function stemOf(name: string) { return name.replace(/\.(mkv|mp4|m4v|mov|avi|webm|ts|m2ts|flv|wmv|mp3|flac|m4a|aac|wav|ogg|opus|ape)$/i, ""); }
 export function cleanWorkTitle(value: string) {
   const stem = stemOf(value);
-  const untagged = stem.replace(LEADING_GROUP, "").replace(LEADING_SITE, "");
-  // A title that is itself the first bracket ("[让子弹飞].2010") keeps it.
-  return (untagged !== stem && cleanTitleText(untagged)) || cleanTitleText(stem);
+  const group = stem.match(LEADING_GROUP)?.[0] ?? "";
+  const untagged = stem.slice(group.length).replace(LEADING_SITE, "");
+  const title = untagged !== stem ? cleanTitleText(untagged) : "";
+  // A title that is itself the first bracket keeps it: "[让子弹飞].2010", or "[让子弹飞] 2010" where only the release
+  // year follows. A group or site followed by a film named by a year ("[YTS] 2012", "[电影天堂www.dytt89.com]2012") does not.
+  const bracketTitle = /^(?:19|20)\d{2}$/.test(title) && !releaseYearOf(untagged) && /[一-鿿]/.test(group) && !/www\.|\.(?:com|net|org|cc|cn|me|tv|la)\b/i.test(group);
+  return (bracketTitle && cleanTitleText(stem)) || title || cleanTitleText(stem);
 }
 function cleanTitleText(stem: string) {
   return stem
@@ -58,8 +64,9 @@ function cleanTitleText(stem: string) {
     // Release notes after the title: "沉默的羔羊 双语字幕 HR-HDTV", "地心抢险记 超清国英双语".
     .replace(/\s(?:中英|双语|国英|国语|粤语|中字|中文字幕|特效字幕|官方正式版|高码|超清|高清|蓝光).*$/, "")
     .replace(/\s(?:bd-?hr|hr-hdtv|hdtv|bdrip|x26[45]|h\.?26[45]|hevc|aac|ac3|dts(?:-hd)?|\d{3,4}x\d{3,4})\b.*$/i, "")
-    // The release year is the last one: "Blade Runner 2049 2017" keeps 2049; "让子弹飞2010" drops it.
-    .replace(/(?:[ (（]+|(?<=[一-鿿]))(?:19|20)\d{2}(?![\da-z])(?!.*(?:[ (（]|[一-鿿])(?:19|20)\d{2}(?![\da-z])).*$/i, "")
+    // The release year is the last one: "Blade Runner 2049 2017" keeps 2049; "让子弹飞2010" drops it, and so does
+    // an air date before the episode ("快乐大本营 20230101 第1期").
+    .replace(new RegExp(String.raw`(?:[ (（]+|(?<=[一-鿿]))${YEAR_WORD}(?!.*(?:[ (（]|[一-鿿])${YEAR_WORD}).*$`, "i"), "")
     .replace(new RegExp(String.raw`(?:[ ._-]*)(?:(?:hd|bd)[ ._-]?)?(?:${QUALITY})\b.*$`, "i"), "")
     .replace(/[（(]\s*\d{1,2}\s*[）)]$/, "")
     .replace(DISC, "")
@@ -103,16 +110,16 @@ export function seasonOf(file: MediaFile) {
 export function compareSeasons(left: number, right: number) { return (left || 10_000) - (right || 10_000); }
 export function seasonLabel(season: number) { return season === 0 ? "特别篇" : `第 ${season} 季`; }
 
-/** Halves and extras of one variety episode stay apart and in order: "第1期上", "第1期（下）", "第1期加更". */
+/** Halves and extras of one variety episode stay apart and in order: "第1期上", "第1期（下）", "第1期 下", "第1期加更". */
 const EPISODE_PART: Record<string, number> = { 上: 0.1, 中: 0.2, 下: 0.3, 加更: 0.5, 会员版: 0.6 };
-/** Variety shows by air date: "快乐大本营.20230101", "奔跑吧 2023-10-27". */
-const AIR_DATE = /(?<!\d)((?:19|20)\d{2})([-._]?)(0[1-9]|1[0-2])\2(0[1-9]|[12]\d|3[01])(?!\d)/;
+/** Variety shows by air date: "快乐大本营.20230101", "奔跑吧 2023-10-27". A camera's timestamp ("VID_20230101_123456") is not one. */
+const AIR_DATE = /[ ._-]*(?<!\d)((?:19|20)\d{2})([-._]?)(0[1-9]|1[0-2])\2(0[1-9]|[12]\d|3[01])(?!\d)(?![ ._-]?(?:at[ ._])?\d{2}[-.:]?\d{2}[-.:]?\d{2})/;
 
 /** Where an episode marker starts in a file name, the episode number it gives, and its label when "第 N 集" does not fit. */
 function episodeMatch(name: string): { episode: number; at: number; label?: string } | null {
   // "让子弹飞.Disc.02" is the second half of a film, not episode 2.
   const stem = name.replace(DISC, "");
-  const zh = stem.match(/第([零一二两三四五六七八九十百千\d]+)([集话期回])(?:[（(]?([上中下])[）)]?[集篇部]?(?![一-鿿])|(加更|会员版))?/);
+  const zh = stem.match(/第([零一二两三四五六七八九十百千\d]+)([集话期回])(?:[ ._]?[（(]?([上中下])[）)]?[集篇部]?(?![一-鿿])|[ ._]?(加更|会员版))?/);
   if (zh?.index !== undefined) {
     const episode = chineseNumber(zh[1]);
     const part = zh[3] ?? zh[4];
