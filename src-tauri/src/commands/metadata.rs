@@ -244,15 +244,78 @@ mod media_name_tests {
     }
 }
 
+/// The name a work was matched under by hand (修正匹配), held by each of its files. Any of them
+/// counts: adding a larger copy or an earlier season changes which file comes first. When the first
+/// file lacks it, every file gets it, so it also outlasts the older files leaving the library.
+fn work_override(store: &Store, file_ids: &[&str]) -> Result<Option<String>> {
+    for (index, id) in file_ids.iter().enumerate() {
+        let Some(name) = store.metadata_override(id)? else {
+            continue;
+        };
+        if index > 0 {
+            save_work_override(store, file_ids, &name)?;
+        }
+        return Ok(Some(name));
+    }
+    Ok(None)
+}
+
+fn save_work_override(store: &Store, file_ids: &[&str], name: &str) -> Result<()> {
+    file_ids
+        .iter()
+        .try_for_each(|id| store.save_metadata_override(id, name))
+}
+
+/// Cached details the window shows at launch, by file. The window only takes details looked up under
+/// a work's own name, so those found under the name typed in 修正匹配 drop that name, and a file matched
+/// by hand loses details looked up under any other name (movie_metadata would look it up again).
+pub(crate) fn launch_movies(
+    store: &Store,
+) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+    let mut movies = store.cached_movies()?;
+    let ids = movies.keys().cloned().collect::<Vec<_>>();
+    for id in ids {
+        let Ok(Some(name)) = store.metadata_override(&id) else {
+            continue;
+        };
+        let Some(metadata) = movies.get_mut(&id) else {
+            continue;
+        };
+        let query = metadata.get("query").and_then(serde_json::Value::as_str);
+        let matched = query.is_some_and(|query| {
+            ["tv:", "movie:", ""]
+                .iter()
+                .any(|kind| query.strip_prefix(kind) == Some(name.as_str()))
+        });
+        if !matched {
+            movies.remove(&id);
+        } else if let Some(fields) = metadata.as_object_mut() {
+            fields.remove("query");
+        }
+    }
+    Ok(movies)
+}
+
 #[tauri::command]
 pub(crate) async fn movie_metadata(
     file_id: String,
+    file_ids: Option<Vec<String>>,
     refresh: Option<bool>,
     lookup_name: Option<String>,
     series: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<metadata::MovieMetadata> {
     let kind = series.map(|series| if series { "tv" } else { "movie" });
+    // All of the work's files, the one its details are cached against first.
+    let work_files = std::iter::once(file_id.as_str())
+        .chain(
+            file_ids
+                .iter()
+                .flatten()
+                .map(String::as_str)
+                .filter(|id| *id != file_id),
+        )
+        .collect::<Vec<_>>();
     let manual = refresh.unwrap_or(false)
         && lookup_name
             .as_ref()
@@ -260,7 +323,7 @@ pub(crate) async fn movie_metadata(
     let requested_name = if manual {
         lookup_name
     } else {
-        state.store.metadata_override(&file_id)?.or(lookup_name)
+        work_override(&state.store, &work_files)?.or(lookup_name)
     };
     // A cached result counts only if it was looked up under the same name, as the same kind of work.
     let query_key = |name: &str| match kind {
@@ -356,11 +419,129 @@ pub(crate) async fn movie_metadata(
         }
     };
     if manual {
-        state.store.save_metadata_override(&file_id, &lookup_name)?;
+        save_work_override(&state.store, &work_files, &lookup_name)?;
     }
     metadata.query = query.as_deref().map(query_key);
     state
         .store
         .save_metadata(&file_id, metadata::MOVIE_CACHE, &serde_json::to_string(&metadata)?)?;
     Ok(metadata)
+}
+
+#[cfg(test)]
+mod work_override_tests {
+    use super::*;
+
+    struct Library {
+        store: Store,
+        source: MediaSource,
+        directory: std::path::PathBuf,
+    }
+
+    impl Library {
+        fn new() -> Self {
+            let directory =
+                std::env::temp_dir().join(format!("nimbus-override-{}", Uuid::new_v4()));
+            let store = Store::open(&directory.join("library.db")).unwrap();
+            store.ensure_local_account().unwrap();
+            let source = MediaSource {
+                id: "movies".into(),
+                account_id: "local".into(),
+                kind: "movie".into(),
+                remote_root: "/影视".into(),
+                label: "影视".into(),
+                last_scan_at: None,
+            };
+            store.insert_media_source(&source).unwrap();
+            Self {
+                store,
+                source,
+                directory,
+            }
+        }
+
+        /// Scan files of one show into the library and return their ids.
+        fn add(&self, names: &[&str]) -> Vec<String> {
+            let files = names
+                .iter()
+                .map(|name| MediaFile {
+                    id: Uuid::new_v4().to_string(),
+                    account_id: "local".into(),
+                    remote_path: format!("/影视/豺狼的日子/{name}"),
+                    cloud_path: Some(format!("/影视/豺狼的日子/{name}")),
+                    display_name: (*name).into(),
+                    size: 10,
+                    etag: None,
+                    mime_type: None,
+                    source_id: None,
+                    source_ids: Vec::new(),
+                    media_kind: None,
+                })
+                .collect::<Vec<_>>();
+            self.store
+                .replace_source_files(&self.source, &files, false)
+                .unwrap();
+            files.into_iter().map(|file| file.id).collect()
+        }
+    }
+
+    impl Drop for Library {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.directory);
+        }
+    }
+
+    #[test]
+    fn manual_match_stays_when_another_file_comes_first() {
+        let library = Library::new();
+        let matched = library.add(&["S01E01.1080p.mkv", "S01E02.1080p.mkv"]);
+        let matched = matched.iter().map(String::as_str).collect::<Vec<_>>();
+        save_work_override(&library.store, &matched, "The Day of the Jackal").unwrap();
+        // A larger copy of the first episode now comes first.
+        let added = library.add(&["S01E01.2160p.mkv"]);
+        let work = [added[0].as_str(), matched[0], matched[1]];
+        let name = |ids: &[&str]| work_override(&library.store, ids).unwrap();
+        assert_eq!(name(&work).as_deref(), Some("The Day of the Jackal"));
+        // It now holds the match itself, so it keeps it after the older copies leave.
+        assert_eq!(name(&work[..1]).as_deref(), Some("The Day of the Jackal"));
+    }
+
+    #[test]
+    fn latest_manual_match_wins_and_unmatched_works_have_none() {
+        let library = Library::new();
+        let files = library.add(&["S01E01.mkv", "S01E02.mkv"]);
+        let files = files.iter().map(String::as_str).collect::<Vec<_>>();
+        let name = |ids: &[&str]| work_override(&library.store, ids).unwrap();
+        assert_eq!(name(&files), None);
+        save_work_override(&library.store, &files, "豺狼末日").unwrap();
+        save_work_override(&library.store, &files, "The Day of the Jackal").unwrap();
+        assert_eq!(name(&files[1..]).as_deref(), Some("The Day of the Jackal"));
+    }
+
+    #[test]
+    fn launch_shows_the_manual_match_and_never_an_older_lookup() {
+        let library = Library::new();
+        let jackal = library.add(&["S01E01.mkv", "S01E02.mkv"]);
+        let other = library.add(&["S09E01.mkv"]);
+        let cache = |id: &str, query: &str, title: &str| {
+            let payload = serde_json::json!({ "title": title, "query": query }).to_string();
+            library
+                .store
+                .save_metadata(id, metadata::MOVIE_CACHE, &payload)
+                .unwrap();
+        };
+        let ids = jackal.iter().map(String::as_str).collect::<Vec<_>>();
+        save_work_override(&library.store, &ids, "The Day of the Jackal").unwrap();
+        cache(&jackal[0], "tv:The Day of the Jackal", "豺狼的日子");
+        cache(&jackal[1], "tv:豺狼的日子", "豺狼末日");
+        cache(&other[0], "tv:另一部剧", "另一部剧");
+        let movies = launch_movies(&library.store).unwrap();
+        // The window takes details without a name as the work's own.
+        assert_eq!(movies[&jackal[0]]["title"], "豺狼的日子");
+        assert!(movies[&jackal[0]].get("query").is_none());
+        // Looked up under the automatic name (before the match finished): left out.
+        assert!(!movies.contains_key(&jackal[1]));
+        // Works never matched by hand are untouched.
+        assert_eq!(movies[&other[0]]["query"], "tv:另一部剧");
+    }
 }

@@ -3,14 +3,14 @@ import { Film, LoaderCircle, Play } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
-import { categoryOf, containingFolder, displayTitleOf, lookupNameOf, uniqueEpisodes, versionCountOf, type MediaWork } from "../lib/media";
+import { categoryOf, containingFolder, displayTitleOf, uniqueEpisodes, versionCountOf, type MediaWork } from "../lib/media";
+import { compareWorks, needsAllDetails, type MovieSort } from "../lib/movieLookup";
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
 import { EmptyState, Popup, Segmented, useIncrementalCount } from "../ui/controls";
 
 export type MovieCategory = "all" | "movie" | "tv" | "documentary" | "animation";
-type MovieSort = "title" | "recent" | "oldest" | "rating";
 
 function useStoredState<T extends string>(key: string, allowed: readonly T[], fallback: T) {
   const [value, setValue] = useState<T>(() => {
@@ -53,18 +53,12 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
     [library.works, sourceId],
   );
 
+  const loading = useAllDetails(scoped, library, needsAllDetails(category, sort));
   const shown = useMemo(
     () =>
       scoped
         .filter((work) => category === "all" || categoryOf(work, movieMetadata[work.id]) === category)
-        .sort((a, b) => {
-          const left = movieMetadata[a.id];
-          const right = movieMetadata[b.id];
-          if (sort === "oldest") return (left?.year ?? 9999) - (right?.year ?? 9999);
-          if (sort === "recent") return (right?.year ?? 0) - (left?.year ?? 0);
-          if (sort === "rating") return (right?.rating ?? -1) - (left?.rating ?? -1);
-          return (left?.title ?? a.title).localeCompare(right?.title ?? b.title, "zh-CN", { numeric: true });
-        }),
+        .sort(compareWorks(sort, movieMetadata)),
     [category, movieMetadata, scoped, sort],
   );
 
@@ -78,6 +72,7 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
           <h1 className="large-title">{source?.label ?? "影视"}</h1>
           <p className="page-subtitle">
             {plural(shown.length, "部作品")}
+            {loading && " · 正在载入作品资料…"}
             {source && (
               <>
                 {" · "}
@@ -134,11 +129,13 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
       ) : (
         <EmptyState
           icon={<Film size={44} strokeWidth={1.3} />}
-          title={filtered ? "没有符合条件的作品" : "影视资料库是空的"}
+          title={loading ? "正在载入作品资料…" : filtered ? "没有符合条件的作品" : "影视资料库是空的"}
           message={
-            filtered
-              ? "这个类别下暂时没有作品。"
-              : "在左侧“位置”中打开存放影片的文件夹，选择“添加到资料库”，Cove 会整理其中的电影和剧集。"
+            loading
+              ? undefined
+              : filtered
+                ? "这个类别下暂时没有作品。"
+                : "在左侧“位置”中打开存放影片的文件夹，选择“添加到资料库”，Cove 会整理其中的电影和剧集。"
           }
         >
           {filtered ? (
@@ -154,6 +151,33 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
       )}
     </div>
   );
+}
+
+/**
+ * Fetch the details a filter or an order needs for every work, not only for the posters scrolled into
+ * view. Each work is asked once while the page is open (cached details come back at once) and these
+ * prefetches wait behind the posters on screen. Returns whether any are still on their way.
+ */
+function useAllDetails(works: MediaWork[], library: Library, enabled: boolean) {
+  const [waiting, setWaiting] = useState(0);
+  const requested = useRef(new Set<string>());
+  const known = useRef(library.movieMetadata);
+  known.current = library.movieMetadata;
+  const { setMovieMetadata } = library;
+  useEffect(() => {
+    if (!enabled) return;
+    const missing = works.filter((work) => !known.current[work.id] && !requested.current.has(work.id));
+    if (!missing.length) return;
+    setWaiting((count) => count + missing.length);
+    for (const work of missing) {
+      requested.current.add(work.id);
+      getMovieMetadata(work, { background: true })
+        .then((metadata) => setMovieMetadata(work.id, metadata))
+        .catch(() => undefined)
+        .finally(() => setWaiting((count) => count - 1));
+    }
+  }, [enabled, works, setMovieMetadata]);
+  return enabled && waiting > 0;
 }
 
 export function workSubtitle(work: MediaWork, metadata?: MovieMetadata) {
@@ -194,7 +218,7 @@ function MovieCard({
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
         requested.current = true;
-        getMovieMetadata(first.id, false, lookupNameOf(work), work.isSeries).then(onMetadata).catch(() => undefined);
+        getMovieMetadata(work).then(onMetadata).catch(() => undefined);
       },
       { rootMargin: "300px" },
     );

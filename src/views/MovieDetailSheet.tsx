@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { containingFolder, displayTitleOf, episodeNumberOf, episodeOf, lookupNameOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { containingFolder, displayTitleOf, episodeNumberOf, episodeOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
@@ -33,7 +33,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
 
   useEffect(() => {
     const generation = ++request.current;
-    getMovieMetadata(work.files[0].id, false, lookupNameOf(work), work.isSeries)
+    getMovieMetadata(work)
       .then((value) => {
         if (generation !== request.current) return;
         setMetadata(value);
@@ -54,7 +54,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
     setMatching(true);
     setError(null);
     try {
-      const value = await getMovieMetadata(work.files[0].id, true, query, work.isSeries);
+      const value = await getMovieMetadata(work, { match: query });
       if (generation !== request.current) return;
       setMetadata(value);
       onMetadata(work.id, value);
