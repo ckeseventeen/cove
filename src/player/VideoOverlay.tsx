@@ -1,21 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ListVideo, LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
-import { buildMovieWorks, cleanWorkTitle, compareSeasons, episodeLabel, episodeOf, seasonLabel, seasonOf, uniqueEpisodes } from "../lib/media";
+import { cleanWorkTitle, compareSeasons, displayTitleOf, episodeLabel, episodeOf, lookupNameOf, seasonLabel, seasonOf, videoQueue } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
 import {
   controlPlayer,
   getCachedAiSubtitles,
   getCurrentPlayerFile,
+  getMovieMetadata,
   getPlayerPlaylist,
   getPlayerStatus,
+  isOpenCancelled,
   listMediaFiles,
   openNativePlayer,
   setNowPlayingInfo,
   subscribePlayer,
   type MediaFile,
+  type MovieMetadata,
   type PlayerStatus,
 } from "../lib/nimbus";
+import { unmuteVolume } from "../lib/playback";
 import { Slider } from "../ui/controls";
 import { isModalOpen, useTopmostEscape } from "../ui/Sheet";
 import { AiSubtitlesSheet } from "./AiSubtitlesSheet";
@@ -124,8 +128,8 @@ export function VideoOverlay() {
   const switchRequest = useRef(0);
 
   useEffect(() => {
-    if (status.volume > 0) previousVolume.current = status.volume;
-  }, [status.volume]);
+    previousVolume.current = unmuteVolume(previousVolume.current, status);
+  }, [status.fileId, status.volume]);
   useEffect(() => () => window.clearTimeout(clickTimer.current), []);
 
   // Follow the player; only resolve file details when the file changes.
@@ -140,6 +144,7 @@ export function VideoOverlay() {
       if (!id) {
         resolvedId = null;
         setCurrent(null);
+        setError(null);
         return;
       }
       if (resolvedId === id || pending) return;
@@ -148,7 +153,9 @@ export function VideoOverlay() {
         .then((file) => {
           if (!disposed && file?.id === id) {
             resolvedId = id;
-            setCurrent(file);
+            // Songs belong to the library window; this one only follows videos.
+            setCurrent(file.mediaKind === "music" ? null : file);
+            setError(null);
           }
         })
         .catch((cause) => {
@@ -183,23 +190,38 @@ export function VideoOverlay() {
   }, [current?.id]);
 
   // Folder playlists win when playing from Files; otherwise the series the file belongs to.
-  const { queue, work } = useMemo(() => {
-    if (!current) return { queue: [] as MediaFile[], work: null };
-    const found = buildMovieWorks(allFiles.filter((file) => file.mediaKind === "movie")).find((item) =>
-      item.files.some((file) => file.id === current.id),
-    );
-    if (playlist.length > 1 && playlist.some((file) => file.id === current.id)) return { queue: playlist, work: found ?? null };
-    if (!found?.isSeries) return { queue: playlist.length ? playlist : [current], work: found ?? null };
-    const episodes = uniqueEpisodes(found.files).map((file) =>
-      seasonOf(file) === seasonOf(current) && episodeOf(file) === episodeOf(current) ? current : file,
-    );
-    return { queue: episodes, work: found };
-  }, [allFiles, current, playlist]);
+  const { queue, work } = useMemo(
+    () =>
+      current
+        ? videoQueue(current, allFiles.filter((file) => file.mediaKind === "movie"), playlist)
+        : { queue: [] as MediaFile[], work: null },
+    [allFiles, current, playlist],
+  );
+
+  // The library's name for the work (TMDB title and edition), looked up as its poster does.
+  const [metadata, setMetadata] = useState<{ workId: string; value: MovieMetadata } | null>(null);
+  const lookup = work && { workId: work.id, fileId: work.files[0].id, name: lookupNameOf(work), series: work.isSeries };
+  useEffect(() => {
+    if (!lookup) return;
+    let cancelled = false;
+    getMovieMetadata(lookup.fileId, false, lookup.name, lookup.series)
+      .then((value) => {
+        if (!cancelled) setMetadata({ workId: lookup.workId, value });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // The work's identity, not the object, decides when to look up again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookup?.workId, lookup?.fileId, lookup?.name, lookup?.series]);
 
   const seasons = useMemo(() => [...new Set(queue.map(seasonOf))].sort(compareSeasons), [queue]);
   const index = queue.findIndex((file) => file.id === current?.id);
   const isSeries = !!work?.isSeries;
-  const title = work?.title || (current ? cleanWorkTitle(current.displayName) || current.displayName : "");
+  const title =
+    (work && displayTitleOf(work, metadata?.workId === work.id ? metadata.value : undefined)) ||
+    (current ? cleanWorkTitle(current.displayName) || current.displayName : "");
   const subtitle =
     current && isSeries
       ? `${seasons.length > 1 ? `${seasonLabel(seasonOf(current))} · ` : ""}${episodeLabel(current, Math.max(index, 0))}`
@@ -243,7 +265,10 @@ export function VideoOverlay() {
         setStatus(next);
       }
     } catch (cause) {
-      if (request === switchRequest.current) setError(String(cause));
+      if (request !== switchRequest.current || isOpenCancelled(cause)) return;
+      // When nothing plays any more the library window takes over and reports the failure.
+      const now = await getPlayerStatus().catch(() => EMPTY_STATUS);
+      if (request === switchRequest.current && now.fileId) setError(String(cause));
     } finally {
       if (request === switchRequest.current) setSwitching(false);
     }
@@ -285,6 +310,12 @@ export function VideoOverlay() {
         if (isModalOpen()) return;
         event.preventDefault();
         void controlPlayer("exit_fullscreen");
+        return;
+      }
+      // ⌘W leaves the video like the red button; this borderless window cannot close itself.
+      if (event.metaKey && event.key.toLowerCase() === "w" && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+        event.preventDefault();
+        void controlPlayer("stop");
         return;
       }
       if (aiOpen || event.metaKey || event.ctrlKey || event.altKey || isEditableTarget(event.target)) return;
@@ -339,6 +370,9 @@ export function VideoOverlay() {
               <p>正在准备播放…</p>
             </>
           )}
+          <button className="hud-text-button" title="停止播放 (⌘.)" onClick={() => void controlPlayer("stop")}>
+            停止
+          </button>
         </div>
       </main>
     );

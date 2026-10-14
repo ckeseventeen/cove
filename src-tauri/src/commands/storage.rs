@@ -165,7 +165,9 @@ pub(crate) async fn storage_play_file(
 
     state.player.set_playlist(playlist_files);
 
-    commands::playback::player_open_native(file_id.clone(), Some(false), window, state).await?;
+    // Videos resume where they were left; songs start at the top, as from the library.
+    let from_start = Some(media_kind == "music");
+    commands::playback::player_open_native(file_id.clone(), from_start, window, state).await?;
     Ok(file_id)
 }
 

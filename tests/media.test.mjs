@@ -174,3 +174,18 @@ test('an edition stays visible next to the TMDB title', () => {
   const [plain] = media.buildMovieWorks([file('繁花S01E01.mp4', '/影视/电视剧/繁花')]);
   assert.equal(media.displayTitleOf(plain, { title: '繁花' }), '繁花');
 });
+test('a library film ignores a folder playlist from Files that does not contain it', () => {
+  const movie = file('沙丘.2021.mkv');
+  const songs = ['a.mp3', 'b.mp3', 'c.mp3'].map((name) => ({ ...file(name, '/音乐'), mediaKind: 'music' }));
+  const { queue, work } = media.videoQueue(movie, [movie, file('霸王别姬.1993.mkv')], songs);
+  assert.deepEqual(queue.map((item) => item.id), ['沙丘.2021.mkv']);
+  assert.equal(work.files[0].id, '沙丘.2021.mkv');
+});
+test('the Files folder a video was played from is its queue, else its series', () => {
+  const episodes = ['示例剧S01E01.mkv', '示例剧S01E02.mkv', '示例剧S01E03.mkv'].map((name) => file(name, '/影视/示例剧'));
+  const folder = [file('家庭录像1.mp4', '/下载'), file('家庭录像2.mp4', '/下载')];
+  assert.deepEqual(media.videoQueue(folder[1], [], folder).queue, folder);
+  const series = media.videoQueue(episodes[1], episodes, folder);
+  assert.deepEqual(series.queue.map((item) => item.id), episodes.map((item) => item.id));
+  assert.equal(series.work.isSeries, true);
+});

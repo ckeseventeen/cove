@@ -175,6 +175,12 @@ pub fn handle(app: &AppHandle, id: &str) {
     if !id.starts_with("cove.") {
         return;
     }
+    // A video is stopped here: while it loads, neither web window knows about a file yet.
+    if id == "cove.stop" && crate::video_ui_visible(app) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::stop_playback(&app).await });
+        return;
+    }
     let playback = matches!(
         id,
         "cove.play-pause"

@@ -231,6 +231,11 @@ export async function openNativePlayer(fileId: string, fromStart = false): Promi
   appOnly("视频播放需要在 Cove macOS 应用中使用");
 }
 
+/** An open replaced by a newer one, or by a stop, rejects with this (player.rs `OPEN_CANCELLED`); it is not a failure. */
+export function isOpenCancelled(cause: unknown) {
+  return (cause instanceof Error ? cause.message : String(cause)) === "已取消旧播放请求";
+}
+
 export async function controlPlayer(action: string, value?: number): Promise<void> {
   if (isTauri()) return invoke<void>("player_control", { action, value });
   if (demoEnabled) demoPlayer.control(action, value);
@@ -299,6 +304,25 @@ export function onPlayerStopped(callback: () => void) {
   let disposed = false;
   let unlisten: (() => void) | undefined;
   listen("nimbus-player-stopped", () => callback())
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
+export type PlayerError = { fileId: string; name: string; message: string };
+
+/** A file the video controls opened could not play; by then they are hidden, so the library window reports it. */
+export function onPlayerError(callback: (error: PlayerError) => void) {
+  if (!isTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<PlayerError>("nimbus-player-error", (event) => callback(event.payload))
     .then((off) => {
       if (disposed) off();
       else unlisten = off;
