@@ -19,6 +19,25 @@ use tauri::WebviewWindow;
 
 use crate::error::{NimbusError, Result};
 
+/// What an open replaced by a newer one, or by a stop, fails with. It is not a playback
+/// failure: the request that replaced it owns the windows, so callers stay quiet.
+pub const OPEN_CANCELLED: &str = "已取消旧播放请求";
+
+pub fn is_cancelled(error: &NimbusError) -> bool {
+    matches!(error, NimbusError::Validation(message) if message == OPEN_CANCELLED)
+}
+
+fn cancelled() -> NimbusError {
+    NimbusError::Validation(OPEN_CANCELLED.into())
+}
+
+#[derive(Debug, PartialEq)]
+enum MediaWait {
+    Ready,
+    Cancelled,
+    TimedOut,
+}
+
 #[derive(Clone)]
 pub struct PlayerController {
     socket_path: PathBuf,
@@ -133,6 +152,14 @@ impl PlayerController {
         self.playlist.lock().clone()
     }
 
+    /// A folder playlist only applies while one of its files plays; opening anything else drops it.
+    pub fn keep_playlist_for(&self, file_id: &str) {
+        let mut playlist = self.playlist.lock();
+        if !playlist.iter().any(|file| file.id == file_id) {
+            playlist.clear();
+        }
+    }
+
     async fn send_subtitle(&self, path: &str, title: Option<&str>) -> Result<()> {
         let command = json!(["sub-add", path, "select", title.unwrap_or("AI 字幕")]);
         let socket = self.socket_path.clone();
@@ -177,9 +204,39 @@ impl PlayerController {
         show_video: bool,
     ) -> Result<()> {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let result = self
+            .load(
+                window,
+                generation,
+                file_id,
+                url,
+                title,
+                start_position,
+                speed,
+                show_video,
+            )
+            .await;
+        // Whatever failed after a newer open or a stop took over, this request was replaced.
+        match result {
+            Err(_) if generation != self.generation.load(Ordering::SeqCst) => Err(cancelled()),
+            result => result,
+        }
+    }
+
+    async fn load(
+        &self,
+        window: WebviewWindow,
+        generation: u64,
+        file_id: String,
+        url: String,
+        title: String,
+        start_position: f64,
+        speed: f64,
+        show_video: bool,
+    ) -> Result<()> {
         let _guard = self.gate.lock().await;
         if generation != self.generation.load(Ordering::SeqCst) {
-            return Err(NimbusError::Validation("已取消旧播放请求".into()));
+            return Err(cancelled());
         }
         *self.current_file_id.lock() = None;
         *self.snapshot.lock() = None;
@@ -210,11 +267,18 @@ impl PlayerController {
             drop(handle_guard);
             wait_for_socket(&socket)?;
             send(&socket, json!(["loadfile", &url, "replace"]))?;
-            if !wait_for_media(&socket, &url, &active_generation, generation) {
-                let _ = send(&socket, json!(["stop"]));
-                return Err(NimbusError::Validation(
-                    "媒体连接超时，请检查网盘网络后重试".into(),
-                ));
+            match wait_for_media(&socket, &url, &active_generation, generation) {
+                MediaWait::Ready => {}
+                MediaWait::Cancelled => {
+                    let _ = send(&socket, json!(["stop"]));
+                    return Err(cancelled());
+                }
+                MediaWait::TimedOut => {
+                    let _ = send(&socket, json!(["stop"]));
+                    return Err(NimbusError::Validation(
+                        "媒体连接超时，请检查网盘网络后重试".into(),
+                    ));
+                }
             }
             send(
                 &socket,
@@ -226,7 +290,7 @@ impl PlayerController {
             send(&socket, json!(["set_property", "pause", false]))?;
             if generation != active_generation.load(Ordering::SeqCst) {
                 let _ = send(&socket, json!(["stop"]));
-                return Err(NimbusError::Validation("播放已取消".into()));
+                return Err(cancelled());
             }
             *current_file_id.lock() = Some(file_id);
             Ok(())
@@ -469,11 +533,11 @@ fn wait_for_socket(path: &Path) -> Result<()> {
     Err(NimbusError::Internal("libmpv 控制通道启动超时".into()))
 }
 
-fn wait_for_media(path: &Path, expected: &str, generation: &AtomicU64, current: u64) -> bool {
+fn wait_for_media(path: &Path, expected: &str, generation: &AtomicU64, current: u64) -> MediaWait {
     let deadline = Instant::now() + Duration::from_secs(75);
     while Instant::now() < deadline {
         if generation.load(Ordering::SeqCst) != current {
-            return false;
+            return MediaWait::Cancelled;
         }
         if query(path, "path")
             .ok()
@@ -486,11 +550,11 @@ fn wait_for_media(path: &Path, expected: &str, generation: &AtomicU64, current: 
                 .unwrap_or_default()
                 > 0.0
         {
-            return true;
+            return MediaWait::Ready;
         }
         thread::sleep(Duration::from_millis(100));
     }
-    false
+    MediaWait::TimedOut
 }
 
 fn connect(path: &Path) -> Result<UnixStream> {

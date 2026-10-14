@@ -297,6 +297,14 @@ export function displayTitleOf(work: MediaWork, metadata?: { title?: string }) {
 /** How the native side records a lookup in its cache: the kind of work and the name. */
 export function lookupKeyOf(work: MediaWork) { return `${work.isSeries ? "tv" : "movie"}:${lookupNameOf(work)}`; }
 export function uniqueEpisodes(files: MediaFile[]) { const seen = new Set<string>(); return files.filter(file => { const key = `${seasonOf(file)}:${episodeOf(file) ?? file.id}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
+/** What the video controls step through: the Files folder it was played from while it is in it, else its series, else just itself. */
+export function videoQueue(current: MediaFile, movieFiles: MediaFile[], playlist: MediaFile[]): { queue: MediaFile[]; work: MediaWork | null } {
+  const work = buildMovieWorks(movieFiles).find((item) => item.files.some((file) => file.id === current.id)) ?? null;
+  if (playlist.length > 1 && playlist.some((file) => file.id === current.id)) return { queue: playlist, work };
+  if (!work?.isSeries) return { queue: [current], work };
+  const episodes = uniqueEpisodes(work.files).map((file) => (seasonOf(file) === seasonOf(current) && (episodeOf(file) ?? file.id) === (episodeOf(current) ?? current.id) ? current : file));
+  return { queue: episodes, work };
+}
 export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<MovieCategory, "all"> {
   const path = work.files.map((file) => file.cloudPath ?? "").join(" ");
   if (metadata?.genres.includes("纪录片") || /纪录片|documentary/i.test(path)) return "documentary";

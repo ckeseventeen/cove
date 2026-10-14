@@ -55,12 +55,40 @@ fn regenerated_subtitle_replaces_only_its_own_track() {
 }
 #[test]
 fn cancelled_open_does_not_wait_for_timeout() {
-    assert!(!wait_for_media(
-        Path::new("/nonexistent"),
-        "test",
-        &AtomicU64::new(2),
-        1
-    ));
+    assert_eq!(
+        wait_for_media(Path::new("/nonexistent"), "test", &AtomicU64::new(2), 1),
+        MediaWait::Cancelled
+    );
+}
+#[test]
+fn a_replaced_open_is_not_reported_as_a_timeout() {
+    assert!(is_cancelled(&cancelled()));
+    assert!(!is_cancelled(&NimbusError::Validation(
+        "媒体连接超时，请检查网盘网络后重试".into()
+    )));
+    assert_eq!(cancelled().to_string(), OPEN_CANCELLED);
+}
+#[test]
+fn folder_playlist_is_dropped_when_another_file_plays() {
+    let file = |id: &str| crate::model::MediaFile {
+        id: id.into(),
+        account_id: "local".into(),
+        remote_path: format!("/music/{id}.flac"),
+        cloud_path: None,
+        display_name: format!("{id}.flac"),
+        size: 0,
+        etag: None,
+        mime_type: None,
+        source_id: None,
+        source_ids: Vec::new(),
+        media_kind: Some("music".into()),
+    };
+    let player = PlayerController::new();
+    player.set_playlist(vec![file("a"), file("b")]);
+    player.keep_playlist_for("b");
+    assert_eq!(player.playlist().len(), 2);
+    player.keep_playlist_for("library-film");
+    assert!(player.playlist().is_empty());
 }
 
 #[tokio::test]

@@ -20,6 +20,7 @@ import {
   browseAccount,
   copyEntry,
   createFolder,
+  isOpenCancelled,
   openDocument,
   openNativePath,
   playStorageFile,
@@ -199,16 +200,19 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const go = (target: string) => onNavigate({ name: "storage", accountId: account.id, path: target });
 
+  const playRequest = useRef(0);
   const play = async (entry: CloudEntry) => {
     const kind = classifyEntry(entry.name, false).kind;
     const siblings = entries.filter((item) => !item.isDir && classifyEntry(item.name, false).kind === kind);
+    // Only the latest double-click reports; an earlier one it replaced is not a failure.
+    const request = ++playRequest.current;
     setBusyId(entry.id);
     try {
       await playStorageFile(account.id, entry.path, entry.name, entry.id, siblings);
     } catch (cause) {
-      notify(`无法播放“${entry.name}”：${errorText(cause)}`, "error");
+      if (request === playRequest.current && !isOpenCancelled(cause)) notify(`无法播放“${entry.name}”：${errorText(cause)}`, "error");
     } finally {
-      setBusyId(null);
+      if (request === playRequest.current) setBusyId(null);
     }
   };
 

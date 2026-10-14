@@ -5,6 +5,8 @@ import {
   getCurrentPlayerFile,
   getMusicMetadata,
   getPlayerPlaylist,
+  isOpenCancelled,
+  onPlayerError,
   onPlayerStopped,
   openNativePlayer,
   setNowPlayingInfo,
@@ -12,7 +14,7 @@ import {
   type MusicMetadata,
   type RecentPlayback,
 } from "../lib/nimbus";
-import { nextQueueIndex, shuffleUpcoming, type RepeatMode } from "../lib/playback";
+import { nextQueueIndex, shuffleUpcoming, unmuteVolume, type RepeatMode } from "../lib/playback";
 import type { Notify } from "../ui/Toasts";
 import { onStatus, readStatus } from "./statusStore";
 
@@ -167,6 +169,13 @@ export function PlayerProvider({
         }
       } catch (cause) {
         if (request !== generation.current) return;
+        if (isOpenCancelled(cause)) {
+          // Replaced from the other window, or stopped there: follow what the player does now.
+          lastBackendId.current = undefined;
+          const playing = await getCurrentPlayerFile().catch(() => null);
+          if (!playing && request === generation.current) setNowPlaying(null);
+          return;
+        }
         const message = errorText(cause);
         if (music) setError(message);
         else setNowPlaying(null);
@@ -212,7 +221,7 @@ export function PlayerProvider({
   // Follow the backend: files started elsewhere, stops, and the end of a song.
   useEffect(() => {
     const offStatus = onStatus((status) => {
-      if (status.volume > 0) previousVolume.current = status.volume;
+      previousVolume.current = unmuteVolume(previousVolume.current, status);
       const id = status.fileId ?? null;
       const { nowPlaying: current, queue: currentQueue, repeat: currentRepeat, openingId: opening } = latest.current;
       if (id !== lastBackendId.current) {
@@ -223,6 +232,7 @@ export function PlayerProvider({
           void getCurrentPlayerFile()
             .then(async (file) => {
               if (!file || lastBackendId.current !== file.id) return;
+              setError("");
               setNowPlaying(file);
               if (isMusic(file) && !latest.current.queue.some((item) => item.id === file.id)) {
                 const playlist = await getPlayerPlaylist().catch(() => [] as MediaFile[]);
@@ -253,6 +263,9 @@ export function PlayerProvider({
       offStopped();
     };
   }, [play]);
+
+  // Videos switched from the video controls fail there, out of sight once the controls close.
+  useEffect(() => onPlayerError(({ name, message }) => notify(`无法播放“${name}”：${message}`, "error")), [notify]);
 
   // Song details, lyrics and artwork; also feeds the system Now Playing widget.
   useEffect(() => {

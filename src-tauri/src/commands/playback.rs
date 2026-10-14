@@ -16,11 +16,43 @@ pub(crate) async fn player_open_native(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    let opened = open_native(file_id.clone(), from_start, &window, &state).await;
+    if let Err(error) = &opened {
+        // A cancelled open was replaced by a newer one or a stop, which own the windows now.
+        if !player::is_cancelled(error) && state.player.current_file_id().is_none() {
+            // Nothing plays any more: both windows go back to the library.
+            crate::show_library(window.app_handle(), false).await;
+            if window.label() != "main" {
+                // The video controls that asked are hidden now, so the library window says why.
+                let name = state
+                    .store
+                    .get_media_file(&file_id)
+                    .map(|file| file.display_name)
+                    .unwrap_or_default();
+                let payload = serde_json::json!({
+                    "fileId": file_id,
+                    "name": name,
+                    "message": error.to_string(),
+                });
+                let _ = window.app_handle().emit("nimbus-player-error", payload);
+            }
+        }
+    }
+    opened
+}
+
+async fn open_native(
+    file_id: String,
+    from_start: Option<bool>,
+    window: &tauri::WebviewWindow,
+    state: &AppState,
+) -> Result<()> {
     let main = window
         .app_handle()
         .get_webview_window("main")
         .unwrap_or_else(|| window.clone());
     state.player.cancel_pending_open();
+    state.player.keep_playlist_for(&file_id);
     let previous = state.player.cached_status();
     if let Some(id) = previous.file_id.filter(|_| previous.duration > 0.0) {
         state.store.save_playback_progress(
@@ -53,7 +85,7 @@ pub(crate) async fn player_open_native(
             controls.set_focus().map_err(|error| NimbusError::Internal(error.to_string()))?;
         }
     }
-    let opened = state
+    state
         .player
         .open(
             main.clone(),
@@ -64,16 +96,7 @@ pub(crate) async fn player_open_native(
             speed,
             show_video,
         )
-        .await;
-    if let Err(error) = opened {
-        if state.player.current_file_id().is_none() {
-            state.player.set_view_visible(&main, false).await?;
-            if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
-                let _ = controls.hide();
-            }
-        }
-        return Err(error);
-    }
+        .await?;
     let snapshot = state.player.status().await;
     let _ = window.app_handle().emit("nimbus-player-state", &snapshot);
     if let Some(controls) = window.app_handle().get_webview_window("player-controls") {

@@ -115,6 +115,10 @@ html.video-window {
   gap: 10px;
   color: rgba(255, 255, 255, 0.75);
 }
+.video-status .hud-text-button {
+  margin-top: 6px;
+  pointer-events: auto;
+}
 
 /* Floating transport */
 .video-hud {

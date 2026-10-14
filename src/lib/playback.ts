@@ -14,3 +14,7 @@ export function shuffleUpcoming<T>(queue: T[], currentIndex: number, random = Ma
   }
   return [...queue.slice(0, currentIndex + 1), ...remaining];
 }
+/** The level to unmute to: only a playing file's volume counts, not the empty status a stop reports. */
+export function unmuteVolume(previous: number, status: { fileId?: string | null; volume: number }): number {
+  return status.fileId && status.volume > 0 ? status.volume : previous;
+}

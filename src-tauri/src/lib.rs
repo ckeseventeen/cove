@@ -187,7 +187,8 @@ pub fn run() {
                     let playing_video = current
                         .as_ref()
                         .is_some_and(|file| file.media_kind.as_deref() != Some("music"));
-                    if playing_video {
+                    // A video still loading has no current file yet, but its controls are up.
+                    if playing_video || video_ui_visible(&app_handle) {
                         // Like closing a QuickTime document: leave the video, keep the library.
                         stop_playback(&app_handle).await;
                         return;
@@ -292,6 +293,14 @@ fn save_current_progress(state: &AppState) {
     }
 }
 
+/// The video controls are showing: a video is playing, or one is still loading.
+pub(crate) fn video_ui_visible(app_handle: &tauri::AppHandle) -> bool {
+    app_handle
+        .get_webview_window("player-controls")
+        .and_then(|controls| controls.is_visible().ok())
+        .unwrap_or(false)
+}
+
 /// Stop playback, save progress and return the window to the library.
 pub(crate) async fn stop_playback(app_handle: &tauri::AppHandle) {
     let state = app_handle.state::<AppState>();
@@ -300,12 +309,31 @@ pub(crate) async fn stop_playback(app_handle: &tauri::AppHandle) {
     save_current_progress(&state);
     let _ = player.control("stop".into(), None).await;
     state.proxy.revoke_all().await;
+    show_library(app_handle, true).await;
+}
+
+/// Tell both windows nothing is playing, hide the video and give the window back to the
+/// library. Full screen is left only when it belonged to a video, not to the library.
+/// Without `focus`, the library only takes the keyboard back from the video controls,
+/// so a failure in the background does not pull Cove to the front.
+pub(crate) async fn show_library(app_handle: &tauri::AppHandle, focus: bool) {
+    let state = app_handle.state::<AppState>();
+    let player = state.player.clone();
+    let video_ui = video_ui_visible(app_handle);
+    let controls_focused = app_handle
+        .get_webview_window("player-controls")
+        .and_then(|controls| controls.is_focused().ok())
+        .unwrap_or(false);
     let _ = app_handle.emit("nimbus-player-state", player.cached_status());
     let _ = app_handle.emit("nimbus-player-stopped", ());
     if let Some(webview) = app_handle.get_webview_window("main") {
         let _ = player.set_view_visible(&webview, false).await;
-        let _ = webview.set_fullscreen(false);
-        let _ = webview.set_focus();
+        if video_ui {
+            let _ = webview.set_fullscreen(false);
+        }
+        if focus || controls_focused {
+            let _ = webview.set_focus();
+        }
     }
     if let Some(controls) = app_handle.get_webview_window("player-controls") {
         let _ = controls.hide();
