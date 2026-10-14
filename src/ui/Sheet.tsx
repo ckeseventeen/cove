@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 
 // Only the top-most modal reacts to Escape, like stacked AppKit sheets.
 const stack: string[] = [];
+// Entries that also hold the window's keyboard shortcuts (Now Playing only takes Escape).
+let modals = 0;
 
 const FOCUSABLE =
   'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
@@ -19,13 +21,14 @@ type Props = {
   dismissOnBackdrop?: boolean;
 };
 
-export function useTopmostEscape(active: boolean, onEscape: () => void) {
+export function useTopmostEscape(active: boolean, onEscape: () => void, modal = true) {
   const id = useId();
   const handler = useRef(onEscape);
   handler.current = onEscape;
   useEffect(() => {
     if (!active) return;
     stack.push(id);
+    if (modal) modals++;
     const listener = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || stack.at(-1) !== id) return;
       event.preventDefault();
@@ -37,11 +40,12 @@ export function useTopmostEscape(active: boolean, onEscape: () => void) {
       window.removeEventListener("keydown", listener, true);
       const index = stack.lastIndexOf(id);
       if (index >= 0) stack.splice(index, 1);
+      if (modal) modals--;
     };
-  }, [active, id]);
+  }, [active, id, modal]);
 }
 
-export const isModalOpen = () => stack.length > 0;
+export const isModalOpen = () => modals > 0;
 
 export function Sheet({ onClose, children, label, labelledBy, width, centered, className, dismissOnBackdrop = true }: Props) {
   const panel = useRef<HTMLDivElement>(null);

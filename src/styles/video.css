@@ -278,17 +278,17 @@ html.video-window {
   color: #000;
   font-weight: 600;
 }
-.episode-grid,
-.episode-list {
+.episode-panel .episode-grid,
+.episode-panel .episode-list {
   min-height: 0;
   overflow-y: auto;
 }
-.episode-grid {
+.episode-panel .episode-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
   gap: 6px;
 }
-.episode-grid button {
+.episode-panel .episode-grid button {
   display: grid;
   place-items: center;
   height: 40px;
@@ -299,12 +299,12 @@ html.video-window {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-.episode-list {
+.episode-panel .episode-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
-.episode-list button {
+.episode-panel .episode-list button {
   display: flex;
   align-items: center;
   min-height: 32px;
@@ -313,16 +313,16 @@ html.video-window {
   color: rgba(255, 255, 255, 0.88);
   text-align: left;
 }
-.episode-grid button:hover:not(:disabled),
-.episode-list button:hover:not(:disabled) {
+.episode-panel .episode-grid button:hover:not(:disabled),
+.episode-panel .episode-list button:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.2);
 }
-.episode-grid button[aria-current="true"],
-.episode-list button[aria-current="true"] {
+.episode-panel .episode-grid button[aria-current="true"],
+.episode-panel .episode-list button[aria-current="true"] {
   background: var(--accent);
   color: #fff;
 }
-.episode-grid button:disabled,
-.episode-list button:disabled {
+.episode-panel .episode-grid button:disabled,
+.episode-panel .episode-list button:disabled {
   opacity: 0.5;
 }

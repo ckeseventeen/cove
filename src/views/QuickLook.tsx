@@ -50,8 +50,10 @@ export function QuickLook({ entry, account, onClose, notify }: { entry: CloudEnt
       <div
         className="quicklook-inner"
         onKeyDown={(event) => {
-          if (event.key === " " && !isEditableTarget(event.target) && !(event.target instanceof HTMLButtonElement)) {
+          // Space closes Quick Look as in Finder, even on the focused “打开” button.
+          if (event.key === " " && !isEditableTarget(event.target)) {
             event.preventDefault();
+            event.stopPropagation();
             onClose();
           }
         }}

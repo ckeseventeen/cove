@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, Film, LoaderCircle, Search } from "lucide-react";
+import { ChevronRight, Clapperboard, FileText, Film, LoaderCircle, Music, Search } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
@@ -19,11 +19,12 @@ type Props = {
   onOpenWork: (work: MediaWork) => void;
 };
 
-/** Search across the whole library — works, songs and storage locations. */
+/** Search across the whole library — works, songs, documents, media folders and storage locations. */
 export function SearchView({ query, library, notify, onNavigate, onOpenWork }: Props) {
   const { open: openDocument, openingId } = useOpenDocument(notify);
   const [workLimit, setWorkLimit] = useState(12);
   const [songLimit, setSongLimit] = useState(30);
+  const [documentLimit, setDocumentLimit] = useState(30);
   const needle = query.trim().toLocaleLowerCase();
   const matches = (value?: string) => !!value && value.toLocaleLowerCase().includes(needle);
 
@@ -48,12 +49,9 @@ export function SearchView({ query, library, notify, onNavigate, onOpenWork }: P
   const documents = needle
     ? library.documents.filter((file) => matches(file.displayName) || matches(file.cloudPath) || matches(file.remotePath))
     : [];
-  const locations = needle
-    ? library.accounts.filter(
-        (account) =>
-          matches(account.label) || library.sources.some((source) => source.accountId === account.id && matches(source.label)),
-      )
-    : [];
+  // A matching media folder is listed itself and opens its library, not its account's root.
+  const folders = needle ? library.sources.filter((source) => matches(source.label)) : [];
+  const locations = needle ? library.accounts.filter((account) => matches(account.label)) : [];
 
   if (!needle) {
     return (
@@ -72,7 +70,7 @@ export function SearchView({ query, library, notify, onNavigate, onOpenWork }: P
         </div>
       </header>
 
-      {!works.length && !songs.length && !documents.length && !locations.length && (
+      {!works.length && !songs.length && !documents.length && !folders.length && !locations.length && (
         <EmptyState icon={<Search size={40} strokeWidth={1.4} />} title="无结果" message={`没有找到与“${query.trim()}”相关的内容。试试更短的关键词。`} />
       )}
 
@@ -123,15 +121,50 @@ export function SearchView({ query, library, notify, onNavigate, onOpenWork }: P
         <section className="section">
           <div className="section-header">
             <h2 className="section-title">文档 · {plural(documents.length, "份")}</h2>
+            {documents.length > documentLimit && (
+              <button className="btn plain" onClick={() => setDocumentLimit((value) => value + 30)}>
+                显示更多（{documents.length - documentLimit}）
+              </button>
+            )}
           </div>
           <div className="group-box">
-            {documents.slice(0, 30).map((file) => (
+            {documents.slice(0, documentLimit).map((file) => (
               <button key={file.id} className="group-row" onClick={() => void openDocument(file)}>
                 {openingId === file.id ? <LoaderCircle className="spin" size={16} /> : <EntryIcon kind="pdf" size={18} />}
                 <span className="row-main">
                   <span className="row-title">{file.displayName.replace(/\.pdf$/i, "")}</span>
                   <span className="row-subtitle">{readingLabel(library.readingByKey.get(documentKey(file)))}</span>
                 </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {folders.length > 0 && (
+        <section className="section">
+          <div className="section-header">
+            <h2 className="section-title">媒体文件夹</h2>
+          </div>
+          <div className="group-box">
+            {folders.map((source) => (
+              <button
+                key={source.id}
+                className="group-row"
+                onClick={() =>
+                  onNavigate({ name: source.kind === "movie" ? "movies" : source.kind === "music" ? "music" : "documents", sourceId: source.id })
+                }
+              >
+                <span className={`glyph ${source.kind === "movie" ? "purple" : source.kind === "music" ? "pink" : "orange"}`}>
+                  {source.kind === "movie" ? <Clapperboard size={15} /> : source.kind === "music" ? <Music size={15} /> : <FileText size={15} />}
+                </span>
+                <span className="row-main">
+                  <span className="row-title">{source.label}</span>
+                  <span className="row-subtitle" title={source.remoteRoot}>
+                    {library.accounts.find((account) => account.id === source.accountId)?.label ?? "未知位置"} · {source.remoteRoot}
+                  </span>
+                </span>
+                <ChevronRight className="chevron" size={14} />
               </button>
             ))}
           </div>

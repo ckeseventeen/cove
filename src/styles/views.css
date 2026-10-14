@@ -368,7 +368,7 @@
   font-size: var(--text-title3);
   font-weight: 700;
 }
-.episode-list {
+.detail-files .episode-list {
   margin: 0;
   padding: 0 14px 14px;
   overflow-y: auto;
@@ -566,18 +566,25 @@
   display: flex;
   flex: 1;
   align-items: center;
-  min-width: 0;
+  /* The tools give up width before the path does (900 px window with the inspector open). */
+  min-width: 120px;
   overflow: hidden;
 }
 .crumb-wrap {
   display: flex;
   align-items: center;
   min-width: 0;
-  flex-shrink: 1;
 }
-.crumb-wrap:last-of-type,
-.pathbar > .crumb:first-child {
+/* Ancestors, the account included, collapse first, so the current folder stays readable. */
+.pathbar > .crumb:first-child,
+.crumb-wrap {
+  flex-shrink: 100;
+  overflow: hidden;
+}
+/* The current folder: a long name truncates, leaving room for the account's icon. */
+.crumb-wrap:nth-last-child(1 of span.crumb-wrap) {
   flex-shrink: 0;
+  max-width: calc(100% - 32px);
 }
 .crumb {
   display: flex;
@@ -611,9 +618,15 @@
 }
 .browser-tools {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+.browser-tools > .btn {
+  flex-shrink: 0;
+}
+.browser-tools > .search-field {
+  min-width: 80px;
 }
 .browser-content {
   flex: 1;
