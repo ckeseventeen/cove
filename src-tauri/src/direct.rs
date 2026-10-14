@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -925,28 +925,219 @@ struct OneDriveItem {
     folder: Option<serde_json::Value>,
 }
 
-fn item_id(path: &str) -> &str {
-    path.trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|id| !id.is_empty())
-        .unwrap_or("root")
+const GOOGLE_FOLDER: &str = "application/vnd.google-apps.folder";
+
+// Google Drive and OneDrive are browsed by folder names, like every other provider, so a file has
+// one path in Files and in the library ("/电影/繁花/第01集.mkv"): 在文件中显示, reading memory and
+// grouping agree, and the path bar shows names. The APIs list folders by id; the ids met while
+// listing are remembered, so walking down needs no extra requests. A path maps to the folder's id
+// and to its path spelled with names; the two differ only for id chains saved by older versions.
+type FolderIds = HashMap<String, (String, String)>;
+fn folder_ids() -> &'static parking_lot::Mutex<FolderIds> {
+    static IDS: std::sync::OnceLock<parking_lot::Mutex<FolderIds>> = std::sync::OnceLock::new();
+    IDS.get_or_init(Default::default)
 }
-fn safe_id(path: &str) -> Result<&str> {
-    let id = item_id(path);
-    if !id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '!'))
-    {
-        return Err(NimbusError::Validation("无效的云盘目录标识".into()));
+/// One drive is told from another by a digest of its token.
+fn folder_key(provider: &str, token: &str, path: &str) -> String {
+    format!(
+        "{provider}:{:x}:{}",
+        md5::compute(token),
+        path.trim_end_matches('/')
+    )
+}
+fn remember_folder(provider: &str, token: &str, path: &str, id: &str, named: &str) {
+    let mut ids = folder_ids().lock();
+    if ids.len() >= 20_000 {
+        ids.clear();
     }
-    Ok(id)
+    ids.insert(
+        folder_key(provider, token, path),
+        (id.to_owned(), named.to_owned()),
+    );
+}
+/// A name as one path segment. Google Drive allows "/" in names; paths show it as "／".
+fn official_child_path(parent: &str, name: &str) -> String {
+    format!(
+        "{}/{}",
+        parent.trim_end_matches('/'),
+        name.replace('/', "／")
+    )
+}
+fn is_item_id(id: &str) -> bool {
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '!'))
+}
+/// Older versions saved chains of ids ("/1AbC…/1QwE…") as paths.
+fn looks_like_item_id(segment: &str) -> bool {
+    segment.len() >= 16 && is_item_id(segment)
+}
+/// The Drive search for a child folder by name.
+fn google_folder_query(parent: &str, segment: &str) -> String {
+    let named = |name: &str| {
+        format!(
+            "name = '{}'",
+            name.replace('\\', "\\\\").replace('\'', "\\'")
+        )
+    };
+    let mut names = named(segment);
+    if segment.contains('／') {
+        names = format!("{names} or {}", named(&segment.replace('／', "/")));
+    }
+    format!(
+        "'{parent}' in parents and trashed = false and mimeType = '{GOOGLE_FOLDER}' and ({names})"
+    )
+}
+/// OneDrive addresses an item by name below its folder: `…/items/{id}:/{name}`.
+fn onedrive_child_url(parent: &str, segment: &str) -> Result<url::Url> {
+    let mut url = url::Url::parse(&if parent == "root" {
+        "https://graph.microsoft.com/v1.0/me/drive/root:".to_owned()
+    } else {
+        format!("https://graph.microsoft.com/v1.0/me/drive/items/{parent}:")
+    })?;
+    url.path_segments_mut()
+        .map_err(|_| NimbusError::Internal("OneDrive 地址无效".into()))?
+        .push(segment);
+    url.set_query(Some("$select=id,name,folder"));
+    Ok(url)
+}
+async fn official_child_folder(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    parent: &str,
+    segment: &str,
+) -> Result<Option<String>> {
+    if matches!(segment, "." | "..") {
+        return Ok(None);
+    }
+    if provider == "google_drive" {
+        let query = google_folder_query(parent, segment);
+        let page: GoogleList = client
+            .get("https://www.googleapis.com/drive/v3/files")
+            .bearer_auth(token)
+            .query(&[
+                ("q", query.as_str()),
+                ("pageSize", "10"),
+                ("fields", "files(id,name,mimeType)"),
+                ("supportsAllDrives", "true"),
+                ("includeItemsFromAllDrives", "true"),
+            ])
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        return Ok(page
+            .files
+            .into_iter()
+            .map(|file| file.id)
+            .find(|id| is_item_id(id)));
+    }
+    let response = client
+        .get(onedrive_child_url(parent, segment)?)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    let item: OneDriveItem = response.error_for_status()?.json().await?;
+    Ok(item
+        .folder
+        .is_some()
+        .then_some(item.id)
+        .filter(|id| is_item_id(id)))
+}
+/// The name of the folder with this id, or `None` when it is not a folder.
+async fn official_folder_name(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    id: &str,
+) -> Result<Option<String>> {
+    let url = if provider == "google_drive" {
+        format!("https://www.googleapis.com/drive/v3/files/{id}?fields=id,name,mimeType&supportsAllDrives=true")
+    } else {
+        format!("https://graph.microsoft.com/v1.0/me/drive/items/{id}?$select=id,name,folder")
+    };
+    let response = client.get(url).bearer_auth(token).send().await?;
+    if matches!(
+        response.status(),
+        reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::BAD_REQUEST
+    ) {
+        return Ok(None);
+    }
+    let response = response.error_for_status()?;
+    Ok(if provider == "google_drive" {
+        let file = response.json::<GoogleFile>().await?;
+        (file.mime_type == GOOGLE_FOLDER).then_some(file.name)
+    } else {
+        let item = response.json::<OneDriveItem>().await?;
+        item.folder.is_some().then_some(item.name)
+    })
+}
+/// The id of the folder at a name path, and the path spelled with names. A segment that names no
+/// folder but is a folder's id still resolves, so media folders saved as id chains by older
+/// versions keep working, and what is listed or scanned below them gets name paths too.
+async fn official_folder(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    path: &str,
+) -> Result<(String, String)> {
+    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let prefix = |end: usize| format!("/{}", segments[..end].join("/"));
+    let (mut folder, mut start) = (("root".to_owned(), "/".to_owned()), 0);
+    {
+        let ids = folder_ids().lock();
+        for end in (1..=segments.len()).rev() {
+            if let Some(found) = ids.get(&folder_key(provider, token, &prefix(end))) {
+                (folder, start) = (found.clone(), end);
+                break;
+            }
+        }
+    }
+    for end in start + 1..=segments.len() {
+        let segment = segments[end - 1];
+        let missing = || {
+            NimbusError::Validation(format!(
+                "找不到文件夹“{segment}”，它可能已被移动、重命名或删除"
+            ))
+        };
+        let child = official_child_folder(provider, client, token, &folder.0, segment).await?;
+        let (id, name) = match child {
+            Some(child) => (child, segment.to_owned()),
+            None if looks_like_item_id(segment) => {
+                let name = official_folder_name(provider, client, token, segment).await?;
+                (segment.to_owned(), name.ok_or_else(missing)?)
+            }
+            None => return Err(missing()),
+        };
+        folder = (id, official_child_path(&folder.1, &name));
+        remember_folder(provider, token, &prefix(end), &folder.0, &folder.1);
+        remember_folder(provider, token, &folder.1, &folder.0, &folder.1);
+    }
+    Ok(folder)
 }
 async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<CloudEntry>> {
-    let id = safe_id(path)?;
     let client = http()?;
+    let (id, named) = official_folder(provider, &client, token, path).await?;
+    list_official(provider, &client, token, &named, &id).await
+}
+/// The children of the folder `id`, found at the name path `path`.
+async fn list_official(
+    provider: &str,
+    client: &Client,
+    token: &str,
+    path: &str,
+    id: &str,
+) -> Result<Vec<CloudEntry>> {
+    if !is_item_id(id) {
+        return Err(NimbusError::Validation("无效的云盘目录标识".into()));
+    }
     let mut entries = Vec::new();
-    let child_path = |id: &str| format!("{}/{}", path.trim_end_matches('/'), id);
     if provider == "google_drive" {
         let mut cursor: Option<String> = None;
         loop {
@@ -969,10 +1160,10 @@ async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<
             }
             let page: GoogleList = request.send().await?.error_for_status()?.json().await?;
             entries.extend(page.files.into_iter().map(|file| CloudEntry {
-                path: child_path(&file.id),
+                path: official_child_path(path, &file.name),
                 id: file.id,
                 name: file.name,
-                is_dir: file.mime_type == "application/vnd.google-apps.folder",
+                is_dir: file.mime_type == GOOGLE_FOLDER,
                 size: file.size.parse().unwrap_or(0),
                 modified_at: None,
             }));
@@ -1001,7 +1192,7 @@ async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<
                 .json()
                 .await?;
             entries.extend(page.value.into_iter().map(|file| CloudEntry {
-                path: child_path(&file.id),
+                path: official_child_path(path, &file.name),
                 id: file.id,
                 name: file.name,
                 is_dir: file.folder.is_some(),
@@ -1011,9 +1202,13 @@ async fn browse_official(provider: &str, token: &str, path: &str) -> Result<Vec<
             next = page.next_link;
         }
     }
+    for entry in entries.iter().filter(|entry| entry.is_dir) {
+        remember_folder(provider, token, &entry.path, &entry.id, &entry.path);
+    }
     entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
     Ok(entries)
 }
+/// Files are stored with the same name paths Files shows, from the drive's root.
 async fn scan_official(
     provider: &str,
     account: &str,
@@ -1022,7 +1217,9 @@ async fn scan_official(
     kind: &str,
     limit: usize,
 ) -> Result<(Vec<MediaFile>, ScanResult)> {
-    let mut queue = VecDeque::from([(root.to_owned(), String::new())]);
+    let client = http()?;
+    let (root_id, root_path) = official_folder(provider, &client, token, root).await?;
+    let mut queue = VecDeque::from([(root_path, root_id)]);
     let mut seen = HashSet::new();
     let mut result = ScanResult {
         visited_directories: 0,
@@ -1031,19 +1228,18 @@ async fn scan_official(
         truncated: false,
     };
     let mut files = Vec::new();
-    while let Some((path, display_path)) = queue.pop_front() {
-        if !seen.insert(path.clone()) {
+    while let Some((path, id)) = queue.pop_front() {
+        if !seen.insert(id.clone()) {
             continue;
         }
         result.visited_directories += 1;
-        for entry in browse_official(provider, token, &path).await? {
+        for entry in list_official(provider, &client, token, &path, &id).await? {
             if result.discovered_files + result.visited_directories >= limit {
                 result.truncated = true;
                 break;
             }
-            let cloud_path = format!("{}/{}", display_path, entry.name);
             if entry.is_dir {
-                queue.push_back((entry.path, cloud_path));
+                queue.push_back((entry.path, entry.id));
                 continue;
             }
             result.discovered_files += 1;
@@ -1065,7 +1261,7 @@ async fn scan_official(
                 id: Uuid::new_v4().to_string(),
                 account_id: account.into(),
                 remote_path,
-                cloud_path: Some(cloud_path),
+                cloud_path: Some(entry.path),
                 display_name: entry.name,
                 size: entry.size,
                 etag: None,
@@ -1081,6 +1277,47 @@ async fn scan_official(
     }
     result.media_files = files.len();
     Ok((files, result))
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn official_paths_are_names_from_the_drive_root() {
+        assert_eq!(official_child_path("/", "电影"), "/电影");
+        assert_eq!(official_child_path("/电影/", "繁花"), "/电影/繁花");
+        // A Google Drive name with "/" stays one segment.
+        assert_eq!(official_child_path("/音乐", "AC/DC"), "/音乐/AC／DC");
+    }
+
+    #[test]
+    fn folder_lookups_quote_names_and_encode_paths() {
+        let query = google_folder_query("root", r"Tom's \ 电影");
+        assert!(query.starts_with("'root' in parents and trashed = false"));
+        assert!(query.ends_with(r"(name = 'Tom\'s \\ 电影')"));
+        let query = google_folder_query("1AbC", "AC／DC");
+        assert!(query.ends_with("(name = 'AC／DC' or name = 'AC/DC')"));
+
+        assert_eq!(
+            onedrive_child_url("root", "繁花 #1?").unwrap().as_str(),
+            "https://graph.microsoft.com/v1.0/me/drive/root:/%E7%B9%81%E8%8A%B1%20%231%3F?$select=id,name,folder"
+        );
+        assert_eq!(
+            onedrive_child_url("D4648F06C91D9D3D!54927", "Movies").unwrap().as_str(),
+            "https://graph.microsoft.com/v1.0/me/drive/items/D4648F06C91D9D3D!54927:/Movies?$select=id,name,folder"
+        );
+    }
+
+    #[test]
+    fn only_id_shaped_segments_fall_back_to_ids() {
+        assert!(looks_like_item_id("1AbCdEfGhIjKlMnOpQrStUvWxYz"));
+        assert!(looks_like_item_id("D4648F06C91D9D3D!54927"));
+        assert!(!looks_like_item_id("电影"));
+        assert!(!looks_like_item_id("Season1"));
+        assert!(!is_item_id("a/b"));
+        assert!(!is_item_id("a?b"));
+    }
 }
 
 #[cfg(test)]

@@ -149,6 +149,9 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 7 {
+            migrate_webdav_paths(&connection)?;
+        }
         // Film details from an earlier lookup scheme are never read again.
         connection.execute(
             "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
@@ -686,6 +689,101 @@ fn write_playlist_items(
         )?;
         position += inserted as i64;
     }
+    Ok(())
+}
+
+/// WebDAV paths used to be stored as the server spelled them ("/dav/%E7%94%B5%E5%BD%B1/"); they are
+/// now decoded and relative to the account's address ("/电影"), as Files shows them. Media folders,
+/// library files and reading memory move to the new paths in place, keeping their ids, progress and
+/// pages. Files played from Files before had only a bare server path as address; they get a URL.
+fn migrate_webdav_paths(connection: &Connection) -> Result<()> {
+    let transaction = connection.unchecked_transaction()?;
+    let rows = |sql: &str, key: &str| -> Result<Vec<(String, String, String)>> {
+        let mut statement = transaction.prepare(sql)?;
+        let rows = statement.query_map([key], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    };
+    let accounts = rows(
+        "SELECT id, endpoint, '' FROM accounts WHERE provider = ?1",
+        "webdav",
+    )?;
+    for (account, endpoint, _) in accounts {
+        let Ok(base) = crate::webdav::validated_url(&endpoint) else {
+            continue;
+        };
+        let mut kept = std::collections::HashSet::new();
+        let mut moved = Vec::new();
+        for (id, kind, root) in rows(
+            "SELECT id, kind, remote_root FROM media_sources WHERE account_id = ?1 ORDER BY created_at, rowid",
+            &account,
+        )? {
+            let Some((_, root)) = crate::webdav::locate_saved(&base, &root) else {
+                continue;
+            };
+            if kept.insert((kind, root.clone())) {
+                moved.push((id, root));
+            } else {
+                // "/dav/电影" and "/dav/电影/" were added as two folders; they are one now.
+                transaction.execute("DELETE FROM source_files WHERE source_id = ?1", [&id])?;
+                transaction.execute("DELETE FROM media_sources WHERE id = ?1", [&id])?;
+            }
+        }
+        for (id, root) in moved {
+            transaction.execute(
+                "UPDATE OR IGNORE media_sources SET remote_root = ?1 WHERE id = ?2",
+                params![root, id],
+            )?;
+        }
+        for (id, remote, _) in rows(
+            "SELECT id, remote_path, '' FROM media_files WHERE account_id = ?1",
+            &account,
+        )? {
+            let Some((url, path)) = crate::webdav::locate_saved(&base, &remote) else {
+                continue;
+            };
+            let updated = transaction.execute(
+                "UPDATE OR IGNORE media_files SET remote_path = ?1, cloud_path = ?2 WHERE id = ?3",
+                params![url.as_str(), path, id],
+            )?;
+            if updated == 0 && !remote.contains("://") {
+                // Broken by playing it from Files, then scanned again as a new row: that row is
+                // the file now, so it takes over the resume position, playlists and manual match.
+                use rusqlite::OptionalExtension;
+                let Some(file) = transaction
+                    .query_row(
+                        "SELECT id FROM media_files WHERE account_id = ?1 AND remote_path = ?2",
+                        params![account, url.as_str()],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?
+                else {
+                    continue;
+                };
+                for table in ["playback_progress", "playlist_items", "metadata_overrides"] {
+                    transaction.execute(
+                        &format!("UPDATE OR IGNORE {table} SET file_id = ?1 WHERE file_id = ?2"),
+                        params![file, id],
+                    )?;
+                }
+                transaction.execute("DELETE FROM media_files WHERE id = ?1", [&id])?;
+            }
+        }
+        for (key, path, entry) in rows(
+            "SELECT doc_key, path, entry_id FROM reading_progress WHERE account_id = ?1",
+            &account,
+        )? {
+            let saved = if entry.contains("://") { entry } else { path };
+            let Some((_, path)) = crate::webdav::locate_saved(&base, &saved) else {
+                continue;
+            };
+            transaction.execute(
+                "UPDATE OR IGNORE reading_progress SET doc_key = ?1, path = ?2 WHERE doc_key = ?3",
+                params![format!("{account}:{path}"), path, key],
+            )?;
+        }
+    }
+    transaction.execute_batch("PRAGMA user_version = 7;")?;
+    transaction.commit()?;
     Ok(())
 }
 

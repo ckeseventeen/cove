@@ -28,7 +28,7 @@ import {
   type CloudEntry,
   type MediaSource,
 } from "../lib/nimbus";
-import { canCopyBetween, classifyEntry, groupByKind, isPlayableKind, storageCapabilities, validFolderName } from "../lib/storage";
+import { canCopyBetween, classifyEntry, groupByKind, isPlayableKind, samePath, storageCapabilities, validFolderName } from "../lib/storage";
 import { EmptyState, SearchField, useIncrementalCount } from "../ui/controls";
 import { EntryIcon, ProviderGlyph } from "../ui/glyphs";
 import { Sheet } from "../ui/Sheet";
@@ -168,7 +168,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const sourceAt = useCallback(
     (kind: MediaSource["kind"], folder: string) =>
-      library.sources.find((source) => source.accountId === account.id && source.kind === kind && source.remoteRoot === folder),
+      library.sources.find((source) => source.accountId === account.id && source.kind === kind && samePath(source.remoteRoot, folder)),
     [account.id, library.sources],
   );
 

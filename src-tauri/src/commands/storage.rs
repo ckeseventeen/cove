@@ -85,6 +85,12 @@ pub(crate) async fn storage_play_file(
                 format!("https://graph.microsoft.com/v1.0/me/drive/items/{id}/content"),
                 path.clone(),
             )
+        } else if account.account.provider == "webdav" {
+            // The entry's URL, as a scan stores it; the path alone is not an address.
+            let url = entry_id.filter(|id| !id.is_empty()).ok_or_else(|| {
+                NimbusError::Validation("未能获取 WebDAV 文件地址，请刷新后重试".into())
+            })?;
+            webdav::file_location(&account.account.endpoint, &url)?
         } else {
             (path.clone(), path.clone())
         }
@@ -141,6 +147,11 @@ pub(crate) async fn storage_play_file(
                         ),
                         entry.path.clone(),
                     )
+                } else if acc.account.provider == "webdav" {
+                    match webdav::file_location(&acc.account.endpoint, &entry.id) {
+                        Ok(location) => location,
+                        Err(_) => continue,
+                    }
                 } else {
                     (entry.path.clone(), entry.path.clone())
                 }

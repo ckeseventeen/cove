@@ -51,10 +51,10 @@ pub(crate) fn media_source_add(
         return Err(NimbusError::Validation("媒体类型只能是影视、音乐或文档".into()));
     }
     state.store.get_account(&account_id)?;
-    let remote_root = if remote_root.trim().is_empty() {
-        "/".to_owned()
-    } else {
-        remote_root.trim().to_owned()
+    // "/电影/" and "/电影" are one folder; keep one spelling so it can only be added once.
+    let remote_root = match remote_root.trim().trim_end_matches('/') {
+        "" => "/".to_owned(),
+        root => root.to_owned(),
     };
     if remote_root == "/" {
         return Err(NimbusError::Validation(
@@ -103,14 +103,10 @@ pub(crate) async fn media_source_scan(
     } else {
         let (_, token) = account_token(&source.account_id, &state).await?;
         if stored.account.provider == "webdav" {
-            let base = url::Url::parse(&stored.account.endpoint)?;
-            let root = base.join(&source.remote_root)?;
-            if root.origin() != base.origin() {
-                return Err(NimbusError::Validation("扫描目录不属于该来源".into()));
-            }
             webdav::scan(
                 &stored.account.id,
-                root.as_str(),
+                &stored.account.endpoint,
+                &source.remote_root,
                 stored.account.username.as_deref().unwrap_or_default(),
                 &token,
                 64,
