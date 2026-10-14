@@ -384,11 +384,13 @@ impl Store {
         speed: f64,
     ) -> Result<()> {
         let connection = self.connection.lock();
-        let position = if duration > 0.0 && position / duration >= 0.95 {
-            0.0
-        } else {
-            position.max(0.0)
-        };
+        let finished = duration > 0.0 && position / duration >= 0.95;
+        let position = if finished { 0.0 } else { position.max(0.0) };
+        if position <= 0.0 && !finished {
+            // Nothing played yet (still loading, or stopped at once): keep the earlier position,
+            // since a saved 0 means finished and Home would move on to the next episode.
+            return Ok(());
+        }
         connection.execute(
             "INSERT INTO playback_progress (file_id, position_sec, duration_sec, speed, updated_at)
              VALUES (?1, ?2, ?3, ?4, unixepoch())

@@ -67,6 +67,12 @@ test('finishing another copy of an episode still moves on to the next episode', 
   assert.deepEqual(resume(files, [saved('示例剧.S01E01.1080p.mkv', 0, 2700, 1)]).map((item) => item.id), ['示例剧.S01E02.mkv']);
 });
 
+test('the next episode resumes the copy already begun, not the first copy listed', () => {
+  const files = [file('示例剧.S01E01.mkv'), file('示例剧.S01E02.2160p.mkv', '/影视', 900), file('示例剧.S01E02.1080p.mkv', '/影视', 300)];
+  const recent = [saved('示例剧.S01E02.1080p.mkv', 600, 2700, 1), saved('示例剧.S01E01.mkv', 0, 2700, 2)];
+  assert.deepEqual(resume(files, recent), [{ id: '示例剧.S01E02.1080p.mkv', position: 600, upNext: true }]);
+});
+
 test('removed files are skipped and the list stops at the limit', () => {
   const files = Array.from({ length: 8 }, (_, index) => file(`影片${index}.20${10 + index}.mkv`));
   const recent = [saved('已移除.2001.mkv', 100, 6000, 99), ...files.map((item, index) => saved(item.id, 100, 6000, index))];

@@ -216,54 +216,6 @@ export function displayTitleOf(work: MediaWork, metadata?: { title?: string }) {
 /** How the native side records a lookup in its cache: the kind of work and the name. */
 export function lookupKeyOf(work: MediaWork) { return `${work.isSeries ? "tv" : "movie"}:${lookupNameOf(work)}`; }
 export function uniqueEpisodes(files: MediaFile[]) { const seen = new Set<string>(); return files.filter(file => { const key = `${seasonOf(file)}:${episodeOf(file) ?? file.id}`; if (seen.has(key)) return false; seen.add(key); return true; }); }
-
-type SavedPosition = { fileId: string; position: number; duration: number; updatedAt: number };
-export type ResumeItem = SavedPosition & { file: MediaFile; work: MediaWork; upNext: boolean };
-/**
- * 首页 › 继续播放: one entry per film or series, most recent first. The newest saved position of a work
- * decides: a video left part-way resumes there; a finished one (saved at 0:00) is left out, except that
- * a series moves on to the episode after it. Songs are not works, so they never appear.
- */
-export function continueWatching(
-  recent: SavedPosition[],
-  filesById: ReadonlyMap<string, MediaFile>,
-  workByFileId: ReadonlyMap<string, MediaWork>,
-  limit = 6,
-): ResumeItem[] {
-  const savedById = new Map(recent.map((item) => [item.fileId, item]));
-  const seen = new Set<string>();
-  const items: ResumeItem[] = [];
-  for (const item of [...recent].sort((left, right) => right.updatedAt - left.updatedAt)) {
-    if (items.length >= limit) break;
-    const file = filesById.get(item.fileId);
-    const work = file && workByFileId.get(file.id);
-    if (!file || !work || seen.has(work.id)) continue;
-    seen.add(work.id);
-    const finished = item.position <= 0 || (item.duration > 0 && item.position >= item.duration * 0.95);
-    if (!finished) {
-      items.push({ ...item, file, work, upNext: false });
-      continue;
-    }
-    if (!work.isSeries) continue;
-    const episodes = uniqueEpisodes(work.files);
-    const same = (episode: MediaFile) => seasonOf(episode) === seasonOf(file) && episodeOf(episode) === episodeOf(file);
-    const index = episodes.findIndex((episode) => episode.id === file.id || (episodeOf(file) !== null && same(episode)));
-    const next = index >= 0 ? episodes[index + 1] : undefined;
-    if (!next) continue;
-    const saved = savedById.get(next.id);
-    items.push({
-      fileId: next.id,
-      position: saved?.position ?? 0,
-      duration: saved?.duration ?? 0,
-      updatedAt: item.updatedAt,
-      file: next,
-      work,
-      upNext: true,
-    });
-  }
-  return items;
-}
-
 export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<MovieCategory, "all"> {
   const path = work.files.map((file) => file.cloudPath ?? "").join(" ");
   if (metadata?.genres.includes("纪录片") || /纪录片|documentary/i.test(path)) return "documentary";
@@ -318,4 +270,57 @@ export function containingFolder(file: MediaFile) {
   if (!path.startsWith("/")) return null;
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
+}
+
+type SavedPosition = { fileId: string; position: number; duration: number; updatedAt: number };
+export type ResumeItem = SavedPosition & { file: MediaFile; work: MediaWork; upNext: boolean };
+/**
+ * 首页 › 继续播放: one entry per film or series, most recent first. The newest saved position of a work
+ * decides: a video left part-way resumes there; a finished one (saved at 0:00) is left out, except that
+ * a series moves on to the episode after it. Songs are not works, so they never appear.
+ */
+export function continueWatching(
+  recent: SavedPosition[],
+  filesById: ReadonlyMap<string, MediaFile>,
+  workByFileId: ReadonlyMap<string, MediaWork>,
+  limit = 6,
+): ResumeItem[] {
+  const savedById = new Map(recent.map((item) => [item.fileId, item]));
+  const seen = new Set<string>();
+  const items: ResumeItem[] = [];
+  for (const item of [...recent].sort((left, right) => right.updatedAt - left.updatedAt)) {
+    if (items.length >= limit) break;
+    const file = filesById.get(item.fileId);
+    const work = file && workByFileId.get(file.id);
+    if (!file || !work || seen.has(work.id)) continue;
+    seen.add(work.id);
+    const finished = item.position <= 0 || (item.duration > 0 && item.position >= item.duration * 0.95);
+    if (!finished) {
+      items.push({ ...item, file, work, upNext: false });
+      continue;
+    }
+    if (!work.isSeries) continue;
+    // Another copy (quality) of an episode is the same episode.
+    const sameEpisode = (left: MediaFile, right: MediaFile) =>
+      left.id === right.id || (episodeOf(left) !== null && seasonOf(left) === seasonOf(right) && episodeOf(left) === episodeOf(right));
+    const episodes = uniqueEpisodes(work.files);
+    const index = episodes.findIndex((episode) => sameEpisode(episode, file));
+    const next = index >= 0 ? episodes[index + 1] : undefined;
+    if (!next) continue;
+    // A copy of the next episode already begun resumes where it stopped.
+    const begun = work.files
+      .filter((copy) => sameEpisode(copy, next) && savedById.has(copy.id))
+      .sort((left, right) => savedById.get(right.id)!.updatedAt - savedById.get(left.id)!.updatedAt)[0];
+    const saved = begun && savedById.get(begun.id);
+    items.push({
+      fileId: (begun ?? next).id,
+      position: saved?.position ?? 0,
+      duration: saved?.duration ?? 0,
+      updatedAt: item.updatedAt,
+      file: begun ?? next,
+      work,
+      upNext: true,
+    });
+  }
+  return items;
 }

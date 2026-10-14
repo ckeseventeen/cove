@@ -416,3 +416,24 @@ fn account_removal_forgets_its_reading_progress() {
     fixture.store.touch_reading_document(&book("gone", "/Old.pdf")).unwrap();
     assert_eq!(fixture.store.list_reading_progress(10).unwrap().len(), 1);
 }
+
+#[test]
+fn unstarted_video_is_not_saved_as_finished() {
+    let fixture = Fixture::new();
+    let source = fixture.source("shows");
+    let begun = file("Show.S01E02.mkv");
+    let fresh = file("Show.S01E03.mkv");
+    fixture
+        .store
+        .replace_source_files(&source, &[begun.clone(), fresh.clone()], true)
+        .unwrap();
+    fixture.store.save_playback_progress(&begun.id, 300.0, 2700.0, 1.0).unwrap();
+    // Opened again and stopped before the first frame: it still resumes at 5:00.
+    fixture.store.save_playback_progress(&begun.id, 0.0, 2700.0, 1.0).unwrap();
+    assert_eq!(fixture.store.playback_progress(&begun.id).unwrap(), Some((300.0, 1.0)));
+    fixture.store.save_playback_progress(&fresh.id, 0.0, 2700.0, 1.0).unwrap();
+    assert_eq!(fixture.store.playback_progress(&fresh.id).unwrap(), None);
+    // Watched to the end: saved at 0, which Home reads as finished.
+    fixture.store.save_playback_progress(&begun.id, 2650.0, 2700.0, 1.0).unwrap();
+    assert_eq!(fixture.store.playback_progress(&begun.id).unwrap(), Some((0.0, 1.0)));
+}

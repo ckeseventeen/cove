@@ -90,9 +90,6 @@
   box-shadow: var(--shadow-card);
   color: var(--placeholder-glyph);
 }
-.resume-art.square {
-  height: 44px;
-}
 .resume-art.document {
   background: linear-gradient(160deg, #fff, #ececf0);
   color: var(--red);
