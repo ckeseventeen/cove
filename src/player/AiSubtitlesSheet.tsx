@@ -9,6 +9,7 @@ import {
   type SubtitleProgress,
 } from "../lib/nimbus";
 import { listen } from "@tauri-apps/api/event";
+import { aiEndpoint, savedKeyOwner } from "../lib/aiSubtitles";
 import { isTauri } from "../lib/native";
 import { Popup, Segmented } from "../ui/controls";
 import { Sheet } from "../ui/Sheet";
@@ -36,6 +37,7 @@ function stored<T extends string>(key: string, allowed: readonly T[], fallback: 
 function remember(key: string, value: string) {
   try {
     if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
   } catch {
     // Preferences are best effort.
   }
@@ -53,7 +55,8 @@ export function AiSubtitlesSheet({
   onGenerated: (fileId: string, srtPath: string) => void;
 }) {
   const [provider, setProvider] = useState<Provider>(() => stored("cove_ai_provider", ["siliconflow", "groq", "openai", "custom"], "siliconflow"));
-  const [apiKey, setApiKey] = useState("");
+  // Keys are kept per service, so switching service never sends one service's key to another.
+  const [keys, setKeys] = useState<Partial<Record<Provider, string>>>({});
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem("cove_ai_base_url") || "");
   const [model, setModel] = useState(() => localStorage.getItem("cove_ai_model") || "");
   const [mode, setMode] = useState<Mode>(() => stored("cove_ai_mode", ["original", "translate_zh", "bilingual"], "translate_zh"));
@@ -73,7 +76,11 @@ export function AiSubtitlesSheet({
         localStorage.removeItem("cove_ai_key");
       }
       const value = legacy || (await loadAiKey());
-      if (!disposed && value) setApiKey((current) => current || value);
+      const recorded = localStorage.getItem("cove_ai_key_provider");
+      const owner = savedKeyOwner(recorded, localStorage.getItem("cove_ai_provider"));
+      if (!value || !owner) return;
+      if (!recorded) remember("cove_ai_key_provider", owner);
+      if (!disposed) setKeys((current) => (current[owner] ? current : { ...current, [owner]: value }));
     };
     void restore().catch(() => undefined);
     return () => {
@@ -100,6 +107,8 @@ export function AiSubtitlesSheet({
   }, [file.id]);
 
   const selected = PROVIDERS.find((item) => item.value === provider) ?? PROVIDERS[0];
+  const apiKey = keys[provider] ?? "";
+  const setApiKey = (value: string) => setKeys((current) => ({ ...current, [provider]: value }));
 
   const generate = async () => {
     setBusy(true);
@@ -111,17 +120,20 @@ export function AiSubtitlesSheet({
     remember("cove_ai_model", model);
     remember("cove_ai_mode", mode);
     try {
-      if (apiKey.trim()) await saveAiKey(apiKey);
+      if (apiKey.trim()) {
+        await saveAiKey(apiKey);
+        remember("cove_ai_key_provider", provider);
+      }
       const result = await generateAiSubtitles(file.id, {
         provider,
         apiKey,
-        baseUrl: baseUrl.trim() || undefined,
+        baseUrl: aiEndpoint(provider, baseUrl),
         // Built-in services use their recommended model; only custom endpoints are configurable.
         model: provider === "custom" ? model.trim() || undefined : selected.model,
         mode,
         scope,
       });
-      setSuccess(`已生成 ${result.segmentCount} 条字幕${result.applied ? "并加载到当前视频" : "，切换回该视频时可使用"}。`);
+      setSuccess(`已生成 ${result.segmentCount} 条字幕${result.applied ? "并加载到当前视频" : "，下次打开该视频时会自动加载"}。`);
       onGenerated(result.fileId, result.srtPath);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

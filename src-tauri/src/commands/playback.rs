@@ -87,6 +87,8 @@ pub(crate) async fn player_open_native(
             let _ = main.set_focus();
         }
     }
+    // Subtitles generated earlier come back with their video.
+    crate::ai_subtitles::restore_saved(window.app_handle(), state.inner(), &file.id).await;
     Ok(())
 }
 
