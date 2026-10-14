@@ -266,6 +266,36 @@ fn save_work_override(store: &Store, file_ids: &[&str], name: &str) -> Result<()
         .try_for_each(|id| store.save_metadata_override(id, name))
 }
 
+/// Cached details the window shows at launch, by file. The window only takes details looked up under
+/// a work's own name, so those found under the name typed in 修正匹配 drop that name, and a file matched
+/// by hand loses details looked up under any other name (movie_metadata would look it up again).
+pub(crate) fn launch_movies(
+    store: &Store,
+) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+    let mut movies = store.cached_movies()?;
+    let ids = movies.keys().cloned().collect::<Vec<_>>();
+    for id in ids {
+        let Ok(Some(name)) = store.metadata_override(&id) else {
+            continue;
+        };
+        let Some(metadata) = movies.get_mut(&id) else {
+            continue;
+        };
+        let query = metadata.get("query").and_then(serde_json::Value::as_str);
+        let matched = query.is_some_and(|query| {
+            ["tv:", "movie:", ""]
+                .iter()
+                .any(|kind| query.strip_prefix(kind) == Some(name.as_str()))
+        });
+        if !matched {
+            movies.remove(&id);
+        } else if let Some(fields) = metadata.as_object_mut() {
+            fields.remove("query");
+        }
+    }
+    Ok(movies)
+}
+
 #[tauri::command]
 pub(crate) async fn movie_metadata(
     file_id: String,
@@ -486,5 +516,32 @@ mod work_override_tests {
         save_work_override(&library.store, &files, "豺狼末日").unwrap();
         save_work_override(&library.store, &files, "The Day of the Jackal").unwrap();
         assert_eq!(name(&files[1..]).as_deref(), Some("The Day of the Jackal"));
+    }
+
+    #[test]
+    fn launch_shows_the_manual_match_and_never_an_older_lookup() {
+        let library = Library::new();
+        let jackal = library.add(&["S01E01.mkv", "S01E02.mkv"]);
+        let other = library.add(&["S09E01.mkv"]);
+        let cache = |id: &str, query: &str, title: &str| {
+            let payload = serde_json::json!({ "title": title, "query": query }).to_string();
+            library
+                .store
+                .save_metadata(id, metadata::MOVIE_CACHE, &payload)
+                .unwrap();
+        };
+        let ids = jackal.iter().map(String::as_str).collect::<Vec<_>>();
+        save_work_override(&library.store, &ids, "The Day of the Jackal").unwrap();
+        cache(&jackal[0], "tv:The Day of the Jackal", "豺狼的日子");
+        cache(&jackal[1], "tv:豺狼的日子", "豺狼末日");
+        cache(&other[0], "tv:另一部剧", "另一部剧");
+        let movies = launch_movies(&library.store).unwrap();
+        // The window takes details without a name as the work's own.
+        assert_eq!(movies[&jackal[0]]["title"], "豺狼的日子");
+        assert!(movies[&jackal[0]].get("query").is_none());
+        // Looked up under the automatic name (before the match finished): left out.
+        assert!(!movies.contains_key(&jackal[1]));
+        // Works never matched by hand are untouched.
+        assert_eq!(movies[&other[0]]["query"], "tv:另一部剧");
     }
 }

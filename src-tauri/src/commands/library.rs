@@ -9,7 +9,7 @@ pub(crate) fn playback_recent(state: State<'_, AppState>) -> Result<Vec<serde_js
 pub(crate) fn metadata_cached_movies(
     state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
-    state.store.cached_movies()
+    super::metadata::launch_movies(&state.store)
 }
 #[tauri::command]
 pub(crate) fn metadata_cache_clear(state: State<'_, AppState>) -> Result<()> {
