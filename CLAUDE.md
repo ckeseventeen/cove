@@ -21,6 +21,7 @@ node --test --test-name-pattern="dotted title" tests/media.test.mjs   # one test
 cargo test --manifest-path src-tauri/Cargo.toml           # Rust tests
 cargo test --manifest-path src-tauri/Cargo.toml <name>    # single Rust test
 npm run bundle:mac          # tauri build + scripts/bundle-mac.py (collects dylibs, fixes paths, ad-hoc signs)
+swift scripts/generate_icon.swift  # rebuild the app icon: icons/AppIcon.icon → Assets.car, icon.icns, PNGs (Xcode 26+)
 ```
 
 There is no linter configured; `npm run build` (tsc, `strict`) is the type check.

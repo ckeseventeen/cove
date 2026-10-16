@@ -66,7 +66,10 @@
     "category": "Entertainment",
     "shortDescription": "Your private personal media haven",
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "files": {
+        "Resources/Assets.car": "./icons/Assets.car"
+      }
     }
   }
 }
