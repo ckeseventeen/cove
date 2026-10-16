@@ -93,6 +93,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let sidebar = item("cove.toggle-sidebar", "显示/隐藏边栏", Some("Ctrl+CmdOrCtrl+S"))?;
     let lyrics = item("cove.show-lyrics", "歌词", Some("Alt+CmdOrCtrl+L"))?;
     let queue = item("cove.show-queue", "待播清单", Some("Alt+CmdOrCtrl+U"))?;
+    let actual_size = item("cove.zoom-reset", "实际大小", Some("CmdOrCtrl+0"))?;
+    let zoom_in = item("cove.zoom-in", "放大", Some("CmdOrCtrl+="))?;
+    let zoom_out = item("cove.zoom-out", "缩小", Some("CmdOrCtrl+-"))?;
     let fullscreen = PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?;
     let view_menu = Submenu::with_items(
         app,
@@ -110,6 +113,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &sidebar,
             &lyrics,
             &queue,
+            &separator()?,
+            &actual_size,
+            &zoom_in,
+            &zoom_out,
             &separator()?,
             &fullscreen,
         ],
@@ -143,7 +150,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
     let minimize = PredefinedMenuItem::minimize(app, Some("最小化"))?;
     let zoom = PredefinedMenuItem::maximize(app, Some("缩放"))?;
-    let show_main = item("cove.show-window", "Cove", Some("CmdOrCtrl+0"))?;
+    let show_main = item("cove.show-window", "Cove", None)?;
     let front = PredefinedMenuItem::bring_all_to_front(app, Some("前置全部窗口"))?;
     let window_menu = Submenu::with_items(
         app,
@@ -173,6 +180,17 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 /// Route menu clicks to the web UI; window-level actions are handled natively.
 pub fn handle(app: &AppHandle, id: &str) {
     if !id.starts_with("cove.") {
+        return;
+    }
+    // The interface size belongs to both windows, so it is set here rather than by either one.
+    let zoom = match id {
+        "cove.zoom-in" => Some(1),
+        "cove.zoom-out" => Some(-1),
+        "cove.zoom-reset" => Some(0),
+        _ => None,
+    };
+    if let Some(direction) = zoom {
+        crate::ui_zoom::step(app, direction);
         return;
     }
     // A video is stopped here: while it loads, neither web window knows about a file yet.

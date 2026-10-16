@@ -15,6 +15,7 @@ mod now_playing;
 mod player;
 mod proxy;
 mod store;
+mod ui_zoom;
 mod webdav;
 
 use std::{process::Command, sync::Arc, time::Duration};
@@ -59,6 +60,8 @@ pub fn run() {
                 credentials,
                 player: player::PlayerController::new(),
             });
+            app.manage(ui_zoom::UiZoom::load(&data_dir));
+            ui_zoom::apply(app.handle());
             app.set_menu(menu::build(app.handle())?)?;
             app.on_menu_event(|app, event| menu::handle(app, event.id().as_ref()));
             now_playing::install(app.handle().clone());
@@ -155,7 +158,9 @@ pub fn run() {
             commands::library::playlist_create,
             commands::library::playlist_rename,
             commands::library::playlist_delete,
-            commands::library::playlist_set_items
+            commands::library::playlist_set_items,
+            ui_zoom::ui_zoom_get,
+            ui_zoom::ui_zoom_set
         ])
         .on_window_event(|window, event| {
             if window.label() == "main"

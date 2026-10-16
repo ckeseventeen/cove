@@ -399,6 +399,78 @@ export async function clearMetadataCache(): Promise<void> {
   if (isTauri()) await invoke("metadata_cache_clear");
 }
 
+/** Interface size: one page zoom for both windows, set from 显示 › 放大 / 缩小 or Settings. */
+export type UiZoom = { level: number; levels: number[] };
+
+const demoZoom: UiZoom = { level: 1, levels: [1, 1.1, 1.2, 1.3, 1.4] };
+const demoZoomListeners = new Set<(level: number) => void>();
+
+export async function getUiZoom(): Promise<UiZoom> {
+  if (isTauri()) return invoke<UiZoom>("ui_zoom_get");
+  return { ...demoZoom };
+}
+
+export async function setUiZoom(level: number): Promise<UiZoom> {
+  if (isTauri()) return invoke<UiZoom>("ui_zoom_set", { level });
+  demoZoom.level = level;
+  demoZoomListeners.forEach((listener) => listener(level));
+  return { ...demoZoom };
+}
+
+export function onUiZoom(callback: (level: number) => void) {
+  if (!isTauri()) {
+    demoZoomListeners.add(callback);
+    return () => void demoZoomListeners.delete(callback);
+  }
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<number>("ui-zoom", (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
+/**
+ * Follow the interface size in this window. The native app zooms the page itself; the page only
+ * needs the level to keep the toolbar at its native height, centred on the window buttons.
+ * ⇧⌘= ("⌘+") reaches the page because the menu's ⌘= does not match it.
+ */
+export function installUiZoom() {
+  const root = document.documentElement;
+  let current = demoZoom;
+  const show = (level: number) => {
+    current = { ...current, level };
+    root.style.setProperty("--ui-zoom", String(level));
+    // The browser preview has no page zoom; CSS zoom stands in for it.
+    if (!isTauri()) root.style.setProperty("zoom", String(level));
+  };
+  void getUiZoom()
+    .then((zoom) => {
+      current = zoom;
+      show(zoom.level);
+    })
+    .catch(() => undefined);
+  onUiZoom(show);
+  window.addEventListener("keydown", (event) => {
+    if (!event.metaKey || event.ctrlKey || event.altKey) return;
+    // "⌘+" is ⇧⌘= on the keyboard: match the character and, to be safe, the physical key.
+    const plus = event.key === "+" || (event.shiftKey && event.code === "Equal");
+    const keys: Record<string, number> = { "=": 1, "-": -1, "0": 0 };
+    const direction = plus ? 1 : isTauri() ? undefined : keys[event.key];
+    if (direction === undefined) return;
+    event.preventDefault();
+    const index = current.levels.indexOf(current.level);
+    const next = direction === 0 ? 1 : current.levels[Math.min(Math.max(index + direction, 0), current.levels.length - 1)];
+    if (next !== undefined && next !== current.level) void setUiZoom(next).catch(() => undefined);
+  });
+}
+
 export async function playStorageFile(
   accountId: string,
   path: string,

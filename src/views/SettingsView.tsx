@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Clapperboard, Ellipsis, FileText, LoaderCircle, Music } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { formatRelative, plural } from "../lib/format";
 import { providerLabel } from "../lib/media";
 import { showContextMenu } from "../lib/native";
-import { clearMetadataCache, type Account, type MediaSource } from "../lib/nimbus";
+import { clearMetadataCache, getUiZoom, onUiZoom, setUiZoom, type Account, type MediaSource, type UiZoom } from "../lib/nimbus";
+import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
 import { AddStorageSheet } from "./AddStorageSheet";
@@ -33,7 +34,26 @@ function StatusValue({ state, on, off }: { state: boolean | undefined; on: strin
 export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource }: Props) {
   const [pending, setPending] = useState<"clear" | "refresh" | null>(null);
   const [reconnecting, setReconnecting] = useState<Account | null>(null);
+  const [zoom, setZoom] = useState<UiZoom | null>(null);
   const { status } = library;
+
+  useEffect(() => {
+    let live = true;
+    void getUiZoom()
+      .then((value) => live && setZoom(value))
+      .catch(() => undefined);
+    const off = onUiZoom((level) => setZoom((value) => value && { ...value, level }));
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+
+  const changeZoom = (value: string) => {
+    void setUiZoom(Number(value))
+      .then(setZoom)
+      .catch((cause) => notify(cause instanceof Error ? cause.message : String(cause), "error"));
+  };
 
   const run = async (action: "clear" | "refresh") => {
     if (pending) return;
@@ -150,6 +170,30 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
         <p className="group-footer">
           只扫描这里列出的文件夹及其子文件夹，共索引 {plural(library.files.length, "个媒体文件")}，不会下载云端原文件。
         </p>
+      </section>
+
+      <section className="group">
+        <h2 className="group-title">显示</h2>
+        <div className="group-box">
+          <div className="group-row">
+            <span className="row-main">
+              <span className="row-title">界面大小</span>
+              <span className="row-subtitle">文字、图标与间距一同缩放，主窗口和视频控制栏都适用</span>
+            </span>
+            {zoom && (
+              <Popup
+                ariaLabel="界面大小"
+                value={String(zoom.level)}
+                options={zoom.levels.map((level) => ({
+                  value: String(level),
+                  label: `${Math.round(level * 100)}%${level === 1 ? "（默认）" : ""}`,
+                }))}
+                onChange={changeZoom}
+              />
+            )}
+          </div>
+        </div>
+        <p className="group-footer">也可以在“显示”菜单中调整：⌘= 放大，⌘− 缩小，⌘0 恢复实际大小。</p>
       </section>
 
       <section className="group">

@@ -19,7 +19,8 @@
   --text-footnote: 10px;
 
   /* Geometry */
-  --toolbar-height: 52px;
+  /* Native height at any interface size: the window buttons stay centred in it. */
+  --toolbar-height: calc(52px / var(--ui-zoom, 1));
   --sidebar-width: 220px;
   --panel-width: 320px;
   --radius-xs: 4px;

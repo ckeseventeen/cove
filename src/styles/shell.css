@@ -151,7 +151,7 @@ html[data-native-vibrancy] .sidebar {
   background: var(--toolbar-bg);
 }
 .window[data-sidebar="hidden"] .toolbar {
-  padding-left: 84px;
+  padding-left: calc(84px / var(--ui-zoom, 1));
 }
 .toolbar-group {
   display: flex;
