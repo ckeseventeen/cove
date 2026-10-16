@@ -139,7 +139,6 @@ pub fn run() {
             commands::playback::player_status,
             commands::playback::player_current_file,
             commands::playback::player_playlist,
-            commands::playback::player_add_subtitle,
             ai_subtitles::ai_subtitles_cached,
             ai_subtitles::ai_subtitles_generate,
             commands::metadata::music_metadata,

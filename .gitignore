@@ -9,6 +9,7 @@ src-tauri/target/
 
 # Personal configuration and credentials (including environment variants)
 .env.*
+!.env.example
 *.pem
 *.key
 *.p12
@@ -33,9 +34,6 @@ src-tauri/gen/
 .codex/
 .agents/
 
-# One-off local investigation notes and migration helpers
+# One-off local investigation notes
 2026-09-09.md
 AUDIT-2026-09-11.md
-fix2.py
-fix_app.py
-refactor.py

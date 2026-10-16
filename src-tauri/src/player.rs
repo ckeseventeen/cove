@@ -176,10 +176,6 @@ impl PlayerController {
         .map_err(|error| NimbusError::Internal(error.to_string()))??;
         Ok(())
     }
-    pub async fn add_subtitle(&self, path: &str, title: Option<&str>) -> Result<()> {
-        let _permit = self.gate.lock().await;
-        self.send_subtitle(path, title).await
-    }
     pub async fn add_subtitle_for_file(&self, file_id: &str, path: &str) -> Result<bool> {
         let _permit = self.gate.lock().await;
         if self.current_file_id().as_deref() != Some(file_id) {

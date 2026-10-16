@@ -241,17 +241,22 @@ pub fn keep_skipped(
     files.extend(kept);
 }
 
-fn available_destination(directory: &Path, name: &str) -> PathBuf {
+/// A free name for a copy, as Finder picks one: "片.mkv" → "片 副本 1.mkv". A folder has no
+/// extension, so "Season.1" becomes "Season.1 副本 1", not "Season 副本 1.1".
+fn available_destination(directory: &Path, name: &str, is_dir: bool) -> PathBuf {
     let candidate = directory.join(name);
     if !candidate.exists() {
         return candidate;
     }
     let source = Path::new(name);
-    let stem = source
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or(name);
-    let extension = source.extension().and_then(|value| value.to_str());
+    let (stem, extension) = if is_dir {
+        (name, None)
+    } else {
+        (
+            source.file_stem().and_then(|value| value.to_str()).unwrap_or(name),
+            source.extension().and_then(|value| value.to_str()),
+        )
+    };
     for index in 1..10_000 {
         let new_name = match extension {
             Some(extension) => format!("{stem} 副本 {index}.{extension}"),
@@ -265,7 +270,7 @@ fn available_destination(directory: &Path, name: &str) -> PathBuf {
     directory.join(format!("{stem} 副本 {}", Uuid::new_v4()))
 }
 
-pub fn destination_for_new_entry(directory: &str, name: &str) -> Result<PathBuf> {
+pub fn destination_for_new_entry(directory: &str, name: &str, is_dir: bool) -> Result<PathBuf> {
     let directory = normalized(directory)?;
     if !directory.is_dir() {
         return Err(NimbusError::Validation("复制目标不是文件夹".into()));
@@ -275,7 +280,7 @@ pub fn destination_for_new_entry(directory: &str, name: &str) -> Result<PathBuf>
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| NimbusError::Validation("复制来源名称无效".into()))?;
-    Ok(available_destination(&directory, safe_name))
+    Ok(available_destination(&directory, safe_name, is_dir))
 }
 
 fn copy_file_exclusive(source: &Path, destination: &Path) -> Result<()> {
@@ -314,7 +319,7 @@ pub fn copy_entry(source: &str, destination_directory: &str) -> Result<String> {
         return Err(NimbusError::Validation("复制来源或目标目录不存在".into()));
     }
     let name = display_name(&source);
-    let destination = available_destination(&destination_directory, &name);
+    let destination = available_destination(&destination_directory, &name, source.is_dir());
     if source.is_dir() {
         if destination.starts_with(&source) {
             return Err(NimbusError::Validation("不能把文件夹复制到自身内部".into()));
@@ -371,6 +376,19 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(fs::read(first).unwrap(), b"nimbus");
         assert_eq!(fs::read(second).unwrap(), b"nimbus");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn copies_of_dotted_folders_keep_their_whole_name() {
+        let root = std::env::temp_dir().join(format!("nimbus-copy-name-{}", Uuid::new_v4()));
+        fs::create_dir_all(root.join("Season.1")).unwrap();
+        fs::write(root.join("Season.1/E01.mkv"), b"video").unwrap();
+        let folder = copy_entry(root.join("Season.1").to_str().unwrap(), root.to_str().unwrap()).unwrap();
+        assert!(folder.ends_with("Season.1 副本 1"), "{folder}");
+        assert_eq!(fs::read(Path::new(&folder).join("E01.mkv")).unwrap(), b"video");
+        let file = copy_entry(root.join("Season.1/E01.mkv").to_str().unwrap(), root.join("Season.1").to_str().unwrap()).unwrap();
+        assert!(file.ends_with("E01 副本 1.mkv"), "{file}");
         fs::remove_dir_all(root).unwrap();
     }
 

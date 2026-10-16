@@ -273,10 +273,6 @@ export async function getPlayerPlaylist(): Promise<MediaFile[]> {
   return [];
 }
 
-export async function playerAddSubtitle(path: string, title?: string): Promise<void> {
-  if (isTauri()) return invoke<void>("player_add_subtitle", { path, title: title ?? null });
-}
-
 /** Feed the system Now Playing widget (Control Center, media keys). */
 export async function setNowPlayingInfo(info: {
   fileId: string;

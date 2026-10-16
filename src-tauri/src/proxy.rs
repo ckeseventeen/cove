@@ -299,6 +299,7 @@ async fn stream(
         Ok(response) => response,
         Err(error) => {
             if account.account.provider == "baidu" {
+                let error = error.without_url();
                 eprintln!(
                     "Cove stream upstream via proxy failed ({error}), retrying directly..."
                 );
@@ -319,12 +320,12 @@ async fn stream(
                     Err(e) => {
                         return error_response(
                             StatusCode::BAD_GATEWAY,
-                            &format!("{error} (直连重试失败: {e})"),
+                            &format!("{error} (直连重试失败: {})", e.without_url()),
                         )
                     }
                 }
             } else {
-                return error_response(StatusCode::BAD_GATEWAY, &error.to_string());
+                return error_response(StatusCode::BAD_GATEWAY, &error.without_url().to_string());
             }
         }
     };

@@ -161,7 +161,7 @@ pub async fn exchange_baidu_code(code: &str) -> Result<BaiduCredential> {
     {
         Ok(res) => Ok(res),
         Err(err) => {
-            eprintln!("Baidu token exchange via default client failed ({err}), retrying directly without proxy...");
+            eprintln!("Baidu token exchange via default client failed ({}), retrying directly without proxy...", err.without_url());
             direct_http()?
                 .post("https://openapi.baidu.com/oauth/2.0/token")
                 .form(&form)
@@ -189,7 +189,7 @@ async fn refresh_baidu(credential: &BaiduCredential) -> Result<BaiduCredential> 
     {
         Ok(res) => Ok(res),
         Err(err) => {
-            eprintln!("Baidu token refresh via default client failed ({err}), retrying directly without proxy...");
+            eprintln!("Baidu token refresh via default client failed ({}), retrying directly without proxy...", err.without_url());
             direct_http()?
                 .post("https://openapi.baidu.com/oauth/2.0/token")
                 .form(&form)
@@ -274,7 +274,7 @@ pub async fn validate(provider: &str, token: &str) -> Result<()> {
         {
             Ok(res) => res,
             Err(err) => {
-                eprintln!("Baidu validate via default client failed ({err}), retrying directly without proxy...");
+                eprintln!("Baidu validate via default client failed ({}), retrying directly without proxy...", err.without_url());
                 direct_http()?
                     .get(url)
                     .query(&[("access_token", token)])
@@ -364,7 +364,7 @@ pub async fn baidu_download_url(token: &str, fs_id: u64) -> Result<String> {
     {
         Ok(res) => res,
         Err(err) => {
-            eprintln!("Baidu download URL via default client failed ({err}), retrying directly without proxy...");
+            eprintln!("Baidu download URL via default client failed ({}), retrying directly without proxy...", err.without_url());
             direct_http()?
                 .get("https://pan.baidu.com/rest/2.0/xpan/multimedia")
                 .query(&query)
@@ -425,7 +425,7 @@ async fn list_baidu_directory(
         {
             Ok(res) => res,
             Err(err) => {
-                eprintln!("Baidu list directory via default client failed ({err}), retrying directly without proxy...");
+                eprintln!("Baidu list directory via default client failed ({}), retrying directly without proxy...", err.without_url());
                 direct_http()?
                     .get("https://pan.baidu.com/rest/2.0/xpan/file")
                     .query(&query)

@@ -188,16 +188,3 @@ pub(crate) async fn player_status(state: State<'_, AppState>) -> Result<player::
 pub(crate) fn player_playlist(state: State<'_, AppState>) -> Result<Vec<MediaFile>> {
     Ok(state.player.playlist())
 }
-
-#[tauri::command]
-pub(crate) async fn player_add_subtitle(
-    path: String,
-    title: Option<String>,
-    window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-) -> Result<()> {
-    state.player.add_subtitle(&path, title.as_deref()).await?;
-    let snapshot = state.player.status().await;
-    let _ = window.app_handle().emit("nimbus-player-state", &snapshot);
-    Ok(())
-}

@@ -1,4 +1,4 @@
-import type { MediaFile, MediaSource, Account, MovieMetadata } from "./nimbus";
+import type { MediaFile, MovieMetadata } from "./nimbus";
 type MovieCategory = "all" | "movie" | "tv" | "documentary" | "animation";
 /** Decimal units, matching Finder. */
 export function readableSize(bytes: number) {
@@ -6,11 +6,6 @@ export function readableSize(bytes: number) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1000)), units.length - 1);
   return `${(bytes / 1000 ** unit).toFixed(unit > 2 ? 1 : 0)} ${units[unit]}`;
-}
-
-export function providerName(accountId: string, accounts: Account[]) {
-  const provider = accounts.find((account) => account.id === accountId)?.provider;
-  return provider === "local" ? "本地磁盘" : provider === "baidu" ? "百度网盘" : provider === "google_drive" ? "Google Drive" : provider === "onedrive" ? "OneDrive" : "WebDAV";
 }
 
 export type MediaWork = { id: string; title: string; year?: string; files: MediaFile[]; seasons: number[]; isSeries: boolean };
@@ -312,7 +307,6 @@ export function categoryOf(work: MediaWork, metadata?: MovieMetadata): Exclude<M
   if (metadata?.mediaType === "tv" || work.isSeries) return "tv";
   return "movie";
 }
-export function episodeKey(name: string) { return name.match(/s\d{1,2}e\d{1,3}|第?\d{1,3}[集话]|^\d{1,3}/i)?.[0].toLowerCase() ?? name.replace(/\.[^.]+$/, "").replace(/4k|2160p|1080p|720p|remux|hdr|中字|字幕/gi, "").trim().toLowerCase(); }
 export function qualityOf(file: MediaFile) { const name = file.displayName.toLowerCase(); if (/4k|2160/.test(name)) return "4K"; if (/1080/.test(name)) return "1080p"; if (/720/.test(name)) return "720p"; return `${readableSize(file.size)}`; }
 export function musicTitleOf(file: MediaFile) { return file.displayName.replace(/\.[^.]+$/, "").trim(); }
 export function musicFolderOf(file: MediaFile) {
@@ -321,8 +315,6 @@ export function musicFolderOf(file: MediaFile) {
   // A disc folder is named with its album: "The Wall › CD1".
   return folder && /^(?:cd|dis[ck])\s*\d+$/i.test(folder) && parts.length > 2 ? `${parts.at(-3)} › ${folder}` : folder || "未分类";
 }
-export function musicSourceOf(file: MediaFile, sources: MediaSource[], accounts: Account[]) { return sources.find((source) => source.id === file.sourceId)?.label || providerName(file.accountId, accounts); }
-export function formatTime(seconds: number) { const value = Math.max(0, Math.floor(seconds || 0)); return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, "0")}`; }
 export function parseSyncedLyrics(value?: string) {
   if (!value) return [] as { time: number; text: string }[];
   return value.split(/\r?\n/).flatMap((line) => {

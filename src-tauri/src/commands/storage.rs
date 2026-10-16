@@ -107,6 +107,11 @@ pub(crate) async fn storage_play_file(
 
     // If siblings are provided, register them and update the player's active playlist
     let mut playlist_files = Vec::new();
+    let provider = if account_id == "local" {
+        None
+    } else {
+        state.store.get_account(&account_id).ok().map(|stored| stored.account)
+    };
     if let Some(entries) = siblings {
         for entry in entries {
             if entry.is_dir {
@@ -125,38 +130,36 @@ pub(crate) async fn storage_play_file(
             } else {
                 "music"
             };
-            let (sib_remote, sib_cloud) = if account_id == "local" {
-                (entry.path.clone(), entry.path.clone())
-            } else if let Ok(ref acc) = state.store.get_account(&account_id) {
-                if acc.account.provider == "baidu" {
+            let (sib_remote, sib_cloud) = match provider.as_ref() {
+                Some(acc) if acc.provider == "baidu" => {
                     if !entry.id.is_empty() && entry.id.chars().all(|c| c.is_ascii_digit()) {
                         (format!("baidu://{}", entry.id), entry.path.clone())
                     } else {
                         (entry.path.clone(), entry.path.clone())
                     }
-                } else if acc.account.provider == "google_drive" {
-                    (
-                        format!("https://www.googleapis.com/drive/v3/files/{}?alt=media&supportsAllDrives=true", entry.id),
+                }
+                // As for the opened file: without an id the address would be the drive root.
+                Some(acc) if acc.provider == "google_drive" => match cloud_file_id(Some(entry.id.clone())) {
+                    Ok(id) => (
+                        format!("https://www.googleapis.com/drive/v3/files/{id}?alt=media&supportsAllDrives=true"),
                         entry.path.clone(),
-                    )
-                } else if acc.account.provider == "onedrive" {
-                    (
-                        format!(
-                            "https://graph.microsoft.com/v1.0/me/drive/items/{}/content",
-                            entry.id
-                        ),
+                    ),
+                    Err(_) => continue,
+                },
+                Some(acc) if acc.provider == "onedrive" => match cloud_file_id(Some(entry.id.clone())) {
+                    Ok(id) => (
+                        format!("https://graph.microsoft.com/v1.0/me/drive/items/{id}/content"),
                         entry.path.clone(),
-                    )
-                } else if acc.account.provider == "webdav" {
-                    match webdav::file_location(&acc.account.endpoint, &entry.id) {
+                    ),
+                    Err(_) => continue,
+                },
+                Some(acc) if acc.provider == "webdav" => {
+                    match webdav::file_location(&acc.endpoint, &entry.id) {
                         Ok(location) => location,
                         Err(_) => continue,
                     }
-                } else {
-                    (entry.path.clone(), entry.path.clone())
                 }
-            } else {
-                (entry.path.clone(), entry.path.clone())
+                _ => (entry.path.clone(), entry.path.clone()),
             };
 
             if let Ok(sib_id) = state.store.ensure_media_file(

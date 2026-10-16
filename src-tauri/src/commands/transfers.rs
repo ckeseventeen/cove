@@ -36,7 +36,8 @@ pub(crate) async fn entry_copy(
                 .rsplit('/')
                 .next()
                 .unwrap_or("百度网盘文件");
-            let target = local_storage::destination_for_new_entry(&destination_path, name)?;
+            let target =
+                local_storage::destination_for_new_entry(&destination_path, name, source_is_dir)?;
             direct::download_baidu_entry(
                 &token,
                 &source_path,
