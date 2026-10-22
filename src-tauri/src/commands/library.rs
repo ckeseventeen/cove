@@ -123,7 +123,9 @@ pub(crate) async fn scan_source(state: &AppState, source_id: &str) -> Result<Sca
         ));
     }
     let stored = state.store.get_account(&source.account_id)?;
-    let (mut files, mut result) = if stored.account.provider == "local" {
+    let (mut files, mut result) = if stored.account.provider == "smb" {
+        crate::smb::scan(state, &source).await?
+    } else if stored.account.provider == "local" {
         let account_id = stored.account.id.clone();
         let root = source.remote_root.clone();
         let kind = source.kind.clone();

@@ -8,6 +8,7 @@ import {
   Folder,
   HardDrive,
   Image,
+  Network,
   Music2,
   Server,
 } from "lucide-react";
@@ -18,6 +19,7 @@ type LucideIcon = typeof Cloud;
 const PROVIDER_GLYPHS: Record<string, { icon: LucideIcon; color: string }> = {
   local: { icon: HardDrive, color: "gray" },
   webdav: { icon: Server, color: "teal" },
+  smb: { icon: Network, color: "orange" },
   baidu: { icon: Cloud, color: "blue" },
   google_drive: { icon: Cloud, color: "green" },
   onedrive: { icon: Cloud, color: "indigo" },

@@ -16,6 +16,7 @@ mod now_playing;
 mod player;
 mod proxy;
 mod sidecar_subtitles;
+mod smb;
 mod store;
 mod ui_zoom;
 mod webdav;
@@ -47,6 +48,7 @@ pub fn run() {
             let data_dir = std::env::var_os("NIMBUS_DATA_DIR")
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
+            smb::init(&data_dir);
             let store = Store::open(&data_dir.join("nimbus_media.db"))
                 .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()))?;
             store

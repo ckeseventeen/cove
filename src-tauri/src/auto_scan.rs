@@ -77,7 +77,8 @@ pub fn is_due(source: &MediaSource, provider: &str, now: i64, failed_at: Option<
     if failed_at.is_some_and(|failed| now - failed < RETRY_AFTER) {
         return false;
     }
-    let interval = if provider == "local" { LOCAL_INTERVAL } else { CLOUD_INTERVAL };
+    // A share on the local network is as cheap to read as a local disk.
+    let interval = if matches!(provider, "local" | "smb") { LOCAL_INTERVAL } else { CLOUD_INTERVAL };
     source.last_scan_at.map_or(true, |last| now - last >= interval)
 }
 

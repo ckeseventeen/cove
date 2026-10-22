@@ -42,6 +42,9 @@ pub(crate) async fn account_remove(
         ));
     }
     let stored = state.store.delete_account(&account_id)?;
+    if stored.account.provider == "smb" {
+        crate::smb::forget(&account_id);
+    }
     crate::documents::remove_cached_copies(&app, &account_id).await;
     state.credentials.write().await.remove(&account_id);
     let secret_ref = stored.secret_ref;
@@ -71,6 +74,9 @@ pub(crate) async fn account_browse(
 /// One folder of any account, as the file browser shows it.
 pub(crate) async fn browse_directory(state: &AppState, account_id: &str, path: &str) -> Result<Vec<CloudEntry>> {
     let stored = state.store.get_account(account_id)?;
+    if stored.account.provider == "smb" {
+        return crate::smb::browse(state, account_id, path).await;
+    }
     if stored.account.provider == "local" {
         let path = path.to_owned();
         return tokio::task::spawn_blocking(move || local_storage::browse(&path))
@@ -331,6 +337,12 @@ pub(crate) async fn account_update_credentials(
             direct::validate(&account.provider, &token).await?;
             token
         }
+        "smb" => {
+            let username = username.trim();
+            crate::smb::connect(&account.id, &account.endpoint, username, &password).await?;
+            account.username = (!username.is_empty()).then(|| username.to_owned());
+            password
+        }
         "baidu" => {
             return Err(NimbusError::Validation(
                 "百度网盘需要在浏览器中重新登录".into(),
@@ -361,22 +373,30 @@ pub(crate) async fn account_add(
         return Err(NimbusError::Validation("显示名称不能为空".into()));
     }
     let password = Zeroizing::new(input.password);
+    let id = Uuid::new_v4().to_string();
+    // A share is checked by mounting it, as Finder would.
+    let endpoint = if input.provider == "smb" {
+        let endpoint = crate::smb::normalize_url(&input.endpoint)?;
+        crate::smb::connect(&id, &endpoint, input.username.trim(), &password).await?;
+        endpoint
+    } else {
+        input.endpoint.trim().trim_end_matches('/').to_string()
+    };
     if input.provider == "webdav" {
         webdav::validate_connection(input.endpoint.trim(), input.username.trim(), &password)
             .await?;
-    } else {
+    } else if input.provider != "smb" {
         direct::validate(&input.provider, &password).await?;
     }
 
-    if input.provider == "webdav" {
-        let id = Uuid::new_v4().to_string();
+    if input.provider == "webdav" || input.provider == "smb" {
         let secret_ref = format!("account:{id}");
         Entry::new("app.nimbus.desktop", &secret_ref)?.set_password(&password)?;
         let account = Account {
             id,
             provider: input.provider.clone(),
             label: label.into(),
-            endpoint: input.endpoint.trim().trim_end_matches('/').to_string(),
+            endpoint,
             username: (!input.username.trim().is_empty())
                 .then(|| input.username.trim().to_string()),
             status: "ok".into(),

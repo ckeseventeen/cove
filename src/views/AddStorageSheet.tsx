@@ -8,6 +8,7 @@ import { Sheet } from "../ui/Sheet";
 type Provider = AccountInput["provider"];
 
 const PROVIDERS: { value: Provider; label: string; available: boolean }[] = [
+  { value: "smb", label: "SMB 共享（NAS、其他 Mac）", available: true },
   { value: "webdav", label: "WebDAV", available: true },
   { value: "baidu", label: "百度网盘", available: true },
   { value: "google_drive", label: "Google Drive", available: true },
@@ -17,11 +18,21 @@ const PROVIDERS: { value: Provider; label: string; available: boolean }[] = [
 ];
 
 const DEFAULT_NAMES: Partial<Record<Provider, string>> = {
+  smb: "网络共享",
   webdav: "WebDAV",
   baidu: "百度网盘",
   google_drive: "Google Drive",
   onedrive: "OneDrive",
 };
+
+/** "smb://nas.local/%E5%BD%B1%E8%A7%86" reads as "smb://nas.local/影视". */
+function safeDecode(value: string) {
+  try {
+    return decodeURI(value);
+  } catch {
+    return value;
+  }
+}
 
 type Props = {
   onClose: () => void;
@@ -41,8 +52,14 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
   // Bumped by 取消 so a Baidu sign-in that ends afterwards leaves the closed sheet alone.
   const attempt = useRef(0);
 
-  const name = account?.label ?? (label.trim() || DEFAULT_NAMES[provider] || "");
-  const ready = !!name && (provider === "baidu" || (provider === "webdav" ? !!endpoint.trim() && !!password : !!password.trim()));
+  // A share is named after itself: smb://nas.local/影视 → 影视.
+  const shareName = provider === "smb" ? safeDecode(endpoint.trim().replace(/\/+$/, "")).split("/").filter(Boolean).slice(2)[0] : "";
+  const name = account?.label ?? (label.trim() || shareName || DEFAULT_NAMES[provider] || "");
+  // A share may let guests in, so its password is optional.
+  const ready =
+    !!name &&
+    (provider === "baidu" ||
+      (provider === "smb" ? !!endpoint.trim() : provider === "webdav" ? !!endpoint.trim() && !!password : !!password.trim()));
   // Waiting for the browser can be abandoned; the other checks finish on their own.
   const cancellable = !saving || provider === "baidu";
 
@@ -120,6 +137,48 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
                 />
               </>
             )}
+            {provider === "smb" && (
+              <>
+                <label htmlFor={account ? undefined : "storage-url"}>服务器</label>
+                {account ? (
+                  <span title={safeDecode(endpoint)} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {safeDecode(endpoint)}
+                  </span>
+                ) : (
+                  <input
+                    id="storage-url"
+                    className="field"
+                    required
+                    value={endpoint}
+                    placeholder="smb://nas.local/影视"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    onChange={(event) => setEndpoint(event.target.value)}
+                  />
+                )}
+                <label htmlFor="storage-user">用户名</label>
+                <input
+                  id="storage-user"
+                  className="field"
+                  value={username}
+                  placeholder="留空则以访客身份连接"
+                  autoComplete="username"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+                <label htmlFor="storage-password">密码</label>
+                <input
+                  id="storage-password"
+                  className="field"
+                  type="password"
+                  value={password}
+                  autoComplete="current-password"
+                  data-autofocus={account ? true : undefined}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </>
+            )}
             {provider === "webdav" && (
               <>
                 <label htmlFor={account ? undefined : "storage-url"}>服务器</label>
@@ -184,7 +243,9 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
               ? account
                 ? "点击“登录”后会在浏览器中打开百度官方授权页面。请登录原来的百度账号，新的令牌会替换钥匙串中的旧令牌。"
                 : "点击“登录”后会在浏览器中打开百度官方授权页面。Cove 只访问你授权的网盘文件，令牌保存在 macOS 钥匙串中。"
-              : provider === "webdav"
+              : provider === "smb"
+                ? "地址包含共享名称，例如 smb://nas.local/影视。macOS 会像访达一样连接这个共享，密码只保存在钥匙串中。"
+                : provider === "webdav"
                 ? "为保护密码，远程服务器需要使用 HTTPS。密码只保存在 macOS 钥匙串中。"
                 : account
                   ? "请粘贴同一账号新签发的访问令牌，它会替换钥匙串中的旧令牌。"

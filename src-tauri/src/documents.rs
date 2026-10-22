@@ -136,6 +136,13 @@ pub(crate) async fn local_copy(
 ) -> Result<PathBuf> {
     let stored = state.store.get_account(account_id)?;
     let provider = stored.account.provider.as_str();
+    if provider == "smb" {
+        let file = crate::smb::local_file(state, account_id, path).await?;
+        if !file.is_file() {
+            return Err(NimbusError::Validation("文件不存在或无法访问".into()));
+        }
+        return Ok(file);
+    }
     if provider == "local" {
         let file = PathBuf::from(path);
         if !file.is_absolute() || !file.is_file() {

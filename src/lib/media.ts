@@ -335,6 +335,7 @@ export function matchesMusicQuery(file: MediaFile, query: string): boolean {
 const PROVIDER_LABELS: Record<string, string> = {
   local: "本地磁盘",
   webdav: "WebDAV",
+  smb: "SMB 共享",
   baidu: "百度网盘",
   google_drive: "Google Drive",
   onedrive: "OneDrive",

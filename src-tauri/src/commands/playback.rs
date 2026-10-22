@@ -74,6 +74,9 @@ async fn open_native(
     let show_video = file.media_kind.as_deref() != Some("music");
     let url = if account.account.provider == "local" {
         file.remote_path.clone()
+    } else if account.account.provider == "smb" {
+        // mpv reads the mounted share directly, like a file on this Mac.
+        crate::smb::local_file(state, &file.account_id, &file.remote_path).await?.to_string_lossy().into_owned()
     } else {
         state.proxy.create_url(file_id.clone()).await
     };

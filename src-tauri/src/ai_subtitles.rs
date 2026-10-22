@@ -414,8 +414,11 @@ pub async fn ai_subtitles_generate(
     let file = state.store.get_media_file(&file_id)?;
 
     // 1. Determine media source input
+    let provider = state.store.get_account(&file.account_id)?.account.provider;
     let media_input = if file.account_id == "local" {
         file.remote_path.clone()
+    } else if provider == "smb" {
+        crate::smb::local_file(&state, &file.account_id, &file.remote_path).await?.to_string_lossy().into_owned()
     } else {
         state.proxy.create_url(file_id.clone()).await
     };

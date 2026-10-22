@@ -19,7 +19,7 @@ import {
 
 export type Account = {
   id: string;
-  provider: "local" | "webdav" | "google_drive" | "onedrive" | "baidu" | "alidrive" | "quark";
+  provider: "local" | "webdav" | "smb" | "google_drive" | "onedrive" | "baidu" | "alidrive" | "quark";
   label: string;
   endpoint: string;
   username?: string;
