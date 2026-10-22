@@ -369,7 +369,7 @@ export function containingFolder(file: MediaFile) {
   return index <= 0 ? "/" : path.slice(0, index);
 }
 
-type SavedPosition = { fileId: string; position: number; duration: number; updatedAt: number };
+export type SavedPosition = { fileId: string; position: number; duration: number; updatedAt: number };
 export type ResumeItem = SavedPosition & { file: MediaFile; work: MediaWork; upNext: boolean };
 /**
  * 首页 › 继续播放: one entry per film or series, most recent first. The newest saved position of a work
@@ -420,4 +420,87 @@ export function continueWatching(
     });
   }
   return items;
+}
+
+/** A saved position at 0:00 (or within the last 5%) means the video was watched to the end. */
+const finishedSave = (saved: SavedPosition) => saved.position <= 0 || (saved.duration > 0 && saved.position >= saved.duration * 0.95);
+/** One identity per episode, shared by its copies in different qualities. */
+export function episodeKeyOf(file: MediaFile) { return `${seasonOf(file)}:${episodeOf(file) ?? file.id}`; }
+
+export type WorkProgress = {
+  /** Episodes (or the film) whose newest save is finished, by episode identity. */
+  watched: ReadonlySet<string>;
+  /** Episodes left part-way, by episode identity. */
+  partial: ReadonlyMap<string, SavedPosition>;
+  /** What 播放 continues with: the video begun, or the episode after the last one finished. */
+  next: MediaFile | null;
+  /** Where `next` was left, when it was begun. */
+  resume: SavedPosition | null;
+  /** The film, or the series' last episode, has been watched to the end. */
+  done: boolean;
+  /** For a poster bar: the film's position, or the share of episodes watched. */
+  fraction: number;
+  total: number;
+};
+
+/** Where the viewer is in a film or series, from saved positions; nothing saved means nothing to show. */
+export function workProgress(work: MediaWork, savedById: ReadonlyMap<string, SavedPosition>): WorkProgress {
+  const keyOf = (file: MediaFile) => (work.isSeries ? episodeKeyOf(file) : "film");
+  const newest = new Map<string, { file: MediaFile; saved: SavedPosition }>();
+  for (const file of work.files) {
+    const saved = savedById.get(file.id);
+    if (!saved) continue;
+    const current = newest.get(keyOf(file));
+    if (!current || saved.updatedAt > current.saved.updatedAt) newest.set(keyOf(file), { file, saved });
+  }
+  const watched = new Set<string>();
+  const partial = new Map<string, SavedPosition>();
+  for (const [key, { saved }] of newest) {
+    if (finishedSave(saved)) watched.add(key);
+    else partial.set(key, saved);
+  }
+  const episodes = work.isSeries ? uniqueEpisodes(work.files) : work.files.slice(0, 1);
+  const latest = [...newest.values()].sort((left, right) => right.saved.updatedAt - left.saved.updatedAt)[0];
+  let next: MediaFile | null = null;
+  let resume: SavedPosition | null = null;
+  let done = false;
+  if (latest && !finishedSave(latest.saved)) {
+    next = latest.file;
+    resume = latest.saved;
+  } else if (latest && work.isSeries) {
+    // After a regular episode comes the next regular one; specials follow only each other.
+    const inOrder = episodes.filter((episode) => (seasonOf(episode) === 0) === (seasonOf(latest.file) === 0));
+    const after = inOrder[inOrder.findIndex((episode) => keyOf(episode) === keyOf(latest.file)) + 1];
+    const begun = after && newest.get(keyOf(after));
+    if (!after) done = true;
+    else if (begun && !finishedSave(begun.saved)) {
+      next = begun.file;
+      resume = begun.saved;
+    } else next = after;
+  } else if (latest) done = true;
+  const fraction = work.isSeries
+    ? watched.size / Math.max(episodes.length, 1)
+    : done
+      ? 1
+      : resume && resume.duration > 0
+        ? resume.position / resume.duration
+        : 0;
+  return { watched, partial, next, resume, done, fraction: Math.min(1, fraction), total: episodes.length };
+}
+
+/** The progress line under a poster: "看到第 3 集", "下一集：第 4 集", "已看完", "还剩 34 分钟", "已看过". */
+export function progressLabel(work: MediaWork, progress: WorkProgress): string | null {
+  if (!work.isSeries) {
+    if (progress.done) return "已看过";
+    if (!progress.resume || progress.resume.duration <= 0) return null;
+    return `还剩 ${Math.max(1, Math.round((progress.resume.duration - progress.resume.position) / 60))} 分钟`;
+  }
+  if (progress.done) return "已看完";
+  if (!progress.next) return null;
+  const episodes = uniqueEpisodes(work.files);
+  const index = episodes.findIndex((episode) => episodeKeyOf(episode) === episodeKeyOf(progress.next!));
+  const seasons = work.seasons.filter((season) => season > 0).length;
+  const season = seasons > 1 ? seasonLabel(seasonOf(progress.next)) : "";
+  const label = `${season}${episodeLabel(progress.next, Math.max(index, 0))}`;
+  return progress.resume ? `看到${label}` : `下一集：${label}`;
 }

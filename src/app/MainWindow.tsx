@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
-import type { MediaWork } from "../lib/media";
+import { workProgress, type MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
 import { demoEnabled, type Account, type MediaFile, type MediaSource, type Playlist } from "../lib/nimbus";
 import { PlayerCenter, PlayerTools } from "../player/MiniPlayer";
@@ -471,6 +471,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
           onMetadata={library.setMovieMetadata}
           onNavigate={navigate}
           notify={notify}
+          progress={workProgress(detail, library.savedById)}
+          onMark={library.markWatched}
         />
       )}
       {alert && <Alert request={alert} onClose={() => setAlert(null)} />}

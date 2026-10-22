@@ -139,6 +139,7 @@ pub fn run() {
             commands::playback::player_stream_url,
             commands::playback::player_open_native,
             commands::playback::player_control,
+            commands::playback::playback_mark,
             commands::playback::player_status,
             commands::playback::player_current_file,
             commands::playback::player_playlist,

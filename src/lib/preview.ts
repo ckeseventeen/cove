@@ -62,6 +62,7 @@ export const previewMetadata: Record<string, MovieMetadata> = Object.fromEntries
 export const previewRecent: RecentPlayback[] = [
   { fileId: 'movie-0', position: 1820, duration: 7200, updatedAt: 1789142400 },
   { fileId: 'movie-8', position: 650, duration: 2700, updatedAt: 1789142300 },
+  { fileId: 'movie-1', position: 0, duration: 6100, updatedAt: 1789142250 },
   { fileId: 'song-3', position: 40, duration: 210, updatedAt: 1789142200 },
 ];
 

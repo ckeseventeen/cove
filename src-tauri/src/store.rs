@@ -404,6 +404,28 @@ impl Store {
         Ok(())
     }
 
+    /// Mark videos watched (a finished save at 0:00) or not watched (no save). Files marked together
+    /// get consecutive times in their order, so the last one is what 继续播放 moves on from.
+    pub fn mark_watched(&self, file_ids: &[String], watched: bool) -> Result<()> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        let count = file_ids.len() as i64;
+        for (index, file_id) in file_ids.iter().enumerate() {
+            if watched {
+                transaction.execute(
+                    "INSERT INTO playback_progress (file_id, position_sec, duration_sec, speed, updated_at)
+                     SELECT id, 0, 0, 1, unixepoch() - ?2 FROM media_files WHERE id = ?1
+                     ON CONFLICT(file_id) DO UPDATE SET position_sec = 0, updated_at = excluded.updated_at",
+                    params![file_id, count - 1 - index as i64],
+                )?;
+            } else {
+                transaction.execute("DELETE FROM playback_progress WHERE file_id = ?1", [file_id])?;
+            }
+        }
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn list_media_sources(&self) -> Result<Vec<MediaSource>> {
         let connection = self.connection.lock();
         let mut statement = connection.prepare(

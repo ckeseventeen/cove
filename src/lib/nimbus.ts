@@ -380,9 +380,21 @@ export function getMovieMetadata(work: MediaWork, { match, background }: { match
   });
 }
 
+// The preview keeps marks in memory, like the app keeps them in its library.
+let previewRecentStore: RecentPlayback[] = demoEnabled ? [...previewRecent] : [];
+
 export async function listRecentPlayback(): Promise<RecentPlayback[]> {
   if (isTauri()) return invoke<RecentPlayback[]>("playback_recent");
-  return demoEnabled ? previewRecent : [];
+  return [...previewRecentStore];
+}
+
+/** Mark videos watched to the end, or not watched at all. */
+export async function markWatched(fileIds: string[], watched: boolean): Promise<void> {
+  if (isTauri()) return invoke("playback_mark", { fileIds, watched });
+  const now = Math.floor(Date.now() / 1000);
+  const ids = new Set(fileIds);
+  previewRecentStore = previewRecentStore.filter((item) => !ids.has(item.fileId));
+  if (watched) previewRecentStore.push(...fileIds.map((fileId, index) => ({ fileId, position: 0, duration: 0, updatedAt: now - fileIds.length + 1 + index })));
 }
 
 export async function listCachedMovies(): Promise<Record<string, MovieMetadata>> {

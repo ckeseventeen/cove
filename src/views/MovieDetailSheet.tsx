@@ -1,6 +1,19 @@
 import { useEffect, useRef, useState } from "react";
-import { CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
-import { containingFolder, displayTitleOf, episodeNumberOf, episodeOf, qualityOf, seasonLabel, seasonOf, uniqueEpisodes, type MediaWork } from "../lib/media";
+import { Check, CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
+import {
+  containingFolder,
+  displayTitleOf,
+  episodeKeyOf,
+  episodeLabel,
+  episodeNumberOf,
+  episodeOf,
+  qualityOf,
+  seasonLabel,
+  seasonOf,
+  uniqueEpisodes,
+  type MediaWork,
+  type WorkProgress,
+} from "../lib/media";
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
@@ -18,17 +31,20 @@ type Props = {
   onMetadata: (workId: string, metadata: MovieMetadata) => void;
   onNavigate: (route: Route) => void;
   notify: Notify;
+  progress: WorkProgress;
+  onMark: (fileIds: string[], watched: boolean) => void;
 };
 
 /** Title page in the style of the TV app: artwork, facts, seasons and versions. */
-export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, onNavigate, notify }: Props) {
+export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, onNavigate, notify, progress, onMark }: Props) {
   const player = usePlayer();
   const [metadata, setMetadata] = useState<MovieMetadata | undefined>(initial);
   const [error, setError] = useState<string | null>(null);
   const [matchOpen, setMatchOpen] = useState(false);
   const [matchQuery, setMatchQuery] = useState(work.title);
   const [matching, setMatching] = useState(false);
-  const [season, setSeason] = useState(work.seasons[0] ?? 1);
+  // Open on the season the viewer is in.
+  const [season, setSeason] = useState(() => (progress.next ? seasonOf(progress.next) : work.seasons[0] ?? 1));
   const request = useRef(0);
 
   useEffect(() => {
@@ -75,7 +91,42 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
   const episodes = work.isSeries ? uniqueEpisodes(work.files).filter((file) => seasonOf(file) === season) : [];
   const versionsOf = (episode: MediaFile) =>
     work.files.filter((file) => seasonOf(file) === seasonOf(episode) && episodeOf(file) === episodeOf(episode));
-  const primary = work.isSeries ? episodes[0] ?? work.files[0] : work.files[0];
+  const primary = progress.next ?? (work.isSeries ? episodes[0] ?? work.files[0] : work.files[0]);
+  const allEpisodes = work.isSeries ? uniqueEpisodes(work.files) : [];
+  const nextLabel = progress.next && work.isSeries
+    ? `${work.seasons.filter((value) => value > 0).length > 1 ? seasonLabel(seasonOf(progress.next)) : ""}${episodeLabel(progress.next, Math.max(0, allEpisodes.findIndex((episode) => episodeKeyOf(episode) === episodeKeyOf(progress.next!))))}`
+    : "";
+  const primaryLabel = progress.next
+    ? work.isSeries
+      ? `${progress.resume ? "继续播放" : "播放"}${nextLabel}`
+      : "继续播放"
+    : work.isSeries
+      ? work.seasons.length > 1
+        ? season === 0
+          ? "播放特别篇"
+          : `播放第 ${season} 季`
+        : "播放第一集"
+      : "播放";
+  const episodeMenu = (event: React.MouseEvent, episode: MediaFile) => {
+    const copies = versionsOf(episode);
+    const watched = progress.watched.has(episodeKeyOf(episode));
+    void showContextMenu(event, [
+      { label: "播放", action: () => play(copies[0]) },
+      ...(progress.partial.has(episodeKeyOf(episode)) ? [{ label: "从头播放", action: () => play(copies[0], true) }] : []),
+      "separator",
+      watched
+        ? { label: "标记为未看过", action: () => onMark(copies.map((file) => file.id), false) }
+        : { label: "标记为已看过", action: () => onMark(copies.map((file) => file.id), true) },
+      {
+        label: "将之前各集标记为已看过",
+        enabled: allEpisodes.findIndex((item) => episodeKeyOf(item) === episodeKeyOf(episode)) > 0,
+        action: () => {
+          const index = allEpisodes.findIndex((item) => episodeKeyOf(item) === episodeKeyOf(episode));
+          onMark(allEpisodes.slice(0, index).map((file) => file.id), true);
+        },
+      },
+    ]);
+  };
   const title = displayTitleOf(work, metadata);
   const folder = containingFolder(work.files[0]);
 
@@ -107,7 +158,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
           <div className="detail-actions">
             <button className="btn prominent large" data-autofocus disabled={!primary} onClick={() => primary && play(primary)}>
               {primary && player.openingId === primary.id ? <LoaderCircle className="spin" size={14} /> : <Play size={13} fill="currentColor" strokeWidth={0} />}
-              {work.isSeries ? (work.seasons.length > 1 ? (season === 0 ? "播放特别篇" : `播放第 ${season} 季`) : "播放第一集") : "播放"}
+              {primaryLabel}
             </button>
             <button
               className="btn large more-btn"
@@ -181,11 +232,24 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
               <ol className="episode-list">
                 {episodes.map((episode, index) => {
                   const versions = versionsOf(episode);
+                  const key = episodeKeyOf(episode);
+                  const watched = progress.watched.has(key);
+                  const partial = progress.partial.get(key);
                   return (
-                    <li key={episode.id} className="episode-row">
+                    <li
+                      key={episode.id}
+                      className={`episode-row ${watched ? "watched" : ""} ${progress.next && episodeKeyOf(progress.next) === key ? "up-next" : ""}`}
+                      onContextMenu={(event) => episodeMenu(event, episode)}
+                    >
                       <button className="episode-main" onClick={() => play(versions[0])} title={episode.displayName}>
                         <span className="episode-number tabular">{episodeNumberOf(episode) ?? index + 1}</span>
                         <span className="episode-name truncate">{episode.displayName.replace(/\.[^.]+$/, "")}</span>
+                        {watched && <Check className="episode-check" size={13} strokeWidth={2.5} aria-label="已看过" />}
+                        {partial && partial.duration > 0 && (
+                          <span className="episode-progress" title={`看到 ${Math.round((partial.position / partial.duration) * 100)}%`}>
+                            <span style={{ width: `${Math.max(6, (partial.position / partial.duration) * 100)}%` }} />
+                          </span>
+                        )}
                       </button>
                       <span className="episode-versions">
                         {versions.map((file) => (

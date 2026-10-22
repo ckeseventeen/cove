@@ -81,3 +81,30 @@ test('removed files are skipped and the list stops at the limit', () => {
   assert.equal(items[0].id, '影片7.2017.mkv');
   assert.equal(resume(files, recent, 2).length, 2);
 });
+
+test('series progress: resume the episode begun, else the one after the last finished', () => {
+  const files = ['剧.S01E01.mkv', '剧.S01E02.mkv', '剧.S01E03.mkv'].map((name) => file(name, '/影视/剧'));
+  const [work] = media.buildMovieWorks(files);
+  const saved = (entries) => new Map(entries.map(([id, position, duration, updatedAt]) => [id, { fileId: id, position, duration, updatedAt }]));
+  const none = media.workProgress(work, new Map());
+  assert.deepEqual([none.next, none.done, none.fraction, media.progressLabel(work, none)], [null, false, 0, null]);
+  const begun = media.workProgress(work, saved([['剧.S01E01.mkv', 0, 2400, 1], ['剧.S01E02.mkv', 600, 2400, 2]]));
+  assert.equal(begun.next.id, '剧.S01E02.mkv');
+  assert.equal(begun.resume.position, 600);
+  assert.equal(media.progressLabel(work, begun), '看到第 2 集');
+  assert.ok(begun.watched.has(media.episodeKeyOf(files[0])));
+  assert.equal(Math.round(begun.fraction * 3), 1);
+  const finished = media.workProgress(work, saved([['剧.S01E02.mkv', 0, 2400, 5]]));
+  assert.equal(finished.next.id, '剧.S01E03.mkv');
+  assert.equal(media.progressLabel(work, finished), '下一集：第 3 集');
+  const all = media.workProgress(work, saved([['剧.S01E01.mkv', 0, 2400, 1], ['剧.S01E02.mkv', 0, 2400, 2], ['剧.S01E03.mkv', 0, 2400, 3]]));
+  assert.deepEqual([all.done, all.fraction, media.progressLabel(work, all)], [true, 1, '已看完']);
+});
+
+test('film progress: time left, then watched', () => {
+  const [film] = media.buildMovieWorks([file('影片.2019.mkv')]);
+  const at = (position) => new Map([['影片.2019.mkv', { fileId: '影片.2019.mkv', position, duration: 6000, updatedAt: 1 }]]);
+  assert.equal(media.progressLabel(film, media.workProgress(film, at(3960))), '还剩 34 分钟');
+  assert.equal(media.workProgress(film, at(3000)).fraction, 0.5);
+  assert.equal(media.progressLabel(film, media.workProgress(film, at(0))), '已看过');
+});

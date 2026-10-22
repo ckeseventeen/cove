@@ -1,9 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Film, LoaderCircle, Play } from "lucide-react";
+import { Check, Film, LoaderCircle, Play } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
-import { categoryOf, containingFolder, displayTitleOf, uniqueEpisodes, versionCountOf, type MediaWork } from "../lib/media";
+import {
+  categoryOf,
+  containingFolder,
+  displayTitleOf,
+  progressLabel,
+  uniqueEpisodes,
+  versionCountOf,
+  workProgress,
+  type MediaWork,
+  type WorkProgress,
+} from "../lib/media";
 import { compareWorks, needsAllDetails, type MovieSort } from "../lib/movieLookup";
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
@@ -122,6 +132,8 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
               onMetadata={(metadata) => library.setMovieMetadata(work.id, metadata)}
               onOpen={() => onOpenWork(work)}
               onNavigate={onNavigate}
+              progress={workProgress(work, library.savedById)}
+              onMark={library.markWatched}
             />
           ))}
           <div ref={sentinel} className="sentinel" />
@@ -197,12 +209,16 @@ function MovieCard({
   onMetadata,
   onOpen,
   onNavigate,
+  progress,
+  onMark,
 }: {
   work: MediaWork;
   metadata?: MovieMetadata;
   onMetadata: (metadata: MovieMetadata) => void;
   onOpen: () => void;
   onNavigate: (route: Route) => void;
+  progress: WorkProgress;
+  onMark: (fileIds: string[], watched: boolean) => void;
 }) {
   const player = usePlayer();
   const card = useRef<HTMLDivElement>(null);
@@ -229,15 +245,20 @@ function MovieCard({
   }, [first.id, work.title]);
 
   const title = displayTitleOf(work, metadata);
-  const play = () => void player.play(first);
+  // 播放 continues where the viewer is: the episode begun, or the one after the last finished.
+  const play = () => void player.play(progress.next ?? first);
   const folder = containingFolder(first);
+  const status = progressLabel(work, progress);
+  const subtitle = status ? (work.isSeries && !progress.done ? `${status} · 共 ${progress.total} 集` : status) : workSubtitle(work, metadata);
+  const started = progress.watched.size > 0 || progress.partial.size > 0;
+  const inOrder = work.isSeries ? uniqueEpisodes(work.files) : work.files;
   return (
     <div
       ref={card}
       className="poster"
       role="button"
       tabIndex={0}
-      aria-label={`${title}，${workSubtitle(work, metadata)}`}
+      aria-label={`${title}，${subtitle}`}
       onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
@@ -247,8 +268,13 @@ function MovieCard({
       }}
       onContextMenu={(event) =>
         void showContextMenu(event, [
-          { label: work.isSeries ? "播放第一集" : "播放", action: play },
+          { label: progress.next ? "继续播放" : work.isSeries ? "播放第一集" : "播放", action: play },
+          ...(started ? [{ label: work.isSeries ? "从第一集播放" : "从头播放", action: () => void player.play(first, { fromStart: true }) }] : []),
           { label: "显示简介", action: onOpen },
+          "separator",
+          progress.done
+            ? { label: "标记为未看过", action: () => onMark(work.files.map((file) => file.id), false) }
+            : { label: "标记为已看过", action: () => onMark(inOrder.map((file) => file.id), true) },
           "separator",
           {
             label: "在文件中显示",
@@ -267,6 +293,17 @@ function MovieCard({
             <span>{work.title}</span>
           </span>
         )}
+        {progress.done ? (
+          <span className="poster-watched" title={work.isSeries ? "已看完" : "已看过"}>
+            <Check size={12} strokeWidth={3} />
+          </span>
+        ) : (
+          progress.fraction > 0 && (
+            <span className="poster-progress" aria-hidden="true">
+              <span style={{ width: `${Math.max(4, progress.fraction * 100)}%` }} />
+            </span>
+          )
+        )}
         <button
           className={`poster-play ${opening ? "busy" : ""}`}
           aria-label={`播放 ${title}`}
@@ -283,7 +320,7 @@ function MovieCard({
       <div className="poster-title truncate" title={title}>
         {title}
       </div>
-      <div className="poster-subtitle truncate">{workSubtitle(work, metadata)}</div>
+      <div className={`poster-subtitle truncate ${status && !progress.done ? "in-progress" : ""}`}>{subtitle}</div>
     </div>
   );
 }

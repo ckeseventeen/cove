@@ -231,6 +231,42 @@
 .poster-play:active {
   transform: scale(0.94);
 }
+/* Where the viewer is: a bar along the poster's foot, or a check once finished */
+.poster-progress {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 46px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.2);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.poster-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #fff;
+}
+.poster-watched {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  color: #fff;
+}
+.poster-subtitle.in-progress {
+  color: var(--accent);
+}
 .poster-title {
   margin-top: 8px;
   font-weight: 500;
@@ -397,6 +433,31 @@
   width: 24px;
   color: var(--label-secondary);
   text-align: right;
+}
+.episode-row.watched .episode-name {
+  color: var(--label-secondary);
+}
+.episode-row.up-next .episode-number {
+  color: var(--accent);
+  font-weight: 600;
+}
+.episode-check {
+  flex-shrink: 0;
+  color: var(--label-tertiary);
+}
+.episode-progress {
+  flex-shrink: 0;
+  width: 44px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--fill-pressed, var(--fill));
+}
+.episode-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
 }
 .episode-name {
   flex: 1;

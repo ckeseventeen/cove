@@ -12,6 +12,7 @@ import {
   listPlaylists,
   listReadingProgress,
   listRecentPlayback,
+  markWatched as markWatchedCommand,
   onPlayerStopped,
   onReadingProgress,
   onSourceScan,
@@ -56,6 +57,7 @@ export function useLibrary(notify: Notify) {
   const documents = useMemo(() => files.filter((file) => file.mediaKind === "document"), [files]);
   const readingByKey = useMemo(() => new Map(reading.map((item) => [item.docKey, item])), [reading]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
+  const savedById = useMemo(() => new Map(recent.map((item) => [item.fileId, item])), [recent]);
   const workByFileId = useMemo(() => {
     const map = new Map<string, MediaWork>();
     for (const work of works) for (const file of work.files) map.set(file.id, work);
@@ -140,6 +142,19 @@ export function useLibrary(notify: Notify) {
   }, []);
 
   const clearMovieMetadata = useCallback(() => setMovieMetadataMap({}), []);
+
+  /** 标记为已看过 / 未看过 for whole works or single episodes, in play order. */
+  const markWatched = useCallback(
+    async (fileIds: string[], watched: boolean) => {
+      try {
+        await markWatchedCommand(fileIds, watched);
+        setRecent(await listRecentPlayback());
+      } catch (cause) {
+        notify(`无法更新观看记录：${errorText(cause)}`, "error");
+      }
+    },
+    [notify],
+  );
 
   // Folders also update by themselves (auto_scan.rs): follow every scan, and refresh after a background one.
   const sourcesRef = useRef(sources);
@@ -326,6 +341,8 @@ export function useLibrary(notify: Notify) {
     documents,
     reading,
     readingByKey,
+    savedById,
+    markWatched,
     playlists,
     createPlaylist,
     renamePlaylist,

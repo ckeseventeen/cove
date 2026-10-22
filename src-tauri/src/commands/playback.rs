@@ -120,6 +120,11 @@ async fn open_native(
 }
 
 #[tauri::command]
+pub(crate) fn playback_mark(file_ids: Vec<String>, watched: bool, state: State<'_, AppState>) -> Result<()> {
+    state.store.mark_watched(&file_ids, watched)
+}
+
+#[tauri::command]
 pub(crate) async fn player_control(
     action: String,
     value: Option<f64>,

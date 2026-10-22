@@ -578,3 +578,30 @@ fn unstarted_video_is_not_saved_as_finished() {
     fixture.store.save_playback_progress(&begun.id, 2650.0, 2700.0, 1.0).unwrap();
     assert_eq!(fixture.store.playback_progress(&begun.id).unwrap(), Some((0.0, 1.0)));
 }
+
+#[test]
+fn marking_watched_saves_a_finish_in_order_and_unmarking_forgets() {
+    let fixture = Fixture::new();
+    let source = fixture.source("show");
+    fixture.store.replace_source_files(&source, &[file("E01.mkv"), file("E02.mkv")], true).unwrap();
+    let mut ids: Vec<String> = fixture.store.list_media_files().unwrap().into_iter().map(|file| file.id).collect();
+    ids.sort();
+    fixture.store.save_playback_progress(&ids[0], 300.0, 2400.0, 1.0).unwrap();
+    fixture.store.mark_watched(&ids, true).unwrap();
+    let connection = fixture.store.connection.lock();
+    let rows: Vec<(String, f64, i64)> = connection
+        .prepare("SELECT file_id, position_sec, updated_at FROM playback_progress ORDER BY updated_at")
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    drop(connection);
+    assert_eq!(rows.iter().map(|row| row.1).collect::<Vec<_>>(), [0.0, 0.0]);
+    assert_eq!(rows.last().unwrap().0, ids[1], "the last file marked is the newest");
+    assert!(rows[0].2 < rows[1].2);
+    fixture.store.mark_watched(&ids[..1], false).unwrap();
+    assert_eq!(fixture.store.playback_progress(&ids[0]).unwrap(), None);
+    assert!(fixture.store.playback_progress(&ids[1]).unwrap().is_some());
+    fixture.store.mark_watched(&["missing".to_owned()], true).unwrap();
+}
