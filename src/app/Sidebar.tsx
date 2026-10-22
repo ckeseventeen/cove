@@ -1,5 +1,5 @@
 import { forwardRef, useRef, useState } from "react";
-import { CalendarPlus, Clapperboard, FileText, History, House, ListMusic, LoaderCircle, Music, Plus, TrendingUp } from "lucide-react";
+import { CalendarPlus, Clapperboard, FileText, History, House, ListMusic, LoaderCircle, Music, PanelLeft, Plus, TrendingUp } from "lucide-react";
 import { showContextMenu } from "../lib/native";
 import type { Account, MediaFile, MediaSource, Playlist, SmartListKind } from "../lib/nimbus";
 import { SMART_LISTS } from "../views/SmartPlaylistView";
@@ -27,6 +27,7 @@ type Props = {
   editingPlaylist: string | null;
   onEditPlaylist: (id: string | null) => void;
   onWindowMouseDown: (event: React.MouseEvent) => void;
+  onToggleSidebar: () => void;
 };
 
 /** The automatic playlists show only once they hold songs. */
@@ -92,6 +93,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
     editingPlaylist,
     onEditPlaylist,
     onWindowMouseDown,
+    onToggleSidebar,
   },
   searchRef,
 ) {
@@ -104,7 +106,11 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
 
   return (
     <aside className="sidebar" aria-label="边栏">
-      <div className="sidebar-header" data-tauri-drag-region onMouseDown={onWindowMouseDown} />
+      <div className="sidebar-header" data-tauri-drag-region onMouseDown={onWindowMouseDown}>
+        <button className="icon-btn" title="隐藏边栏 (⌃⌘S)" aria-label="隐藏边栏" onClick={onToggleSidebar}>
+          <PanelLeft size={17} />
+        </button>
+      </div>
       <div className="sidebar-search">
         <SearchField ref={searchRef} value={query} onChange={onQuery} onKeyDown={onSearchKey} placeholder="搜索" ariaLabel="搜索资料库" />
       </div>

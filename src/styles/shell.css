@@ -26,12 +26,25 @@ html[data-native-vibrancy] .sidebar {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* The sidebar slides with its column instead of squeezing, and hides once it is out of sight. */
+.sidebar {
+  width: var(--sidebar-width);
+  transition: visibility 0s linear 0s;
+}
 .window[data-sidebar="hidden"] .sidebar {
   visibility: hidden;
+  transition-delay: var(--duration);
 }
 .sidebar-header {
+  display: flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
   height: var(--toolbar-height);
+  padding-right: 10px;
+}
+.sidebar-header .icon-btn {
+  color: var(--label-secondary);
 }
 .sidebar-search {
   flex-shrink: 0;
@@ -130,6 +143,7 @@ html[data-native-vibrancy] .sidebar {
 
 /* Main column */
 .main {
+  position: relative;
   display: grid;
   grid-template-rows: var(--toolbar-height) minmax(0, 1fr);
   min-width: 0;
@@ -808,4 +822,20 @@ button.th:hover {
 }
 .row-subtitle.error {
   color: var(--red);
+}
+
+/* Now Playing: the artwork's colours run up under a see-through toolbar. */
+.window[data-now-playing] .toolbar {
+  border-bottom-color: transparent;
+  background: transparent;
+  color-scheme: dark;
+  --label: rgba(255, 255, 255, 0.9);
+  --label-secondary: rgba(255, 255, 255, 0.62);
+  --label-tertiary: rgba(255, 255, 255, 0.38);
+  --fill: rgba(255, 255, 255, 0.12);
+  --fill-hover: rgba(255, 255, 255, 0.18);
+  --fill-pressed: rgba(255, 255, 255, 0.24);
+  --separator: rgba(255, 255, 255, 0.14);
+  --slider-fill: rgba(255, 255, 255, 0.85);
+  --slider-track: rgba(255, 255, 255, 0.25);
 }

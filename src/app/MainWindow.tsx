@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelLeft, Trash2 } from "lucide-react";
 import { workProgress, type MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
 import { demoEnabled, type Account, type MediaFile, type MediaSource, type Playlist } from "../lib/nimbus";
@@ -168,10 +168,18 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     }
   };
 
+  // Now Playing takes the whole window, like Music's full-screen player: the sidebar steps aside
+  // (the saved choice is untouched) and the panel button can still bring it back for a moment.
+  const immersive = player.fullScreen && !!player.nowPlaying && !player.isVideo;
+  const [peek, setPeek] = useState(false);
+  useEffect(() => setPeek(false), [immersive]);
+  const sidebarShown = immersive ? peek : sidebar;
+  const toggleSidebarView = useCallback(() => (immersive ? setPeek((value) => !value) : toggleSidebar()), [immersive, toggleSidebar]);
+
   const focusSearch = useCallback(() => {
-    if (!sidebar) toggleSidebar();
+    if (!sidebarShown) toggleSidebarView();
     requestAnimationFrame(() => searchInput.current?.select());
-  }, [sidebar, toggleSidebar]);
+  }, [sidebarShown, toggleSidebarView]);
 
   const confirmRemoveAccount = useCallback(
     (account: Account) =>
@@ -277,7 +285,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       case "cove.forward":
         return forward();
       case "cove.toggle-sidebar":
-        return toggleSidebar();
+        return toggleSidebarView();
       case "cove.show-lyrics":
         return player.togglePanel("lyrics");
       case "cove.show-queue":
@@ -407,7 +415,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
   return (
     <div
       className="window"
-      data-sidebar={sidebar ? "visible" : "hidden"}
+      data-sidebar={sidebarShown ? "visible" : "hidden"}
+      data-now-playing={immersive ? "" : undefined}
       data-video={player.isVideo ? "" : undefined}
       style={{ "--panel-width": player.panel && !player.fullScreen ? "320px" : "0px" } as CSSProperties}
     >
@@ -430,10 +439,16 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         editingPlaylist={editingPlaylist}
         onEditPlaylist={setEditingPlaylist}
         onWindowMouseDown={windowMouseDown}
+        onToggleSidebar={toggleSidebarView}
       />
       <div className="main">
         <header className="toolbar" data-tauri-drag-region onMouseDown={windowMouseDown}>
           <div className="toolbar-group">
+            {!sidebarShown && (
+              <button className="icon-btn" title="显示边栏 (⌃⌘S)" aria-label="显示边栏" onClick={toggleSidebarView}>
+                <PanelLeft size={17} />
+              </button>
+            )}
             <button className="icon-btn" title="返回 (⌘[)" aria-label="返回" disabled={!canGoBack(history)} onClick={back}>
               <ChevronLeft size={19} />
             </button>
@@ -451,8 +466,9 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
             <PlaylistActionsContext.Provider value={playlistActions}>{page}</PlaylistActionsContext.Provider>
           </main>
           <PlayerPanel />
-          <NowPlaying />
         </div>
+        {/* Over the whole column, under the toolbar, so its backdrop runs up behind the toolbar. */}
+        <NowPlaying />
       </div>
 
       {addingStorage && (
