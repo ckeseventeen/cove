@@ -10,7 +10,8 @@ import type { MediaFile } from "../lib/nimbus";
 import { extensionOf } from "../lib/storage";
 import { usePlayer } from "../player/PlayerProvider";
 import { usePlayerStatus } from "../player/statusStore";
-import { EmptyState, useIncrementalCount } from "../ui/controls";
+import { EmptyState, Segmented, useIncrementalCount } from "../ui/controls";
+import { AlbumPage, AlbumsGrid, ArtistsBrowser } from "./MusicBrowse";
 
 type SongSortField = "title" | "artist" | "folder" | "size";
 export type SongSort = { field: SongSortField; ascending: boolean };
@@ -27,12 +28,32 @@ function loadSort(): SongSort {
   return { field: "title", ascending: true };
 }
 
-type Props = { library: Library; sourceId?: string; onNavigate: (route: Route) => void };
+type Props = { library: Library; sourceId?: string; album?: string; onNavigate: (route: Route) => void };
+type MusicTab = "songs" | "artists" | "albums";
 
-export function MusicView({ library, sourceId, onNavigate }: Props) {
+function loadTab(): MusicTab {
+  try {
+    const saved = localStorage.getItem("cove-music-view");
+    if (saved === "artists" || saved === "albums") return saved;
+  } catch {
+    // Default view.
+  }
+  return "songs";
+}
+
+export function MusicView({ library, sourceId, album, onNavigate }: Props) {
   const player = usePlayer();
   const [sort, setSort] = useState<SongSort>(loadSort);
+  const [tab, setTab] = useState<MusicTab>(loadTab);
   const source = library.sources.find((item) => item.id === sourceId);
+  const changeTab = (next: MusicTab) => {
+    setTab(next);
+    try {
+      localStorage.setItem("cove-music-view", next);
+    } catch {
+      // Preferences are best effort.
+    }
+  };
 
   const changeSort = (field: SongSortField) => {
     const next = { field, ascending: sort.field === field ? !sort.ascending : field !== "size" };
@@ -65,6 +86,8 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
     );
   }, [library.songs, sort, sourceId]);
 
+  if (album) return <AlbumPage songs={songs} library={library} albumKey={album} sourceId={sourceId} onNavigate={onNavigate} />;
+
   return (
     <div className="page">
       <header className="page-header">
@@ -82,6 +105,8 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
             )}
           </p>
         </div>
+        {/* 艺人 and 专辑 put their own buttons beside what they play. */}
+        {tab === "songs" && (
         <div className="page-actions">
           <button
             className="btn prominent large"
@@ -96,8 +121,27 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
             随机播放
           </button>
         </div>
+        )}
       </header>
-      {songs.length ? (
+      {songs.length > 0 && (
+        <div className="filter-bar">
+          <Segmented<MusicTab>
+            ariaLabel="显示方式"
+            value={tab}
+            onChange={changeTab}
+            options={[
+              { value: "songs", label: "歌曲" },
+              { value: "artists", label: "艺人" },
+              { value: "albums", label: "专辑" },
+            ]}
+          />
+        </div>
+      )}
+      {!songs.length ? null : tab === "artists" ? (
+        <ArtistsBrowser songs={songs} library={library} onNavigate={onNavigate} />
+      ) : tab === "albums" ? (
+        <AlbumsGrid songs={songs} library={library} sourceId={sourceId} onNavigate={onNavigate} />
+      ) : (
         <SongTable
           songs={songs}
           onNavigate={onNavigate}
@@ -105,7 +149,8 @@ export function MusicView({ library, sourceId, onNavigate }: Props) {
           sort={sort}
           onSort={changeSort}
         />
-      ) : (
+      )}
+      {!songs.length && (
         <EmptyState
           icon={<Music2 size={44} strokeWidth={1.3} />}
           title="音乐资料库是空的"

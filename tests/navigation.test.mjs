@@ -85,3 +85,12 @@ test('each playlist is its own page and sidebar row', () => {
   assert.equal(history.entries.length, 3);
   assert.equal(nav.sidebarKey(nav.currentRoute(history)), 'playlist:b');
 });
+
+test('an album is its own page under 音乐', () => {
+  let history = nav.navigate(nav.initialHistory, { name: 'music' });
+  history = nav.navigate(history, { name: 'music', album: '乐与怒|a.jpg' });
+  assert.equal(history.entries.length, 3);
+  assert.equal(nav.sidebarKey(nav.currentRoute(history)), 'music');
+  assert.equal(nav.navigate(history, { name: 'music', album: '乐与怒|a.jpg' }), history);
+  assert.equal(nav.currentRoute(nav.goBack(history)).album, undefined);
+});

@@ -11,6 +11,29 @@ pub(crate) fn metadata_cached_movies(
 ) -> Result<std::collections::HashMap<String, serde_json::Value>> {
     super::metadata::launch_movies(&state.store)
 }
+/// Song details already looked up (title, artist, album, artwork), without lyrics, for the
+/// artist and album views.
+#[tauri::command]
+pub(crate) fn music_metadata_cached(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, serde_json::Value>> {
+    Ok(state
+        .store
+        .cached_payloads("music")?
+        .into_iter()
+        .filter_map(|(file_id, payload)| {
+            let metadata: crate::metadata::MusicMetadata = serde_json::from_str(&payload).ok()?;
+            Some((
+                file_id,
+                serde_json::json!({
+                    "title": metadata.title,
+                    "artist": metadata.artist,
+                    "album": metadata.album,
+                    "artworkUrl": metadata.artwork_url,
+                }),
+            ))
+        })
+        .collect())
+}
+
 #[tauri::command]
 pub(crate) fn metadata_cache_clear(state: State<'_, AppState>) -> Result<()> {
     state.store.clear_metadata()

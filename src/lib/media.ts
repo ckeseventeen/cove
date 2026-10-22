@@ -504,3 +504,75 @@ export function progressLabel(work: MediaWork, progress: WorkProgress): string |
   const label = `${season}${episodeLabel(progress.next, Math.max(index, 0))}`;
   return progress.resume ? `看到${label}` : `下一集：${label}`;
 }
+
+/** Song details looked up online (title, artist, album, artwork); the album views need only these. */
+export type SongInfo = { title?: string; artist?: string; album?: string; artworkUrl?: string | null };
+const UNKNOWN_ARTIST = "未知艺人";
+const artistCollator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+
+/** Everyone credited on a song: "Charlie Puth,Selena Gomez" or "A & B feat. C" is three names. The file name wins over a looked-up credit. */
+export function artistsOfSong(file: MediaFile, info?: SongInfo): string[] {
+  const credit = songParts(file).artist || info?.artist?.trim() || "";
+  return credit
+    .split(/\s*(?:[,，、;；/&＆]|\s(?:feat\.?|ft\.?|featuring|with)\s)\s*/i)
+    .map((name) => name.trim())
+    .filter(Boolean);
+}
+
+export type ArtistEntry = { key: string; name: string; songs: MediaFile[] };
+
+/** Artists A–Z (pinyin order for Chinese), each with their songs; songs without a credit come last. */
+export function groupArtists(songs: MediaFile[], infoById: ReadonlyMap<string, SongInfo>): ArtistEntry[] {
+  const groups = new Map<string, { spellings: Map<string, number>; songs: MediaFile[] }>();
+  for (const song of songs) {
+    const names = artistsOfSong(song, infoById.get(song.id));
+    for (const name of names.length ? names : [UNKNOWN_ARTIST]) {
+      // "BY2" and "By2" are one artist.
+      const key = name.toLocaleLowerCase().replace(/\s+/g, " ");
+      const group = groups.get(key) ?? { spellings: new Map<string, number>(), songs: [] as MediaFile[] };
+      group.spellings.set(name, (group.spellings.get(name) ?? 0) + 1);
+      if (!group.songs.includes(song)) group.songs.push(song);
+      groups.set(key, group);
+    }
+  }
+  return [...groups.entries()]
+    .map(([key, group]) => ({
+      key,
+      name: [...group.spellings.entries()].sort((left, right) => right[1] - left[1])[0][0],
+      songs: [...group.songs].sort((left, right) => artistCollator.compare(songParts(left).title, songParts(right).title)),
+    }))
+    .sort((left, right) => Number(left.name === UNKNOWN_ARTIST) - Number(right.name === UNKNOWN_ARTIST) || artistCollator.compare(left.name, right.name));
+}
+
+export type AlbumEntry = { key: string; title: string; artist: string; artworkUrl?: string; songs: MediaFile[] };
+
+/** Albums from looked-up details, A–Z; songs not looked up yet are only counted. */
+export function groupAlbums(songs: MediaFile[], infoById: ReadonlyMap<string, SongInfo>): { albums: AlbumEntry[]; unknown: number } {
+  const groups = new Map<string, { title: string; artwork?: string; songs: MediaFile[] }>();
+  let unknown = 0;
+  for (const song of songs) {
+    const info = infoById.get(song.id);
+    const title = info?.album?.trim();
+    if (!title) {
+      unknown++;
+      continue;
+    }
+    // Same-named albums ("Greatest Hits") differ by cover, or else by artist.
+    const key = `${title.toLocaleLowerCase()}|${info?.artworkUrl || artistsOfSong(song, info)[0]?.toLocaleLowerCase() || ""}`;
+    const group = groups.get(key) ?? { title, artwork: info?.artworkUrl ?? undefined, songs: [] as MediaFile[] };
+    group.songs.push(song);
+    groups.set(key, group);
+  }
+  const albums = [...groups.entries()].map(([key, group]) => {
+    const credits = new Map<string, number>();
+    for (const song of group.songs) {
+      const first = artistsOfSong(song, infoById.get(song.id))[0];
+      if (first) credits.set(first, (credits.get(first) ?? 0) + 1);
+    }
+    const ranked = [...credits.entries()].sort((left, right) => right[1] - left[1]);
+    const artist = ranked.length > 2 ? "群星" : ranked.map(([name]) => name).join("、") || UNKNOWN_ARTIST;
+    return { key, title: group.title, artist, artworkUrl: group.artwork, songs: group.songs };
+  });
+  albums.sort((left, right) => artistCollator.compare(left.title, right.title));
+  return { albums, unknown };
+}

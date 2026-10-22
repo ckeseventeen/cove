@@ -123,6 +123,7 @@ pub fn run() {
             commands::library::playback_recent,
             commands::library::metadata_cached_movies,
             commands::library::metadata_cache_clear,
+            commands::library::music_metadata_cached,
             commands::accounts::account_list,
             commands::accounts::account_add,
             commands::accounts::account_remove,

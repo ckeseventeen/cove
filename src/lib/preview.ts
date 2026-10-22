@@ -96,14 +96,16 @@ export function previewEntries(path: string): CloudEntry[] {
 export function previewMusicMetadata(file: MediaFile): MusicMetadata {
   const stem = file.displayName.replace(/\.[^.]+$/, '');
   const [artist, title] = stem.includes(' - ') ? stem.split(' - ') : ['', stem];
-  const hue = [...file.id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+  // One cover per album, as the music services return it.
+  const album = file.remotePath.split('/').at(-2) ?? '';
+  const hue = [...album].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
   const artwork = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="hsl(${hue},55%,62%)"/><stop offset="1" stop-color="hsl(${(hue + 50) % 360},50%,32%)"/></linearGradient></defs><rect width="600" height="600" fill="url(#g)"/><circle cx="300" cy="300" r="150" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="2"/><circle cx="300" cy="300" r="40" fill="rgba(255,255,255,.4)"/></svg>`;
   const lines = Array.from({ length: 36 }, (_, index) =>
     index % 5 === 4
       ? '这是一句很长的测试歌词，用来检查换行后内容是否完整显示，以及能否滚动到视野中央'
       : ['风经过窗边，音乐留在我的空间', '把今天写进一封信里', '寄给明天的自己', '夜色慢慢亮起来'][index % 4]);
   return {
-    title, artist, album: file.remotePath.split('/').at(-2) ?? '',
+    title, artist, album,
     artworkUrl: `data:image/svg+xml,${encodeURIComponent(artwork)}`,
     lyrics: lines.join('\n'),
     syncedLyrics: lines.map((line, index) => `[${String(Math.floor((index * 4 + 2) / 60)).padStart(2, '0')}:${String((index * 4 + 2) % 60).padStart(2, '0')}.00]${line}`).join('\n'),

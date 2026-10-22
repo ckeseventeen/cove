@@ -378,7 +378,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       case "movies":
         return <MoviesView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onOpenWork={setDetail} onNavigate={navigate} />;
       case "music":
-        return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} />;
+        return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} album={route.album} onNavigate={navigate} />;
       case "playlist":
         return <PlaylistView key={route.id} library={library} playlistId={route.id} onNavigate={navigate} />;
       case "documents":

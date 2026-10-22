@@ -4,7 +4,8 @@ export type Route =
   | { name: "home" }
   | { name: "storage"; accountId: string; path: string }
   | { name: "movies"; sourceId?: string }
-  | { name: "music"; sourceId?: string }
+  /** `album` opens one album from the 专辑 view. */
+  | { name: "music"; sourceId?: string; album?: string }
   | { name: "documents"; sourceId?: string }
   | { name: "playlist"; id: string }
   // The query lives in the route, so Back and Forward return to the same results.
@@ -28,7 +29,8 @@ export function sameRoute(left: Route, right: Route) {
     return left.accountId === right.accountId && left.path === right.path;
   }
   if ((left.name === "movies" || left.name === "music" || left.name === "documents") && left.name === right.name) {
-    return (left.sourceId ?? null) === ((right as { sourceId?: string }).sourceId ?? null);
+    const other = right as { sourceId?: string; album?: string };
+    return (left.sourceId ?? null) === (other.sourceId ?? null) && ((left as { album?: string }).album ?? null) === (other.album ?? null);
   }
   if (left.name === "playlist" && right.name === "playlist") return left.id === right.id;
   if (left.name === "search" && right.name === "search") return left.query === right.query;

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lookupNameOf, type MediaWork } from "./media";
 import { createMovieLookups, type MovieLookup } from "./movieLookup";
 import { isTauri } from "./native";
+import type { SongInfo } from "./media";
 import {
   previewAccounts,
   previewEntries,
@@ -344,6 +345,16 @@ export function onPlayerError(callback: (error: PlayerError) => void) {
     disposed = true;
     unlisten?.();
   };
+}
+
+/** Song details already looked up, without lyrics, by file: what the 艺人 and 专辑 views group by. */
+export async function listCachedMusic(): Promise<Record<string, SongInfo>> {
+  if (isTauri()) return invoke<Record<string, SongInfo>>("music_metadata_cached");
+  if (!demoEnabled) return {};
+  // The preview has looked up every other song, so the 获取专辑信息 banner shows too.
+  return Object.fromEntries(
+    previewFiles.filter((file, index) => file.mediaKind === "music" && index % 2 === 0).map((file) => [file.id, previewMusicMetadata(file)]),
+  );
 }
 
 export async function getMusicMetadata(fileId: string, refresh = false): Promise<MusicMetadata> {

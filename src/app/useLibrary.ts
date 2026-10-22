@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { buildMovieWorks, lookupKeyOf, type MediaWork } from "../lib/media";
+import { buildMovieWorks, lookupKeyOf, type MediaWork, type SongInfo } from "../lib/media";
 import { appendUnique, untitledName } from "../lib/playlists";
 import {
   createPlaylist as createPlaylistCommand,
@@ -12,6 +12,8 @@ import {
   listPlaylists,
   listReadingProgress,
   listRecentPlayback,
+  listCachedMusic,
+  getMusicMetadata,
   markWatched as markWatchedCommand,
   onPlayerStopped,
   onReadingProgress,
@@ -142,6 +144,53 @@ export function useLibrary(notify: Notify) {
   }, []);
 
   const clearMovieMetadata = useCallback(() => setMovieMetadataMap({}), []);
+
+  // Song details for the 艺人 and 专辑 views: what was looked up before, and a lookup of the rest on request.
+  const [songInfo, setSongInfo] = useState<ReadonlyMap<string, SongInfo>>(new Map());
+  const [albumLookup, setAlbumLookup] = useState<{ done: number; total: number } | null>(null);
+  const lookupStopped = useRef(false);
+  useEffect(() => {
+    void listCachedMusic()
+      .then((cached) => setSongInfo(new Map(Object.entries(cached))))
+      .catch(() => undefined);
+  }, []);
+
+  const lookUpAlbums = useCallback(async () => {
+    if (albumLookup) return;
+    const pending = songs.filter((song) => !songInfo.get(song.id)?.album);
+    if (!pending.length) return;
+    lookupStopped.current = false;
+    let done = 0;
+    let found = 0;
+    setAlbumLookup({ done, total: pending.length });
+    const queue = [...pending];
+    // Two at a time keeps the lookup services (and the network) comfortable.
+    const worker = async () => {
+      while (queue.length && !lookupStopped.current) {
+        const song = queue.shift()!;
+        try {
+          const metadata = await getMusicMetadata(song.id);
+          if (metadata.album) found++;
+          setSongInfo((current) =>
+            new Map(current).set(song.id, { title: metadata.title, artist: metadata.artist, album: metadata.album, artworkUrl: metadata.artworkUrl }),
+          );
+        } catch {
+          // A song the services do not know stays without an album.
+        }
+        setAlbumLookup({ done: ++done, total: pending.length });
+      }
+    };
+    await Promise.all([worker(), worker()]);
+    setAlbumLookup(null);
+    notify(
+      lookupStopped.current ? `已停止获取专辑信息，找到 ${found} 首歌曲的专辑` : `专辑信息已更新：${found} / ${pending.length} 首歌曲找到了专辑`,
+      "info",
+    );
+  }, [albumLookup, notify, songInfo, songs]);
+
+  const stopAlbumLookup = useCallback(() => {
+    lookupStopped.current = true;
+  }, []);
 
   /** 标记为已看过 / 未看过 for whole works or single episodes, in play order. */
   const markWatched = useCallback(
@@ -343,6 +392,10 @@ export function useLibrary(notify: Notify) {
     readingByKey,
     savedById,
     markWatched,
+    songInfo,
+    albumLookup,
+    lookUpAlbums,
+    stopAlbumLookup,
     playlists,
     createPlaylist,
     renamePlaylist,

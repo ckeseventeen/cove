@@ -340,3 +340,27 @@ test('the Files folder a video was played from is its queue, else its series', (
   assert.deepEqual(series.queue.map((item) => item.id), episodes.map((item) => item.id));
   assert.equal(series.work.isSeries, true);
 });
+
+test('artists come from the file name, split on joint credits, merged across spellings', () => {
+  const song = (name) => ({ ...file(name, '/普听音乐/音乐库/音乐'), mediaKind: 'music' });
+  const songs = ['BEYOND - 海阔天空.flac', 'BY2 - 爱的双重魔力.flac', 'By2 - 爱丫爱丫.wav', 'Charlie Puth,Selena Gomez - We Don\'t Talk Anymore.flac', '无名曲.mp3'].map(song);
+  assert.deepEqual(media.artistsOfSong(songs[3]), ['Charlie Puth', 'Selena Gomez']);
+  assert.deepEqual(media.artistsOfSong(song('A & B feat. C - Song.mp3')), ['A', 'B', 'C']);
+  assert.deepEqual(media.artistsOfSong(songs[4], { artist: '某歌手' }), ['某歌手']);
+  const artists = media.groupArtists(songs, new Map());
+  assert.deepEqual(artists.map((artist) => [artist.name, artist.songs.length]), [['BEYOND', 1], ['BY2', 2], ['Charlie Puth', 1], ['Selena Gomez', 1], ['未知艺人', 1]]);
+});
+
+test('albums come from looked-up details; same-named albums with different covers stay apart', () => {
+  const song = (name) => ({ ...file(name, '/音乐'), mediaKind: 'music' });
+  const songs = ['BEYOND - 海阔天空.flac', 'BEYOND - 光辉岁月.flac', 'X - Hits.mp3', 'Y - Hits.mp3', 'Z - 未查.mp3'].map(song);
+  const info = new Map([
+    [songs[0].id, { album: '乐与怒', artworkUrl: 'a.jpg' }],
+    [songs[1].id, { album: '乐与怒', artworkUrl: 'a.jpg' }],
+    [songs[2].id, { album: 'Greatest Hits', artworkUrl: 'x.jpg' }],
+    [songs[3].id, { album: 'Greatest Hits', artworkUrl: 'y.jpg' }],
+  ]);
+  const { albums, unknown } = media.groupAlbums(songs, info);
+  assert.equal(unknown, 1);
+  assert.deepEqual(albums.map((album) => [album.title, album.artist, album.songs.length]), [['乐与怒', 'BEYOND', 2], ['Greatest Hits', 'X', 1], ['Greatest Hits', 'Y', 1]]);
+});

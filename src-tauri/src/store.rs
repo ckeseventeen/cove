@@ -329,6 +329,14 @@ impl Store {
             })
             .collect())
     }
+    /// Every cached payload of one kind, by file.
+    pub fn cached_payloads(&self, kind: &str) -> Result<Vec<(String, String)>> {
+        let connection = self.connection.lock();
+        let mut statement = connection.prepare("SELECT file_id, payload FROM metadata_cache WHERE kind = ?1")?;
+        let rows = statement.query_map([kind], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn clear_metadata(&self) -> Result<()> {
         self.connection
             .lock()
