@@ -225,7 +225,9 @@ export function courseProgress(course: Course, savedById: ReadonlyMap<string, Sa
 }
 
 /** "1.变量与类型" → number "1", text "变量与类型"; names without their own number keep it all. */
-export function lessonLabel(title: string): { number?: string; text: string } {
+export function lessonLabel(raw: string): { number?: string; text: string } {
+  // Download sites stamp their address on every file: "今日内容大纲介绍【itjc8.com】".
+  const title = raw.replace(/\s*[【\[][^】\]]*\.(?:com|cn|net|org|cc|top|vip|xyz)[^】\]]*[】\]]\s*/gi, " ").trim() || raw;
   const match = title.match(/^(\d{1,3})(?:[.、_\-\s]+)(.+)$/);
   return match ? { number: String(Number(match[1])), text: match[2].trim() } : { text: title };
 }

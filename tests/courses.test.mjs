@@ -113,3 +113,9 @@ test('one top-level folder of many chapters uses its chapters as the contents', 
   const [course] = courses.buildCourses(paths.map((path) => file(`/金融/${path}`, 'fin')), [holder]);
   assert.deepEqual(course.modules.map((module) => [module.title, module.lessons.length]), [['第一章 入门', 2], ['第二章 进阶', 1]]);
 });
+
+test('website stamps leave lesson titles', () => {
+  assert.deepEqual(courses.lessonLabel('02.今日内容大纲介绍【itjc8.com】'), { number: '2', text: '今日内容大纲介绍' });
+  assert.deepEqual(courses.lessonLabel('如何安装Vmware软件【itjc8.com】'), { text: '如何安装Vmware软件' });
+  assert.deepEqual(courses.lessonLabel('【直播】第一课'), { text: '【直播】第一课' });
+});
