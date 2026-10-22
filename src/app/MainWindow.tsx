@@ -17,6 +17,7 @@ import { AddStorageSheet } from "../views/AddStorageSheet";
 import { HelpView } from "../views/HelpView";
 import { HomeView } from "../views/HomeView";
 import { MovieDetailSheet } from "../views/MovieDetailSheet";
+import { CoursesView } from "../views/CoursesView";
 import { DocumentsView } from "../views/DocumentsView";
 import { MoviesView } from "../views/MoviesView";
 import { MusicView } from "../views/MusicView";
@@ -39,6 +40,7 @@ import {
 } from "./navigation";
 import { PlaylistActionsContext, type PlaylistActions } from "./playlistActions";
 import { Sidebar } from "./Sidebar";
+import { SOURCE_KINDS } from "./sourceKinds";
 import { useLibrary, type Library } from "./useLibrary";
 
 const INTERACTIVE = "button, input, select, textarea, a, [role='button'], [role='slider'], .no-drag";
@@ -203,7 +205,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
     (source: MediaSource) =>
       setAlert({
         title: `移除“${source.label}”？`,
-        message: `其中的${source.kind === "movie" ? "影片与剧集" : source.kind === "music" ? "歌曲" : "文档"}会从资料库中移除。存储中的文件不会被删除。`,
+        message: `其中的${SOURCE_KINDS[source.kind].contents}会从资料库中移除。存储中的文件不会被删除。`,
         icon: <Trash2 size={28} color="var(--red)" />,
         confirmLabel: "移除",
         destructive: true,
@@ -212,7 +214,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
           moveTo(
             pruneHistory(
               historyRef.current,
-              (item) => (item.name === "movies" || item.name === "music" || item.name === "documents") && item.sourceId === source.id,
+              (item) => (item.name === "movies" || item.name === "music" || item.name === "documents" || item.name === "courses") && item.sourceId === source.id,
             ),
           );
         },
@@ -280,6 +282,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return navigate({ name: "music" });
       case "cove.go.documents":
         return navigate({ name: "documents" });
+      case "cove.go.courses":
+        return navigate({ name: "courses" });
       case "cove.back":
         return back();
       case "cove.forward":
@@ -333,6 +337,7 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       "2": "cove.go.movies",
       "3": "cove.go.music",
       "4": "cove.go.documents",
+      "5": "cove.go.courses",
       "[": "cove.back",
       "]": "cove.forward",
       ArrowRight: "cove.next",
@@ -392,6 +397,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return <SmartPlaylistView library={library} list={route.list} onNavigate={navigate} />;
       case "playlist":
         return <PlaylistView key={route.id} library={library} playlistId={route.id} onNavigate={navigate} />;
+      case "courses":
+        return <CoursesView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} course={route.course} onNavigate={navigate} notify={notify} />;
       case "documents":
         return <DocumentsView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onNavigate={navigate} notify={notify} />;
       case "search":

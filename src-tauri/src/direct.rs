@@ -27,6 +27,9 @@ fn is_media(name: &str, kind: &str) -> bool {
     let extension = extension.to_ascii_lowercase();
     if kind == "document" {
         crate::media_types::DOCUMENT_EXTENSIONS.contains(&extension.as_str())
+    } else if kind == "course" {
+        // Lessons and their handouts.
+        VIDEO_EXTENSIONS.contains(&extension.as_str()) || crate::media_types::DOCUMENT_EXTENSIONS.contains(&extension.as_str())
     } else if kind == "music" {
         AUDIO_EXTENSIONS.contains(&extension.as_str())
     } else {

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Clapperboard, FileText, Film, LoaderCircle, Music, Search } from "lucide-react";
 import type { Route } from "../app/navigation";
+import { routeForSource, SOURCE_KINDS } from "../app/sourceKinds";
 import type { Library } from "../app/useLibrary";
 import { plural } from "../lib/format";
 import { displayTitleOf, matchesMusicQuery, providerLabel, type MediaWork } from "../lib/media";
@@ -152,11 +153,14 @@ export function SearchView({ query, library, notify, onNavigate, onOpenWork }: P
                 key={source.id}
                 className="group-row"
                 onClick={() =>
-                  onNavigate({ name: source.kind === "movie" ? "movies" : source.kind === "music" ? "music" : "documents", sourceId: source.id })
+                  onNavigate(routeForSource(source))
                 }
               >
-                <span className={`glyph ${source.kind === "movie" ? "purple" : source.kind === "music" ? "pink" : "orange"}`}>
-                  {source.kind === "movie" ? <Clapperboard size={15} /> : source.kind === "music" ? <Music size={15} /> : <FileText size={15} />}
+                <span className={`glyph ${SOURCE_KINDS[source.kind].glyph}`}>
+                  {(() => {
+                    const Icon = SOURCE_KINDS[source.kind].icon;
+                    return <Icon size={15} />;
+                  })()}
                 </span>
                 <span className="row-main">
                   <span className="row-title">{source.label}</span>

@@ -1,6 +1,6 @@
 import type { MediaSource, ScanResult } from './nimbus';
 
-const UNITS: Record<MediaSource['kind'], string> = { movie: '个视频', music: '首歌曲', document: '份文档' };
+const UNITS: Record<MediaSource['kind'], string> = { movie: '个视频', music: '首歌曲', document: '份文档', course: '个课程文件' };
 
 const folderName = (path: string) => path.split('/').filter(Boolean).pop() ?? path;
 

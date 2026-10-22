@@ -51,14 +51,14 @@ Browser-only verification: `/?demo=1` serves fixture data from `src/lib/preview.
 
 **Backend (`src-tauri/src`).**
 - `lib.rs` — app setup, `AppState { store, proxy, credentials, player }`, command registration, and a 500 ms poll loop that reads player status, renews proxy sessions, syncs macOS Now Playing, emits `nimbus-player-state`, and saves playback progress every 30 s.
-- `store.rs` — SQLite (WAL) via rusqlite. Schema: `migrations/001_initial.sql`, `002_*.sql`, then further migrations are inline in `Store::open`, gated by `PRAGMA user_version` (currently up to 7). New migrations follow that pattern: `if version < N { ... PRAGMA user_version = N ... }`.
+- `store.rs` — SQLite (WAL) via rusqlite. Schema: `migrations/001_initial.sql`, `002_*.sql`, then further migrations are inline in `Store::open`, gated by `PRAGMA user_version` (currently up to 9). New migrations follow that pattern: `if version < N { ... PRAGMA user_version = N ... }`.
 - `direct.rs` — cloud provider clients (Baidu OAuth/token refresh/scan/download URLs, Google Drive, OneDrive) and media-extension classification; `webdav.rs` (PROPFIND, recursive scan; non-HTTPS remote endpoints rejected except localhost); `local_storage.rs`.
 - `credentials.rs` — secrets live in macOS Keychain (`keyring`); SQLite stores only references. Secrets are wrapped in `Zeroizing`.
 - `proxy.rs` — axum HTTP Range proxy bound to `127.0.0.1` only, with short-lived per-file token sessions; mpv streams through it. Cached direct URLs are refreshed per session.
 - `player.rs` + `mpv_view.m` — libmpv embedded as a native view, controlled over a JSON IPC Unix socket.
 - `now_playing.rs/.m` (MPRemoteCommandCenter / MPNowPlayingInfoCenter), `documents.rs` + `pdf_view.m` (native PDFKit reader with page memory), `menu.rs` (native menu bar), `metadata.rs` (TMDB / music metadata, cached in `metadata_cache`), `ai_subtitles.rs`.
 
-**Library model.** Users add *media sources*: a specific directory on an account designated as a movie, music or document library. Each source scans and reconciles incrementally on its own; only explicitly chosen directories appear in the aggregated library (legacy whole-drive scans are not shown). Movie/series grouping (title extraction, season/episode parsing incl. Chinese numerals, edition handling, dedup across qualities) is done client-side in `src/lib/media.ts` and is heavily unit-tested.
+**Library model.** Users add *media sources*: a specific directory on an account designated as a movie, music, document or course library (courses: `src/lib/courses.ts` turns a folder of course folders into courses › chapters › lessons and handouts). Each source scans and reconciles incrementally on its own; only explicitly chosen directories appear in the aggregated library (legacy whole-drive scans are not shown). Movie/series grouping (title extraction, season/episode parsing incl. Chinese numerals, edition handling, dedup across qualities) is done client-side in `src/lib/media.ts` and is heavily unit-tested.
 
 ## Docs
 

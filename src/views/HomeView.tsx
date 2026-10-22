@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { FileType2, Film, LoaderCircle, Play, Plus } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
+import { courseProgress } from "../lib/courses";
+import { CourseCover, courseStatus, usePlayLesson } from "./CoursesView";
 import { formatRelative, formatRemaining } from "../lib/format";
 import {
   containingFolder,
@@ -42,6 +44,17 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
   const reading = library.reading.filter(
     (item) => item.pageCount > 0 && (!accountIds.size || accountIds.has(item.accountId)),
   );
+  // Courses under way, most recently studied first.
+  const studying = useMemo(
+    () =>
+      library.courses
+        .map((course) => ({ course, progress: courseProgress(course, library.savedById) }))
+        .filter(({ progress }) => progress.next && !progress.done)
+        .sort((left, right) => right.progress.lastStudied - left.progress.lastStudied)
+        .slice(0, 6),
+    [library.courses, library.savedById],
+  );
+  const playLesson = usePlayLesson();
 
   return (
     <div className="page home">
@@ -100,6 +113,46 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
         </section>
       )}
 
+      {studying.length > 0 && (
+        <section className="section">
+          <div className="section-header">
+            <h2 className="section-title">继续学习</h2>
+          </div>
+          <div className="resume-grid">
+            {studying.map(({ course, progress }) => (
+              <button
+                key={course.id}
+                className="resume-card"
+                onClick={() => progress.next && playLesson(course, progress.next)}
+                onContextMenu={(event) =>
+                  void showContextMenu(event, [
+                    { label: "继续学习", action: () => progress.next && playLesson(course, progress.next) },
+                    { label: "打开课程", action: () => onNavigate({ name: "courses", course: course.id }) },
+                  ])
+                }
+              >
+                <span className="resume-art course">
+                  <CourseCover course={course} size="small" />
+                  <span className="resume-play">
+                    <Play size={14} fill="currentColor" strokeWidth={0} />
+                  </span>
+                </span>
+                <span className="resume-text">
+                  <span className="resume-title truncate">{course.title}</span>
+                  <span className="resume-detail truncate">
+                    第 {course.lessons.indexOf(progress.next!) + 1} 节 · {progress.next!.displayName.replace(/\.[^.]+$/, "")}
+                  </span>
+                  <span className="progress">
+                    <span style={{ width: `${(progress.finished.size / Math.max(course.lessons.length, 1)) * 100}%` }} />
+                  </span>
+                  <span className="resume-detail">{courseStatus(course, progress)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
       {reading.length > 0 && (
         <section className="section">
           <div className="section-header">
@@ -113,7 +166,7 @@ export function HomeView({ library, notify, onNavigate, onOpenWork, onAddStorage
         </section>
       )}
 
-      {!isNew && !history.length && !reading.length && (
+      {!isNew && !history.length && !reading.length && !studying.length && (
         <EmptyState
           icon={<Play size={40} strokeWidth={1.3} />}
           title="没有可以继续的内容"

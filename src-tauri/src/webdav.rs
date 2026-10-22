@@ -327,6 +327,7 @@ pub async fn scan(
                             AUDIO_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
                         })
                     || kind == "document" && crate::media_types::is_document(entry.url.path())
+                    || kind == "course" && (is_video(&entry.url) || crate::media_types::is_document(entry.url.path()))
                 {
                     files.push(MediaFile {
                         id: Uuid::new_v4().to_string(),

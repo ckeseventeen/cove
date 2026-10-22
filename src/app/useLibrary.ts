@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { buildCourses } from "../lib/courses";
 import { buildMovieWorks, lookupKeyOf, type MediaWork, type SongInfo } from "../lib/media";
 import { appendUnique, untitledName } from "../lib/playlists";
 import {
@@ -65,6 +66,7 @@ export function useLibrary(notify: Notify) {
   const works = useMemo(() => buildMovieWorks(files.filter((file) => file.mediaKind === "movie")), [files]);
   const songs = useMemo(() => files.filter((file) => file.mediaKind === "music"), [files]);
   const documents = useMemo(() => files.filter((file) => file.mediaKind === "document"), [files]);
+  const courses = useMemo(() => buildCourses(files.filter((file) => file.mediaKind === "course"), sources), [files, sources]);
   const readingByKey = useMemo(() => new Map(reading.map((item) => [item.docKey, item])), [reading]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const savedById = useMemo(() => new Map(recent.map((item) => [item.fileId, item])), [recent]);
@@ -453,6 +455,7 @@ export function useLibrary(notify: Notify) {
     works,
     songs,
     documents,
+    courses,
     reading,
     readingByKey,
     savedById,

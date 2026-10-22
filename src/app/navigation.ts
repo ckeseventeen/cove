@@ -7,6 +7,8 @@ export type Route =
   /** `album` opens one album from the 专辑 view. */
   | { name: "music"; sourceId?: string; album?: string }
   | { name: "documents"; sourceId?: string }
+  /** `course` opens one course. */
+  | { name: "courses"; sourceId?: string; course?: string }
   | { name: "playlist"; id: string }
   /** 最近添加 / 最常播放 / 最近播放. */
   | { name: "smart"; list: "recentlyAdded" | "mostPlayed" | "recentlyPlayed" }
@@ -30,9 +32,10 @@ export function sameRoute(left: Route, right: Route) {
   if (left.name === "storage" && right.name === "storage") {
     return left.accountId === right.accountId && left.path === right.path;
   }
-  if ((left.name === "movies" || left.name === "music" || left.name === "documents") && left.name === right.name) {
-    const other = right as { sourceId?: string; album?: string };
-    return (left.sourceId ?? null) === (other.sourceId ?? null) && ((left as { album?: string }).album ?? null) === (other.album ?? null);
+  if ((left.name === "movies" || left.name === "music" || left.name === "documents" || left.name === "courses") && left.name === right.name) {
+    const one = left as { sourceId?: string; album?: string; course?: string };
+    const other = right as { sourceId?: string; album?: string; course?: string };
+    return (one.sourceId ?? null) === (other.sourceId ?? null) && (one.album ?? null) === (other.album ?? null) && (one.course ?? null) === (other.course ?? null);
   }
   if (left.name === "playlist" && right.name === "playlist") return left.id === right.id;
   if (left.name === "smart" && right.name === "smart") return left.list === right.list;
@@ -84,6 +87,7 @@ export function sidebarKey(route: Route) {
     case "movies":
     case "music":
     case "documents":
+    case "courses":
       return route.sourceId ? `source:${route.sourceId}` : route.name;
     case "playlist":
       return `playlist:${route.id}`;

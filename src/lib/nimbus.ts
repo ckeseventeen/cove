@@ -54,7 +54,7 @@ export type MediaFile = {
   mimeType?: string;
   sourceId?: string;
   sourceIds?: string[];
-  mediaKind?: "movie" | "music" | "document";
+  mediaKind?: "movie" | "music" | "document" | "course";
 };
 
 export type CloudEntry = {
@@ -69,7 +69,7 @@ export type CloudEntry = {
 export type MediaSource = {
   id: string;
   accountId: string;
-  kind: "movie" | "music" | "document";
+  kind: "movie" | "music" | "document" | "course";
   remoteRoot: string;
   label: string;
   lastScanAt?: number;
@@ -666,6 +666,11 @@ export function onOfflineProgress(callback: (progress: OfflineProgress) => void)
     disposed = true;
     unlisten?.();
   };
+}
+
+/** Play through these files in order (a course): the video controls step and list by them. */
+export async function setPlayerPlaylist(fileIds: string[]): Promise<void> {
+  if (isTauri()) return invoke("player_set_playlist", { fileIds });
 }
 
 /** The video window entered or left the floating mini-player. */

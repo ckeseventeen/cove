@@ -12,6 +12,7 @@ import {
   Plus,
 } from "lucide-react";
 import { parentPath, type Route } from "../app/navigation";
+import { SOURCE_KIND_ORDER, SOURCE_KINDS } from "../app/sourceKinds";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, formatDate, plural } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
@@ -274,16 +275,16 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       const label = name ?? folder.split("/").filter(Boolean).at(-1) ?? account.label;
       const source = await addMediaSource(account.id, kind, folder, label);
       library.addSource(source);
-      notify(`已将“${source.label}”设为${kind === "movie" ? "影视" : kind === "music" ? "音乐" : "文档"}文件夹，正在扫描…`, "info");
+      notify(`已将“${source.label}”设为${SOURCE_KINDS[kind].label}文件夹，正在扫描…`, "info");
     } catch (cause) {
       notify(`无法添加媒体文件夹：${errorText(cause)}`, "error");
     }
   };
 
   const libraryItems = (folder: string, name?: string): MenuEntry[] =>
-    (["movie", "music", "document"] as const).map((kind) => {
+    SOURCE_KIND_ORDER.map((kind) => {
       const existing = sourceAt(kind, folder);
-      const noun = kind === "movie" ? "影视文件夹" : kind === "music" ? "音乐文件夹" : "文档文件夹";
+      const noun = `${SOURCE_KINDS[kind].label}文件夹`;
       return existing
         ? { label: `移除${noun}…`, action: () => onRemoveSource(existing) }
         : { label: `设为${noun}`, enabled: folder !== "/", action: () => void addSource(kind, folder, name) };
@@ -625,8 +626,11 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
                           <span className="text">{entry.name}</span>
                           {source && (
                             <span className="badge accent">
-                              {source.kind === "movie" ? <Film size={9} /> : source.kind === "music" ? <Music2 size={9} /> : <FileText size={9} />}
-                              {source.kind === "movie" ? "影视" : source.kind === "music" ? "音乐" : "文档"}
+                              {(() => {
+                                const Icon = SOURCE_KINDS[source.kind].smallIcon;
+                                return <Icon size={9} />;
+                              })()}
+                              {SOURCE_KINDS[source.kind].label}
                             </span>
                           )}
                         </span>

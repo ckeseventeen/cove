@@ -115,8 +115,8 @@ pub(crate) fn media_source_add(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<MediaSource> {
-    if !matches!(kind.as_str(), "movie" | "music" | "document") {
-        return Err(NimbusError::Validation("媒体类型只能是影视、音乐或文档".into()));
+    if !matches!(kind.as_str(), "movie" | "music" | "document" | "course") {
+        return Err(NimbusError::Validation("媒体类型只能是影视、音乐、文档或课程".into()));
     }
     state.store.get_account(&account_id)?;
     // "/电影/" and "/电影" are one folder; keep one spelling so it can only be added once.

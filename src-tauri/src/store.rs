@@ -174,6 +174,37 @@ impl Store {
                  COMMIT;",
             )?;
         }
+        if version < 9 {
+            // Media folders may now be courses; SQLite needs a table rebuild to change a CHECK.
+            let sources_schema: String = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'media_sources'",
+                [],
+                |row| row.get(0),
+            )?;
+            if !sources_schema.contains("'course'") {
+                connection.execute_batch(
+                    "PRAGMA foreign_keys = OFF;
+                     BEGIN IMMEDIATE;
+                     CREATE TABLE media_sources_v9 (
+                       id TEXT PRIMARY KEY,
+                       account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                       kind TEXT NOT NULL CHECK (kind IN ('movie', 'music', 'document', 'course')),
+                       remote_root TEXT NOT NULL,
+                       label TEXT NOT NULL,
+                       last_scan_at INTEGER,
+                       created_at INTEGER NOT NULL,
+                       UNIQUE (account_id, kind, remote_root)
+                     );
+                     INSERT INTO media_sources_v9 (id, account_id, kind, remote_root, label, last_scan_at, created_at)
+                       SELECT id, account_id, kind, remote_root, label, last_scan_at, created_at FROM media_sources;
+                     DROP TABLE media_sources;
+                     ALTER TABLE media_sources_v9 RENAME TO media_sources;
+                     COMMIT;
+                     PRAGMA foreign_keys = ON;",
+                )?;
+            }
+            connection.execute_batch("PRAGMA user_version = 9;")?;
+        }
         // Film details from an earlier lookup scheme are never read again.
         connection.execute(
             "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
@@ -395,6 +426,20 @@ impl Store {
             params![file_id, kind, payload],
         )?;
         Ok(())
+    }
+
+    /// The speed of whichever of `file_ids` was played most recently: a course keeps the speed it is watched at.
+    pub fn latest_speed(&self, file_ids: &[String]) -> Result<Option<f64>> {
+        if file_ids.is_empty() {
+            return Ok(None);
+        }
+        let connection = self.connection.lock();
+        let placeholders = vec!["?"; file_ids.len()].join(",");
+        let mut statement = connection.prepare(&format!(
+            "SELECT speed FROM playback_progress WHERE file_id IN ({placeholders}) ORDER BY updated_at DESC LIMIT 1"
+        ))?;
+        let mut rows = statement.query(rusqlite::params_from_iter(file_ids))?;
+        Ok(rows.next()?.map(|row| row.get(0)).transpose()?)
     }
 
     pub fn playback_progress(&self, file_id: &str) -> Result<Option<(f64, f64)>> {

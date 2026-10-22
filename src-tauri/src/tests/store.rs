@@ -628,3 +628,20 @@ fn smart_lists_follow_plays_and_new_songs() {
     fixture.store.connection.lock().execute("UPDATE media_files SET added_at = NULL", []).unwrap();
     assert!(fixture.store.smart_music_lists().unwrap().0.is_empty());
 }
+
+#[test]
+fn course_folders_are_accepted_and_keep_their_speed() {
+    let fixture = Fixture::new();
+    let mut course = fixture.source("lessons");
+    course.kind = "course".into();
+    fixture.store.delete_media_source(&course.id).unwrap();
+    fixture.store.insert_media_source(&course).unwrap();
+    assert_eq!(fixture.store.list_media_sources().unwrap()[0].kind, "course");
+    fixture.store.replace_source_files(&course, &[file("01.mp4"), file("02.mp4")], true).unwrap();
+    let mut files = fixture.store.list_media_files().unwrap();
+    files.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    assert!(files.iter().all(|file| file.media_kind.as_deref() == Some("course")));
+    fixture.store.save_playback_progress(&files[0].id, 300.0, 2400.0, 1.5).unwrap();
+    assert_eq!(fixture.store.latest_speed(&[files[0].id.clone(), files[1].id.clone()]).unwrap(), Some(1.5));
+    assert_eq!(fixture.store.latest_speed(&[files[1].id.clone()]).unwrap(), None);
+}

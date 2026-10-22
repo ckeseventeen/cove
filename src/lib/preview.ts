@@ -11,6 +11,7 @@ export const previewSources: MediaSource[] = [
   { id: 'movies', accountId: 'preview-baidu', kind: 'movie', remoteRoot: '/演示/电影', label: '电影与剧集', lastScanAt: 1789142400 },
   { id: 'songs', accountId: 'preview', kind: 'music', remoteRoot: '/演示/音乐', label: '音乐收藏', lastScanAt: 1789142400 },
   { id: 'docs', accountId: 'preview', kind: 'document', remoteRoot: '/演示/文档', label: '读书', lastScanAt: 1789142400 },
+  { id: 'courses', accountId: 'preview-baidu', kind: 'course', remoteRoot: '/演示/网课', label: '网课', lastScanAt: 1789142400 },
 ];
 const books = ['设计心理学.pdf', '人月神话.pdf', '置身事内.pdf', '万历十五年.pdf', '季度报告-2026Q3.pdf', '产品说明书.pdf'];
 
@@ -48,6 +49,21 @@ export const previewPlaylists: Playlist[] = [
   { id: 'playlist-night', name: '夜晚', fileIds: ['song-90', 'song-12', 'song-77'], updatedAt: 1789142000 },
 ];
 
+/** Two courses: one with a wrapper folder and handouts, one with numbered chapters. */
+const coursePaths = [
+  ...Array.from({ length: 6 }, (_, index) => `机器学习量化实战/视频教程/第0${index + 1}章节、${['自动化交易综述', '量化交易系统综述', '搭建量化数据库', '金融数据分析', '策略建模概述', '模型评估与风险控制'][index]}.mp4`),
+  '机器学习量化实战/课件/第01章 讲义.pdf',
+  '【金程教育】【Python基础+量化进阶】基于Python的量化学习/01量化投资前导及课程介绍/1.AQF核心课程知识体系.mp4',
+  '【金程教育】【Python基础+量化进阶】基于Python的量化学习/01量化投资前导及课程介绍/2.量化策略的python实现.mp4',
+  ...Array.from({ length: 4 }, (_, index) => `【金程教育】【Python基础+量化进阶】基于Python的量化学习/02Python基础/${index + 1}.${['变量与类型', '循环与判断', '函数', '面向对象'][index]}.mp4`),
+];
+previewFiles.push(
+  ...coursePaths.map((path, index): MediaFile => ({
+    id: `course-${index}`, accountId: 'preview-baidu', remotePath: `/演示/网课/${path}`, cloudPath: `/演示/网课/${path}`,
+    displayName: path.split('/').pop()!, size: 300_000_000 + index * 9_000_000, sourceId: 'courses', sourceIds: ['courses'], mediaKind: 'course',
+  })),
+);
+
 export const previewReading: ReadingProgress[] = [
   { docKey: 'preview:/演示/文档/书/置身事内.pdf', accountId: 'preview', path: '/演示/文档/书/置身事内.pdf', entryId: '', name: '置身事内.pdf', size: 5_800_000, page: 86, pageCount: 312, updatedAt: 1789142500 },
   { docKey: 'preview:/演示/文档/书/设计心理学.pdf', accountId: 'preview', path: '/演示/文档/书/设计心理学.pdf', entryId: '', name: '设计心理学.pdf', size: 1_200_000, page: 12, pageCount: 280, updatedAt: 1789142000 },
@@ -63,6 +79,8 @@ export const previewRecent: RecentPlayback[] = [
   { fileId: 'movie-0', position: 1820, duration: 7200, updatedAt: 1789142400 },
   { fileId: 'movie-8', position: 650, duration: 2700, updatedAt: 1789142300 },
   { fileId: 'movie-1', position: 0, duration: 6100, updatedAt: 1789142250 },
+  { fileId: 'course-0', position: 0, duration: 2400, updatedAt: 1789142350 },
+  { fileId: 'course-1', position: 900, duration: 2600, updatedAt: 1789142360 },
   { fileId: 'song-3', position: 40, duration: 210, updatedAt: 1789142200 },
 ];
 

@@ -1,5 +1,5 @@
 import { forwardRef, useRef, useState } from "react";
-import { CalendarPlus, Clapperboard, FileText, History, House, ListMusic, LoaderCircle, Music, PanelLeft, Plus, TrendingUp } from "lucide-react";
+import { CalendarPlus, Clapperboard, FileText, GraduationCap, History, House, ListMusic, LoaderCircle, Music, PanelLeft, Plus, TrendingUp } from "lucide-react";
 import { showContextMenu } from "../lib/native";
 import type { Account, MediaFile, MediaSource, Playlist, SmartListKind } from "../lib/nimbus";
 import { SMART_LISTS } from "../views/SmartPlaylistView";
@@ -9,6 +9,7 @@ import { providerIcon } from "../ui/glyphs";
 import { useTopmostEscape } from "../ui/Sheet";
 import { sidebarKey, type Route } from "./navigation";
 import { SONGS_DRAG_TYPE } from "./playlistActions";
+import { routeForSource, SOURCE_KINDS } from "./sourceKinds";
 import type { Library } from "./useLibrary";
 
 type Props = {
@@ -138,6 +139,11 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             <span className="label">文档</span>
             <span className="trailing">{library.documents.length || ""}</span>
           </button>
+          <button className="sidebar-item" aria-current={current("courses")} onClick={() => onNavigate({ name: "courses" })}>
+            <GraduationCap size={16} />
+            <span className="label">课程</span>
+            <span className="trailing">{library.courses.length || ""}</span>
+          </button>
         </section>
 
         {(library.songs.length > 0 || library.playlists.length > 0) && (
@@ -258,7 +264,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             {library.sources.map((source) => {
               const scanning = library.scanningIds.has(source.id);
               const open = () =>
-                onNavigate({ name: source.kind === "movie" ? "movies" : source.kind === "music" ? "music" : "documents", sourceId: source.id });
+                onNavigate(routeForSource(source));
               return (
                 <button
                   key={source.id}
@@ -276,7 +282,10 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
                     ])
                   }
                 >
-                  {source.kind === "movie" ? <Clapperboard size={16} /> : source.kind === "music" ? <Music size={16} /> : <FileText size={16} />}
+                  {(() => {
+                    const Icon = SOURCE_KINDS[source.kind].icon;
+                    return <Icon size={16} />;
+                  })()}
                   <span className="label">{source.label}</span>
                   {scanning && (
                     <span className="trailing">

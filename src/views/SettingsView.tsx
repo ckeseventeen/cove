@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Clapperboard, Ellipsis, FileText, HardDriveDownload, LoaderCircle, Music } from "lucide-react";
 import type { Route } from "../app/navigation";
+import { SOURCE_KINDS } from "../app/sourceKinds";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, formatRelative, plural } from "../lib/format";
 import { providerLabel } from "../lib/media";
@@ -130,8 +131,11 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
             const provider = library.accounts.find((account) => account.id === source.accountId)?.provider ?? "";
             return (
               <div className="group-row" key={source.id}>
-                <span className={`glyph ${source.kind === "movie" ? "purple" : source.kind === "music" ? "pink" : "orange"}`}>
-                  {source.kind === "movie" ? <Clapperboard size={15} /> : source.kind === "music" ? <Music size={15} /> : <FileText size={15} />}
+                <span className={`glyph ${SOURCE_KINDS[source.kind].glyph}`}>
+                  {(() => {
+                    const Icon = SOURCE_KINDS[source.kind].icon;
+                    return <Icon size={15} />;
+                  })()}
                 </span>
                 <span className="row-main">
                   <span className="row-title">{source.label}</span>

@@ -88,6 +88,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let movies = item("cove.go.movies", "影视", Some("CmdOrCtrl+2"))?;
     let music = item("cove.go.music", "音乐", Some("CmdOrCtrl+3"))?;
     let documents = item("cove.go.documents", "文档", Some("CmdOrCtrl+4"))?;
+    let courses = item("cove.go.courses", "课程", Some("CmdOrCtrl+5"))?;
     let back = item("cove.back", "返回", Some("CmdOrCtrl+["))?;
     let forward = item("cove.forward", "前进", Some("CmdOrCtrl+]"))?;
     let sidebar = item("cove.toggle-sidebar", "显示/隐藏边栏", Some("Ctrl+CmdOrCtrl+S"))?;
@@ -106,6 +107,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &movies,
             &music,
             &documents,
+            &courses,
             &separator()?,
             &back,
             &forward,

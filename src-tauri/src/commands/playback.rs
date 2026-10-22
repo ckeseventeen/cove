@@ -63,10 +63,14 @@ async fn open_native(
         )?;
     }
     let file = state.store.get_media_file(&file_id)?;
-    let (mut position, speed) = state
-        .store
-        .playback_progress(&file_id)?
-        .unwrap_or((0.0, 1.0));
+    // A lesson not started yet plays at the speed its course was last watched at.
+    let (mut position, speed) = match state.store.playback_progress(&file_id)? {
+        Some(saved) => saved,
+        None => {
+            let siblings: Vec<String> = state.player.playlist().into_iter().map(|file| file.id).filter(|id| *id != file_id).collect();
+            (0.0, state.store.latest_speed(&siblings)?.unwrap_or(1.0))
+        }
+    };
     if from_start.unwrap_or(false) {
         position = 0.0;
     }
@@ -227,4 +231,12 @@ pub(crate) async fn player_status(state: State<'_, AppState>) -> Result<player::
 #[tauri::command]
 pub(crate) fn player_playlist(state: State<'_, AppState>) -> Result<Vec<MediaFile>> {
     Ok(state.player.playlist())
+}
+
+/// Play through these files in order (a course): the video controls step and list by it.
+#[tauri::command]
+pub(crate) fn player_set_playlist(file_ids: Vec<String>, state: State<'_, AppState>) -> Result<()> {
+    let files = file_ids.iter().filter_map(|id| state.store.get_media_file(id).ok()).collect();
+    state.player.set_playlist(files);
+    Ok(())
 }
