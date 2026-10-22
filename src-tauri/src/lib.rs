@@ -270,12 +270,21 @@ async fn run_self_test(app_handle: &tauri::AppHandle, path: &str) -> Result<()> 
     let file_id = state
         .store
         .ensure_media_file("local", path, Some(path), &name, kind, size)?;
-    commands::playback::player_open_native(file_id, Some(true), window, state.clone()).await?;
+    commands::playback::player_open_native(file_id, Some(true), window.clone(), state.clone()).await?;
     let snapshot = state.player.status().await;
     eprintln!(
         "Cove player self-test: kind={kind}, running={}, duration={}",
         snapshot.running, snapshot.duration
     );
+    // NIMBUS_TEST_ACTIONS="float,wait,unfloat": player actions to try, two seconds apart.
+    for action in std::env::var("NIMBUS_TEST_ACTIONS").unwrap_or_default().split(',').map(str::trim).filter(|action| !action.is_empty()) {
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        if action == "wait" {
+            continue;
+        }
+        let result = commands::playback::player_control(action.to_owned(), None, window.clone(), state.clone()).await;
+        eprintln!("Cove self-test action {action}: {result:?}");
+    }
     Ok(())
 }
 
@@ -339,6 +348,12 @@ pub(crate) async fn show_library(app_handle: &tauri::AppHandle, focus: bool) {
     let _ = app_handle.emit("nimbus-player-state", player.cached_status());
     let _ = app_handle.emit("nimbus-player-stopped", ());
     if let Some(webview) = app_handle.get_webview_window("main") {
+        // The library never stays in the mini-player's small window.
+        if player::is_floating() {
+            let controls = app_handle.get_webview_window("player-controls");
+            let _ = player::set_floating(&webview, controls.as_ref(), false, 0.0);
+            let _ = app_handle.emit("player-floating", false);
+        }
         let _ = player.set_view_visible(&webview, false).await;
         if video_ui {
             let _ = webview.set_fullscreen(false);

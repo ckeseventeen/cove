@@ -330,3 +330,34 @@ html.video-window {
 .episode-panel .episode-list button:disabled {
   opacity: 0.5;
 }
+
+/* The floating mini-player and other small windows: the picture comes first */
+@media (max-width: 640px) {
+  .video-title,
+  .hud-volume,
+  .hud-text-label {
+    display: none;
+  }
+  .video-hud {
+    bottom: 8px;
+    width: calc(100vw - 16px);
+    padding: 6px 10px 8px;
+    border-radius: 12px;
+  }
+  .hud-text-button {
+    padding: 0 8px;
+  }
+  .hud-progress {
+    gap: 6px;
+    font-size: var(--text-footnote);
+  }
+  .hud-progress span {
+    min-width: 34px;
+  }
+  .episode-panel {
+    right: 8px;
+    bottom: 96px;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 110px);
+  }
+}

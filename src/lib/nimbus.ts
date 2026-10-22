@@ -591,6 +591,23 @@ export function onReadingProgress(callback: (progress: ReadingProgress) => void)
   };
 }
 
+/** The video window entered or left the floating mini-player. */
+export function onPlayerFloating(callback: (floating: boolean) => void) {
+  if (!isTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<boolean>("player-floating", (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
 /** A media folder scan, manual or in the background, as the native side reports it. */
 export type SourceScanEvent = {
   sourceId: string;

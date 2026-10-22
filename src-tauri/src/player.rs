@@ -72,6 +72,26 @@ unsafe extern "C" {
     fn nimbus_attach_controls_window(parent: *mut c_void, child: *mut c_void);
     fn nimbus_detach_controls_window(child: *mut c_void);
     fn nimbus_mpv_view_clear(view: *mut c_void);
+    fn nimbus_window_is_floating() -> c_int;
+    fn nimbus_window_set_floating(window: *mut c_void, child: *mut c_void, floating: bool, aspect: f64) -> c_int;
+}
+
+/// Whether the video window is the floating mini-player.
+pub fn is_floating() -> bool {
+    unsafe { nimbus_window_is_floating() == 1 }
+}
+
+/// Float the video window as a mini-player (`aspect` = the video's width / height), or put it back.
+pub fn set_floating(parent: &WebviewWindow, child: Option<&WebviewWindow>, floating: bool, aspect: f64) -> Result<()> {
+    let parent_window = parent
+        .ns_window()
+        .map_err(|error| NimbusError::Internal(format!("无法取得播放器主窗口：{error}")))? as usize;
+    let child_window = child.and_then(|child| child.ns_window().ok()).map_or(0, |window| window as usize);
+    parent
+        .run_on_main_thread(move || unsafe {
+            nimbus_window_set_floating(parent_window as *mut c_void, child_window as *mut c_void, floating, aspect);
+        })
+        .map_err(|error| NimbusError::Internal(format!("无法切换小窗播放：{error}")))
 }
 
 pub fn attach_controls_window(parent: &WebviewWindow, child: &WebviewWindow) -> Result<()> {
@@ -441,6 +461,13 @@ impl PlayerController {
 
     pub fn cached_status(&self) -> PlayerStatus {
         self.snapshot.lock().clone().unwrap_or_else(empty_status)
+    }
+
+    /// The shape of the picture being shown (width / height), for the mini-player.
+    pub async fn video_aspect(&self) -> Option<f64> {
+        let socket = self.socket_path.clone();
+        let aspect = tokio::task::spawn_blocking(move || query(&socket, "video-params/aspect")).await.ok()?.ok()?;
+        aspect.as_f64().filter(|value| value.is_finite() && *value > 0.0)
     }
 
     pub async fn status(&self) -> PlayerStatus {

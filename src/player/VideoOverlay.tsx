@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ListVideo, LoaderCircle, Pause, Play, Volume1, Volume2, VolumeX } from "lucide-react";
+import { ListVideo, LoaderCircle, Pause, PictureInPicture2, Play, Volume1, Volume2, VolumeX } from "lucide-react";
 import { cleanWorkTitle, compareSeasons, displayTitleOf, episodeLabel, episodeNumberOf, episodeOf, lookupNameOf, seasonLabel, seasonOf, videoQueue } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
@@ -13,6 +13,7 @@ import {
   isOpenCancelled,
   listMediaFiles,
   openNativePlayer,
+  onPlayerFloating,
   setNowPlayingInfo,
   subscribePlayer,
   type MediaFile,
@@ -122,6 +123,10 @@ export function VideoOverlay() {
   const [visible, setVisible] = useState(true);
   const [aiOpen, setAiOpen] = useState(false);
   const [episodesOpen, setEpisodesOpen] = useState(false);
+  // The floating mini-player (a small window above other apps), as the native side reports it.
+  const [floating, setFloating] = useState(false);
+  useEffect(() => onPlayerFloating(setFloating), []);
+  const toggleFloating = () => void controlPlayer(floating ? "unfloat" : "float");
   const [cachedSrt, setCachedSrt] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hideTimer = useRef<number>();
@@ -333,6 +338,7 @@ export function VideoOverlay() {
         ArrowDown: () => volume(latest.current.status.volume - 5),
         KeyM: toggleMute,
         KeyF: () => void controlPlayer("fullscreen"),
+        KeyP: () => void controlPlayer("float"),
       };
       const action = actions[event.code];
       if (!action) return;
@@ -437,6 +443,7 @@ export function VideoOverlay() {
         ],
       },
       "separator",
+      { label: floating ? "恢复窗口" : "小窗播放", action: toggleFloating },
       { label: "全屏", action: () => void controlPlayer("fullscreen") },
       { label: "停止播放", action: () => void controlPlayer("stop") },
     ]);
@@ -522,9 +529,18 @@ export function VideoOverlay() {
                 onClick={() => setEpisodesOpen((open) => !open)}
               >
                 <ListVideo size={16} />
-                {isSeries ? "选集" : "列表"}
+                <span className="hud-text-label">{isSeries ? "选集" : "列表"}</span>
               </button>
             )}
+            <button
+              className={`hud-icon ${floating ? "active" : ""}`}
+              title={floating ? "恢复窗口 (P)" : "小窗播放 (P)"}
+              aria-label={floating ? "恢复窗口" : "小窗播放"}
+              aria-pressed={floating}
+              onClick={toggleFloating}
+            >
+              <PictureInPicture2 size={17} />
+            </button>
           </div>
         </div>
         <div className="hud-progress">

@@ -138,11 +138,32 @@ pub(crate) async fn player_control(
     window: tauri::WebviewWindow,
     state: State<'_, AppState>,
 ) -> Result<()> {
+    if action == "float" || action == "unfloat" {
+        let main = window.app_handle().get_webview_window("main").unwrap_or_else(|| window.clone());
+        let controls = window.app_handle().get_webview_window("player-controls");
+        let floating = action == "float" && !player::is_floating();
+        if floating && main.is_fullscreen().unwrap_or(false) {
+            // Leave full screen first; the window can float once it is back on the desktop.
+            let _ = main.set_fullscreen(false);
+            tokio::time::sleep(Duration::from_millis(800)).await;
+        }
+        let aspect = state.player.video_aspect().await.unwrap_or(16.0 / 9.0);
+        player::set_floating(&main, controls.as_ref(), floating, aspect)?;
+        let _ = window.app_handle().emit("player-floating", floating);
+        return Ok(());
+    }
     if action == "fullscreen" || action == "exit_fullscreen" {
         let main = window
             .app_handle()
             .get_webview_window("main")
             .unwrap_or_else(|| window.clone());
+        // In the mini-player, full screen (double-click, F) first brings the window back.
+        if player::is_floating() {
+            let controls = window.app_handle().get_webview_window("player-controls");
+            player::set_floating(&main, controls.as_ref(), false, 0.0)?;
+            let _ = window.app_handle().emit("player-floating", false);
+            return Ok(());
+        }
         let fullscreen = main
             .is_fullscreen()
             .map_err(|error| NimbusError::Internal(error.to_string()))?;

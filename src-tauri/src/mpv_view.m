@@ -182,3 +182,49 @@ void nimbus_mpv_view_clear(void *view_pointer) {
     if (NSThread.isMainThread) clear();
     else dispatch_async(dispatch_get_main_queue(), clear);
 }
+
+// Floating mini-player: the video window shrinks into a corner of its screen and stays above other
+// apps on every Space, keeping the video's shape; leaving puts the window back where it was.
+static BOOL nimbusFloating = NO;
+static NSRect nimbusSavedFrame;
+static NSSize nimbusSavedMinSize;
+static NSWindowLevel nimbusSavedLevel;
+static NSWindowCollectionBehavior nimbusSavedBehavior;
+
+int nimbus_window_is_floating(void) { return nimbusFloating; }
+
+/// Returns 0 when done, 1 when the window is full screen (leave full screen first).
+int nimbus_window_set_floating(void *window_pointer, void *child_pointer, bool floating, double aspect) {
+    NSWindow *window = (__bridge NSWindow *)window_pointer;
+    NSWindow *child = child_pointer ? (__bridge NSWindow *)child_pointer : nil;
+    if (floating == nimbusFloating) return 0;
+    if (floating) {
+        if (window.styleMask & NSWindowStyleMaskFullScreen) return 1;
+        nimbusSavedFrame = window.frame;
+        nimbusSavedMinSize = window.minSize;
+        nimbusSavedLevel = window.level;
+        nimbusSavedBehavior = window.collectionBehavior;
+        NSRect visible = (window.screen ?: NSScreen.mainScreen).visibleFrame;
+        CGFloat ratio = (aspect > 0.2 && aspect < 5.0) ? aspect : 16.0 / 9.0;
+        CGFloat width = MIN(480.0, floor(visible.size.width / 3.0));
+        CGFloat height = round(width / ratio);
+        NSRect frame = NSMakeRect(NSMaxX(visible) - width - 16, NSMinY(visible) + 16, width, height);
+        window.minSize = NSMakeSize(240, 135);
+        window.contentAspectRatio = NSMakeSize(ratio, 1.0);
+        window.level = NSFloatingWindowLevel;
+        window.collectionBehavior = nimbusSavedBehavior | NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                    NSWindowCollectionBehaviorFullScreenAuxiliary;
+        if (child) child.level = NSFloatingWindowLevel;
+        [window setFrame:frame display:YES animate:YES];
+    } else {
+        window.level = nimbusSavedLevel;
+        window.collectionBehavior = nimbusSavedBehavior;
+        // Setting resize increments clears the aspect ratio.
+        window.contentResizeIncrements = NSMakeSize(1.0, 1.0);
+        window.minSize = nimbusSavedMinSize;
+        if (child) child.level = nimbusSavedLevel;
+        [window setFrame:nimbusSavedFrame display:YES animate:YES];
+    }
+    nimbusFloating = floating;
+    return 0;
+}

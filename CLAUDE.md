@@ -30,6 +30,7 @@ Environment knobs:
 - `NIMBUS_MPV_PREFIX` — libmpv location (default `/opt/homebrew`, else `/usr/local`).
 - `NIMBUS_DATA_DIR` — isolate the SQLite database directory (for testing).
 - `NIMBUS_TEST_MEDIA=/abs/path` — on launch, opens that local file through the normal playback / PDF path (native self-test, `run_self_test` in `lib.rs`).
+- `NIMBUS_TEST_ACTIONS=float,wait,unfloat` — with `NIMBUS_TEST_MEDIA`, then runs those `player_control` actions two seconds apart (`wait` only waits).
 - `.env` (`NIMBUS_BAIDU_APP_KEY`, `NIMBUS_BAIDU_SECRET_KEY`, `NIMBUS_BAIDU_REDIRECT_URI`, `NIMBUS_TMDB_READ_ACCESS_TOKEN`) is read at runtime in dev. It is embedded into the binary **only** with `NIMBUS_BUNDLE_PERSONAL_CONFIG=1` (`npm run bundle:mac:personal`); such builds must not be distributed.
 
 ## Testing approach
