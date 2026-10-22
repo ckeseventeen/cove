@@ -364,3 +364,9 @@ test('albums come from looked-up details; same-named albums with different cover
   assert.equal(unknown, 1);
   assert.deepEqual(albums.map((album) => [album.title, album.artist, album.songs.length]), [['乐与怒', 'BEYOND', 2], ['Greatest Hits', 'X', 1], ['Greatest Hits', 'Y', 1]]);
 });
+
+test('language and release notes leave the title', () => {
+  assert.equal(media.cleanWorkTitle('头脑特工队.国粤台英四语.中英双字.mkv'), '头脑特工队');
+  assert.equal(media.cleanWorkTitle('喜剧之王.国粤越三语.中字.mkv'), '喜剧之王');
+  assert.equal(media.cleanWorkTitle('英雄本色.mkv'), '英雄本色');
+});

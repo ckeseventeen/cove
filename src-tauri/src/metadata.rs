@@ -355,9 +355,69 @@ fn movie_query(name: &str) -> (String, Option<String>) {
     )
 }
 
+/// Other names to search when a title finds nothing, best first, each keeping the year: the English
+/// and the Chinese part of a mixed title ("教父1 The Godfather" → "The Godfather", "教父1"), and a
+/// Chinese title without its sequel number ("教父2" → "教父", the year then picks the film).
+/// Release notes that are not part of a title: "国粤台英四语", "官中", "中英双字", "内封多字幕".
+fn is_release_word(word: &str) -> bool {
+    const LANGUAGES: &str = "国粤台英日韩越意法德泰西俄中";
+    let languages = word.trim_end_matches('语').trim_end_matches(['双', '三', '四', '五', '六']);
+    (word.ends_with('语') && languages.chars().count() >= 2 && languages.chars().all(|character| LANGUAGES.contains(character)))
+        || word.starts_with("官中")
+        || word.starts_with("官方")
+        || word.starts_with("内封")
+        || word.ends_with("字幕")
+        || word.ends_with("双字")
+}
+
+pub fn query_variants(name: &str) -> Vec<String> {
+    let (query, year) = movie_query(name);
+    let year = year.map(|year| format!(" {year}")).unwrap_or_default();
+    let is_cjk = |character: char| ('\u{4e00}'..='\u{9fff}').contains(&character);
+    let all: Vec<&str> = query.split_whitespace().collect();
+    let words: Vec<&str> = all.iter().copied().filter(|word| !is_release_word(word)).collect();
+    let latin: Vec<&str> = words
+        .iter()
+        .copied()
+        .filter(|word| word.chars().any(|character| character.is_ascii_alphabetic()) && !word.chars().any(is_cjk))
+        .collect();
+    let chinese: Vec<&str> = words.iter().copied().filter(|word| word.chars().any(is_cjk)).collect();
+    let mut variants = vec![name.trim().to_owned()];
+    if words.len() < all.len() && !words.is_empty() {
+        variants.push(format!("{}{year}", words.join(" ")));
+    }
+    if !latin.is_empty() && !chinese.is_empty() {
+        variants.push(format!("{}{year}", latin.join(" ")));
+        variants.push(format!("{}{year}", chinese.join(" ")));
+    }
+    for word in &chinese {
+        let base = word.trim_end_matches(|character: char| character.is_ascii_digit());
+        if base != *word && base.chars().any(is_cjk) {
+            variants.push(format!("{base}{year}"));
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    variants.retain(|variant| !variant.trim().is_empty() && seen.insert(variant.clone()));
+    variants.truncate(4);
+    variants
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{best_result, movie_query, MovieMetadata, TmdbSearchResult};
+    use super::{best_result, movie_query, query_variants, MovieMetadata, TmdbSearchResult};
+
+    #[test]
+    fn a_title_that_finds_nothing_tries_its_parts() {
+        assert_eq!(
+            query_variants("教父1 The Godfather 1972"),
+            ["教父1 The Godfather 1972", "The Godfather 1972", "教父1 1972", "教父 1972"]
+        );
+        assert_eq!(query_variants("豺狼的日子"), ["豺狼的日子"]);
+        assert_eq!(query_variants("Iron Man 2010"), ["Iron Man 2010"]);
+        assert_eq!(query_variants("爱德华大夫 Spellbound 1945")[1], "Spellbound 1945");
+        assert_eq!(query_variants("头脑特工队 国粤台英四语"), ["头脑特工队 国粤台英四语", "头脑特工队"]);
+        assert_eq!(query_variants("官方中英双字 The Batman 2022")[1], "The Batman 2022");
+    }
 
     fn result(media_type: &str, title: &str, date: &str) -> TmdbSearchResult {
         serde_json::from_value(serde_json::json!({

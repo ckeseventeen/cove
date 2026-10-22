@@ -58,6 +58,8 @@ function cleanTitleText(stem: string) {
     .replace(/[《》【】\[\]]/g, " ")
     // Release notes after the title: "沉默的羔羊 双语字幕 HR-HDTV", "地心抢险记 超清国英双语".
     .replace(/\s(?:中英|双语|国英|国语|粤语|中字|中文字幕|特效字幕|官方正式版|高码|超清|高清|蓝光).*$/, "")
+    // "头脑特工队 国粤台英四语", "猩球崛起 官中 …": language and release notes.
+    .replace(/\s(?:[国粤台英日韩越意法德泰西俄中]{2,}[双三四五六]?语|官中|官方|内封).*$/, "")
     .replace(/\s(?:bd-?hr|hr-hdtv|hdtv|bdrip|x26[45]|h\.?26[45]|hevc|aac|ac3|dts(?:-hd)?|\d{3,4}x\d{3,4})\b.*$/i, "")
     // The release year is the last one: "Blade Runner 2049 2017" keeps 2049; "让子弹飞2010" drops it, and so does
     // an air date before the episode ("快乐大本营 20230101 第1期").

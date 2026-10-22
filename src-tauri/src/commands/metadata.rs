@@ -406,17 +406,26 @@ pub(crate) async fn movie_metadata(
         .filter(|name| !name.is_empty())
         .map(str::to_owned);
     let lookup_name = query.clone().unwrap_or(lookup_name);
-    let mut metadata = match metadata::movie(&lookup_name, kind).await {
-        Ok(metadata) => metadata,
-        Err(primary_error) => {
-            if let Some(folder_name) = folder.filter(|candidate| *candidate != lookup_name) {
-                metadata::movie(folder_name, kind)
-                    .await
-                    .map_err(|_| primary_error)?
-            } else {
-                return Err(primary_error);
+    // The name first, then its parts (English, Chinese, without a sequel number), then the folder.
+    let mut candidates = metadata::query_variants(&lookup_name);
+    if let Some(folder_name) = folder.filter(|candidate| *candidate != lookup_name) {
+        candidates.push(folder_name.to_owned());
+    }
+    let mut first_error = None;
+    let mut found = None;
+    for candidate in &candidates {
+        match metadata::movie(candidate, kind).await {
+            Ok(metadata) => {
+                found = Some(metadata);
+                break;
+            }
+            Err(error) => {
+                first_error.get_or_insert(error);
             }
         }
+    }
+    let Some(mut metadata) = found else {
+        return Err(first_error.unwrap_or_else(|| NimbusError::Validation("TMDB 未找到".into())));
     };
     if manual {
         save_work_override(&state.store, &work_files, &lookup_name)?;
