@@ -19,7 +19,7 @@ import {
   type MovieMetadata,
   type PlayerStatus,
 } from "../lib/nimbus";
-import { unmuteVolume } from "../lib/playback";
+import { trackLabel, unmuteVolume } from "../lib/playback";
 import { Slider } from "../ui/controls";
 import { isModalOpen, useTopmostEscape } from "../ui/Sheet";
 import { AiSubtitlesSheet } from "./AiSubtitlesSheet";
@@ -383,8 +383,6 @@ export function VideoOverlay() {
   const subtitleTracks = status.tracks.filter((track) => track.kind === "sub");
   const VolumeIcon = status.volume === 0 ? VolumeX : status.volume < 50 ? Volume1 : Volume2;
   const shownError = error || status.error;
-  const trackName = (track: { id: number; title: string; language: string }, fallback: string) =>
-    [track.title, track.language].filter((value) => value && value !== "未命名轨道").join(" · ") || `${fallback} ${track.id}`;
 
   const episodeItem = (file: MediaFile, position: number): MenuEntry => ({
     label: isSeries && (episodeOf(file) ?? 0) > 0 ? episodeLabel(file, position) : cleanWorkTitle(file.displayName) || file.displayName,
@@ -418,7 +416,7 @@ export function VideoOverlay() {
             {
               label: "音轨",
               submenu: audioTracks.map((track) => ({
-                label: trackName(track, "音轨"),
+                label: trackLabel(track, "音轨"),
                 checked: track.selected,
                 action: () => void controlPlayer("audio", track.id),
               })),
@@ -430,7 +428,7 @@ export function VideoOverlay() {
         submenu: [
           { label: "关闭", checked: !subtitleTracks.some((track) => track.selected), action: () => void controlPlayer("subtitle", -1) },
           ...subtitleTracks.map((track) => ({
-            label: trackName(track, "字幕"),
+            label: trackLabel(track, "字幕"),
             checked: track.selected,
             action: () => void controlPlayer("subtitle", track.id),
           })),

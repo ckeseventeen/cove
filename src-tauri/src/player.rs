@@ -185,6 +185,35 @@ impl PlayerController {
         Ok(true)
     }
 
+    /// Add subtitle files found beside the video: `(path, title, language)`, best first. The best one
+    /// is turned on only when no subtitle is on yet, so an embedded or AI track the viewer has stays.
+    pub async fn add_external_subtitles(&self, file_id: &str, tracks: &[(String, String, &'static str)]) -> Result<bool> {
+        let _permit = self.gate.lock().await;
+        if tracks.is_empty() || self.current_file_id().as_deref() != Some(file_id) {
+            return Ok(false);
+        }
+        let socket = self.socket_path.clone();
+        let tracks = tracks.to_vec();
+        tokio::task::spawn_blocking(move || -> Result<()> {
+            let loaded = query(&socket, "track-list").unwrap_or_default();
+            for (path, title, language) in &tracks {
+                if subtitle_tracks_from(&loaded, path).is_empty() {
+                    send(&socket, json!(["sub-add", path, "auto", title, language]))?;
+                }
+            }
+            let loaded = query(&socket, "track-list").unwrap_or_default();
+            if should_switch_to(&loaded, tracks[0].2) {
+                if let Some(id) = subtitle_tracks_from(&loaded, &tracks[0].0).first() {
+                    send(&socket, json!(["set_property", "sid", id]))?;
+                }
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|error| NimbusError::Internal(error.to_string()))??;
+        Ok(true)
+    }
+
     pub fn cancel_pending_open(&self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
     }
@@ -463,6 +492,11 @@ fn create_embedded_player(view: usize, socket: &Path, log_path: &Path) -> Result
         ("cache-pause", "no"),
         ("demuxer-max-bytes", "512MiB"),
         ("demuxer-max-back-bytes", "128MiB"),
+        // Cove finds subtitle files beside a video itself, for every kind of storage
+        // (sidecar_subtitles.rs); mpv's own search only sees local files and picks its own track.
+        ("sub-auto", "no"),
+        // Embedded subtitles: Chinese first, then English.
+        ("slang", "zh-CN,zh-Hans,chs,sc,chi,zho,zh,cht,zh-TW,zh-Hant,eng,en"),
         ("input-ipc-server", socket_value.as_str()),
         ("log-file", log_value.as_str()),
     ] {
@@ -620,6 +654,27 @@ fn read_reply_line(
 fn query(path: &Path, property: &str) -> Result<Value> {
     request(path, json!(["get_property", property]))
 }
+/// Whether a found subtitle in `language` should replace what is on: always when nothing is, and a
+/// Chinese one over a track in another language. A Chinese track or an AI subtitle stays.
+fn should_switch_to(tracks: &Value, language: &str) -> bool {
+    let Some(current) = tracks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|track| track.get("type").and_then(Value::as_str) == Some("sub") && track.get("selected").and_then(Value::as_bool) == Some(true))
+    else {
+        return true;
+    };
+    if current.get("title").and_then(Value::as_str) == Some("AI 字幕") {
+        return false;
+    }
+    let chinese = |code: &str| {
+        let code = code.to_ascii_lowercase();
+        ["chi", "zho", "zh", "chs", "cht", "sc", "tc"].iter().any(|prefix| code == *prefix || code.starts_with(&format!("{prefix}-")))
+    };
+    language == "chi" && !current.get("lang").and_then(Value::as_str).is_some_and(chinese)
+}
+
 /// Ids of the subtitle tracks already loaded from `file`, from mpv's `track-list`.
 fn subtitle_tracks_from(tracks: &Value, file: &str) -> Vec<i64> {
     tracks

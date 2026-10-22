@@ -112,6 +112,10 @@ async fn open_native(
     }
     // Subtitles generated earlier come back with their video.
     crate::ai_subtitles::restore_saved(window.app_handle(), state, &file.id).await;
+    // Subtitle files beside the video arrive once found, without holding up playback.
+    if show_video {
+        tauri::async_runtime::spawn(crate::sidecar_subtitles::load(window.app_handle().clone(), file.id.clone()));
+    }
     Ok(())
 }
 

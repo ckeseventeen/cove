@@ -14,6 +14,7 @@ mod model;
 mod now_playing;
 mod player;
 mod proxy;
+mod sidecar_subtitles;
 mod store;
 mod ui_zoom;
 mod webdav;

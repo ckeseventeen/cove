@@ -66,23 +66,29 @@ pub(crate) async fn account_browse(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<CloudEntry>> {
-    let stored = state.store.get_account(&account_id)?;
+    browse_directory(&state, &account_id, &path).await
+}
+
+/// One folder of any account, as the file browser shows it.
+pub(crate) async fn browse_directory(state: &AppState, account_id: &str, path: &str) -> Result<Vec<CloudEntry>> {
+    let stored = state.store.get_account(account_id)?;
     if stored.account.provider == "local" {
+        let path = path.to_owned();
         return tokio::task::spawn_blocking(move || local_storage::browse(&path))
             .await
             .map_err(|e| NimbusError::Internal(e.to_string()))?;
     }
-    let (stored, token) = account_token(&account_id, &state).await?;
+    let (stored, token) = account_token(account_id, state).await?;
     if stored.account.provider == "webdav" {
         return webdav::browse(
             &stored.account.endpoint,
-            &path,
+            path,
             stored.account.username.as_deref().unwrap_or_default(),
             &token,
         )
         .await;
     }
-    direct::browse(&stored.account.provider, &token, &path).await
+    direct::browse(&stored.account.provider, &token, path).await
 }
 
 #[tauri::command]

@@ -101,3 +101,15 @@ async fn old_subtitle_job_never_targets_new_file() {
         .unwrap());
     assert_eq!(player.current_file_id().as_deref(), Some("new-file"));
 }
+
+#[test]
+fn found_chinese_subtitles_replace_only_a_foreign_or_missing_track() {
+    let tracks = |selected: Value| json!([{"id": 1, "type": "video"}, selected]);
+    assert!(should_switch_to(&json!([{"id": 1, "type": "video"}]), "chi"));
+    assert!(should_switch_to(&json!([{"id": 1, "type": "video"}]), "eng"));
+    assert!(should_switch_to(&tracks(json!({"id": 2, "type": "sub", "selected": true, "lang": "eng"})), "chi"));
+    assert!(!should_switch_to(&tracks(json!({"id": 2, "type": "sub", "selected": true, "lang": "chi"})), "chi"));
+    assert!(!should_switch_to(&tracks(json!({"id": 2, "type": "sub", "selected": true, "lang": "zh-Hant"})), "chi"));
+    assert!(!should_switch_to(&tracks(json!({"id": 2, "type": "sub", "selected": true, "title": "AI 字幕"})), "chi"));
+    assert!(!should_switch_to(&tracks(json!({"id": 2, "type": "sub", "selected": true, "lang": "eng"})), "eng"));
+}

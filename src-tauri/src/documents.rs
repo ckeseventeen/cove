@@ -101,27 +101,33 @@ async fn download(request: reqwest::RequestBuilder, target: &Path) -> Result<()>
     Ok(())
 }
 
-/// Where downloaded copies of one account's documents are kept.
-fn cache_dir(app: &AppHandle, account_id: &str) -> Result<PathBuf> {
+/// Kinds of downloaded copy, each in its own cache folder.
+const CACHE_BUCKETS: &[&str] = &["documents", "subtitles"];
+
+/// Where downloaded copies of one account's documents (or subtitles) are kept.
+fn cache_dir(app: &AppHandle, bucket: &str, account_id: &str) -> Result<PathBuf> {
     Ok(app
         .path()
         .app_cache_dir()
         .map_err(|error| NimbusError::Internal(error.to_string()))?
-        .join("documents")
+        .join(bucket)
         .join(format!("{:x}", md5::compute(account_id))))
 }
 
 /// Delete the downloaded copies of a removed account's documents.
 pub(crate) async fn remove_cached_copies(app: &AppHandle, account_id: &str) {
-    if let Ok(cache) = cache_dir(app, account_id) {
-        let _ = tokio::fs::remove_dir_all(cache).await;
+    for bucket in CACHE_BUCKETS {
+        if let Ok(cache) = cache_dir(app, bucket, account_id) {
+            let _ = tokio::fs::remove_dir_all(cache).await;
+        }
     }
 }
 
-/// A local copy of the document: the file itself on this Mac, otherwise a cached download.
-async fn local_copy(
+/// A local copy of a file: the file itself on this Mac, otherwise a download cached in `bucket`.
+pub(crate) async fn local_copy(
     app: &AppHandle,
     state: &AppState,
+    bucket: &str,
     account_id: &str,
     path: &str,
     entry_id: &str,
@@ -138,7 +144,7 @@ async fn local_copy(
         return Ok(file);
     }
 
-    let cache = cache_dir(app, account_id)?;
+    let cache = cache_dir(app, bucket, account_id)?;
     let target = cache.join(format!("{:x}-{}", md5::compute(path), safe_file_name(name)));
     if let Ok(metadata) = tokio::fs::metadata(&target).await {
         if size == 0 || metadata.len() == size {
@@ -186,7 +192,7 @@ async fn local_copy(
             download(crate::http_client::transfer_http().get(parsed).bearer_auth(&token), &target)
                 .await?;
         }
-        _ => return Err(NimbusError::Validation("这个存储位置暂不支持打开文档".into())),
+        _ => return Err(NimbusError::Validation("这个存储位置暂不支持下载文件".into())),
     }
     Ok(target)
 }
@@ -203,7 +209,7 @@ async fn open(
     if !crate::media_types::is_document(&name) {
         return Err(NimbusError::Validation("目前只能阅读 PDF 文档".into()));
     }
-    let file = local_copy(app, state, &account_id, &path, &entry_id, &name, size).await?;
+    let file = local_copy(app, state, "documents", &account_id, &path, &entry_id, &name, size).await?;
     if !looks_like_pdf(&file).await {
         return Err(NimbusError::Validation("这个文件不是有效的 PDF".into()));
     }
