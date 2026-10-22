@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, CircleAlert, Ellipsis, Film, LoaderCircle, Play, Star, X } from "lucide-react";
+import { Check, CircleAlert, Ellipsis, Film, HardDriveDownload, LoaderCircle, Play, Star, X } from "lucide-react";
+import { offlineActions, offlineFraction } from "../lib/offline";
 import {
   containingFolder,
   displayTitleOf,
@@ -17,7 +18,7 @@ import {
 import type { Route } from "../app/navigation";
 import { showContextMenu } from "../lib/native";
 import { formatBytes } from "../lib/format";
-import { getMovieMetadata, type MediaFile, type MovieMetadata } from "../lib/nimbus";
+import { getMovieMetadata, type MediaFile, type MovieMetadata, type OfflineProgress } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
 import { Segmented } from "../ui/controls";
 import { Sheet } from "../ui/Sheet";
@@ -33,10 +34,12 @@ type Props = {
   notify: Notify;
   progress: WorkProgress;
   onMark: (fileIds: string[], watched: boolean) => void;
+  /** Downloads for offline viewing; `cloud` is false for videos already on this Mac or a share. */
+  offline: { states: ReadonlyMap<string, OfflineProgress>; cloud: boolean; run: (kind: "download" | "cancel" | "remove", fileIds: string[]) => void };
 };
 
 /** Title page in the style of the TV app: artwork, facts, seasons and versions. */
-export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, onNavigate, notify, progress, onMark }: Props) {
+export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata, onNavigate, notify, progress, onMark, offline }: Props) {
   const player = usePlayer();
   const [metadata, setMetadata] = useState<MovieMetadata | undefined>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +120,16 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
       watched
         ? { label: "标记为未看过", action: () => onMark(copies.map((file) => file.id), false) }
         : { label: "标记为已看过", action: () => onMark(copies.map((file) => file.id), true) },
+      ...(offline.cloud
+        ? [
+            "separator" as const,
+            ...offlineActions([copies[0].id], offline.states, { download: "下载以离线观看", remove: "移除下载" }).map((action) => ({
+              label: action.label,
+              action: () => offline.run(action.kind, action.ids),
+            })),
+          ]
+        : []),
+      "separator",
       {
         label: "将之前各集标记为已看过",
         enabled: allEpisodes.findIndex((item) => episodeKeyOf(item) === episodeKeyOf(episode)) > 0,
@@ -167,6 +180,15 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
               onClick={(event) =>
                 void showContextMenu(event, [
                   { label: "修正匹配…", action: () => setMatchOpen(true) },
+                  ...(offline.cloud
+                    ? offlineActions(
+                        work.isSeries ? episodes.map((episode) => versionsOf(episode)[0].id) : [primary?.id ?? work.files[0].id],
+                        offline.states,
+                        work.isSeries
+                          ? { download: `下载${work.seasons.length > 1 ? seasonLabel(season) : "全部剧集"}（${episodes.length} 集）`, remove: "移除这些剧集的下载" }
+                          : { download: "下载以离线观看", remove: "移除下载" },
+                      ).map((action) => ({ label: action.label, action: () => offline.run(action.kind, action.ids) }))
+                    : []),
                   {
                     label: "在文件中显示",
                     enabled: !!folder,
@@ -245,6 +267,7 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
                         <span className="episode-number tabular">{episodeNumberOf(episode) ?? index + 1}</span>
                         <span className="episode-name truncate">{episode.displayName.replace(/\.[^.]+$/, "")}</span>
                         {watched && <Check className="episode-check" size={13} strokeWidth={2.5} aria-label="已看过" />}
+                        <OfflineMark progress={offline.states.get(versions[0].id)} />
                         {partial && partial.duration > 0 && (
                           <span className="episode-progress" title={`看到 ${Math.round((partial.position / partial.duration) * 100)}%`}>
                             <span style={{ width: `${Math.max(6, (partial.position / partial.duration) * 100)}%` }} />
@@ -284,5 +307,20 @@ export function MovieDetailSheet({ work, metadata: initial, onClose, onMetadata,
         </div>
       )}
     </Sheet>
+  );
+}
+
+/** Downloaded for offline viewing: a drive glyph; on the way: a ring filling up. */
+function OfflineMark({ progress }: { progress?: OfflineProgress }) {
+  if (!progress) return null;
+  if (progress.state === "done") return <HardDriveDownload className="episode-offline" size={13} aria-label="已下载" />;
+  if (progress.state !== "queued" && progress.state !== "downloading") return null;
+  const percent = Math.round(offlineFraction(progress) * 100);
+  return (
+    <span
+      className="offline-ring"
+      title={progress.state === "queued" ? "等待下载" : `正在下载 ${percent}%`}
+      style={{ "--progress": `${percent}%` } as React.CSSProperties}
+    />
   );
 }

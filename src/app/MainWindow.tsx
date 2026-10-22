@@ -476,6 +476,11 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
           notify={notify}
           progress={workProgress(detail, library.savedById)}
           onMark={library.markWatched}
+          offline={{
+            states: library.offline,
+            cloud: !["local", "smb"].includes(library.accounts.find((account) => account.id === detail.files[0].accountId)?.provider ?? "local"),
+            run: (kind, ids) => (kind === "download" ? void library.download(ids) : kind === "cancel" ? library.cancelDownload(ids) : library.removeDownload(ids)),
+          }}
         />
       )}
       {alert && <Alert request={alert} onClose={() => setAlert(null)} />}

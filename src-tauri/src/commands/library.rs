@@ -41,6 +41,43 @@ pub(crate) fn music_smart_lists(state: State<'_, AppState>) -> Result<serde_json
     Ok(serde_json::json!({ "recentlyAdded": added, "mostPlayed": most, "recentlyPlayed": recent }))
 }
 
+fn cloud_files(state: &AppState, file_ids: &[String]) -> Vec<MediaFile> {
+    file_ids
+        .iter()
+        .filter_map(|id| state.store.get_media_file(id).ok())
+        .filter(|file| {
+            state
+                .store
+                .get_account(&file.account_id)
+                .is_ok_and(|account| !matches!(account.account.provider.as_str(), "local" | "smb"))
+        })
+        .collect()
+}
+
+/// Download videos from the cloud to watch without streaming; returns how many were queued.
+#[tauri::command]
+pub(crate) fn offline_download(file_ids: Vec<String>, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<usize> {
+    Ok(crate::offline::enqueue(&app, cloud_files(&state, &file_ids)))
+}
+
+#[tauri::command]
+pub(crate) fn offline_cancel(file_ids: Vec<String>, app: tauri::AppHandle) -> Result<()> {
+    crate::offline::cancel(&app, &file_ids);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn offline_remove(file_ids: Vec<String>, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<()> {
+    let files: Vec<MediaFile> = file_ids.iter().filter_map(|id| state.store.get_media_file(id).ok()).collect();
+    crate::offline::remove(&app, &files);
+    Ok(())
+}
+
+#[tauri::command]
+pub(crate) fn offline_list(state: State<'_, AppState>) -> Result<Vec<crate::offline::Progress>> {
+    Ok(crate::offline::list(&state))
+}
+
 #[tauri::command]
 pub(crate) fn metadata_cache_clear(state: State<'_, AppState>) -> Result<()> {
     state.store.clear_metadata()

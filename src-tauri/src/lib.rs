@@ -13,6 +13,7 @@ mod menu;
 mod metadata;
 mod model;
 mod now_playing;
+mod offline;
 mod player;
 mod proxy;
 mod sidecar_subtitles;
@@ -49,6 +50,7 @@ pub fn run() {
                 .map(std::path::PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             smb::init(&data_dir);
+            offline::init(&data_dir);
             let store = Store::open(&data_dir.join("nimbus_media.db"))
                 .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()))?;
             store
@@ -71,6 +73,7 @@ pub fn run() {
             now_playing::install(app.handle().clone());
             documents::install(app.handle().clone());
             auto_scan::start(app.handle().clone());
+            offline::start(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));
@@ -127,6 +130,10 @@ pub fn run() {
             commands::library::metadata_cache_clear,
             commands::library::music_metadata_cached,
             commands::library::music_smart_lists,
+            commands::library::offline_download,
+            commands::library::offline_cancel,
+            commands::library::offline_remove,
+            commands::library::offline_list,
             commands::accounts::account_list,
             commands::accounts::account_add,
             commands::accounts::account_remove,

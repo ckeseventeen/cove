@@ -14,6 +14,12 @@ import {
   listRecentPlayback,
   listCachedMusic,
   listSmartLists,
+  listOffline,
+  onOfflineProgress,
+  downloadOffline,
+  cancelOffline,
+  removeOffline,
+  type OfflineProgress,
   type SmartLists,
   getMusicMetadata,
   markWatched as markWatchedCommand,
@@ -149,6 +155,48 @@ export function useLibrary(notify: Notify) {
 
   // Song details for the 艺人 and 专辑 views: what was looked up before, and a lookup of the rest on request.
   const [songInfo, setSongInfo] = useState<ReadonlyMap<string, SongInfo>>(new Map());
+  // Videos downloaded (or downloading) for offline viewing, by file.
+  const [offline, setOffline] = useState<ReadonlyMap<string, OfflineProgress>>(new Map());
+  const filesByIdRef = useRef(filesById);
+  filesByIdRef.current = filesById;
+  useEffect(() => {
+
+    // One toast when the queue empties, not one per episode of a season.
+    const finished: string[] = [];
+    const states = new Map<string, OfflineProgress>();
+    void listOffline()
+      .then((items) => {
+        items.forEach((item) => states.set(item.fileId, item));
+        setOffline(new Map(states));
+      })
+      .catch(() => undefined);
+    return onOfflineProgress((progress) => {
+      if (progress.state === "cancelled") states.delete(progress.fileId);
+      else states.set(progress.fileId, progress);
+      setOffline(new Map(states));
+      const name = (id: string) => filesByIdRef.current.get(id)?.displayName ?? "视频";
+      if (progress.state === "failed") notify(`无法下载“${name(progress.fileId)}”：${progress.message ?? "未知错误"}`, "error");
+      if (progress.state !== "done") return;
+      finished.push(progress.fileId);
+      if ([...states.values()].some((item) => item.state === "queued" || item.state === "downloading")) return;
+      notify(finished.length === 1 ? `已下载“${name(finished[0])}”，可以离线观看` : `已下载 ${finished.length} 个视频，可以离线观看`, "success");
+      finished.length = 0;
+    });
+  }, [notify]);
+  const download = useCallback(
+    async (fileIds: string[]) => {
+      try {
+        const queued = await downloadOffline(fileIds);
+        if (!queued) notify("这些视频已下载，或存储在这台 Mac 上，无需下载", "info");
+      } catch (cause) {
+        notify(`无法开始下载：${errorText(cause)}`, "error");
+      }
+    },
+    [notify],
+  );
+  const cancelDownload = useCallback((fileIds: string[]) => void cancelOffline(fileIds).catch(() => undefined), []);
+  const removeDownload = useCallback((fileIds: string[]) => void removeOffline(fileIds).catch(() => undefined), []);
+
   // 最近添加 / 最常播放 / 最近播放, refreshed when a song starts or a folder changes.
   const [smartLists, setSmartLists] = useState<SmartLists>({ recentlyAdded: [], mostPlayed: [], recentlyPlayed: [] });
   const refreshSmartLists = useCallback(() => {
@@ -412,6 +460,10 @@ export function useLibrary(notify: Notify) {
     songInfo,
     smartLists,
     playbackStarted,
+    offline,
+    download,
+    cancelDownload,
+    removeDownload,
     albumLookup,
     lookUpAlbums,
     stopAlbumLookup,

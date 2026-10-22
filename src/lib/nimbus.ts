@@ -591,6 +591,72 @@ export function onReadingProgress(callback: (progress: ReadingProgress) => void)
   };
 }
 
+/* ---------- Offline: videos downloaded from the cloud to watch without streaming ---------- */
+
+export type OfflineState = "queued" | "downloading" | "done" | "failed" | "cancelled";
+export type OfflineProgress = { fileId: string; state: OfflineState; received: number; total: number; message?: string };
+
+// The preview simulates downloads so the interface can be exercised without the app.
+const previewOffline = new Map<string, OfflineProgress>();
+const previewOfflineListeners = new Set<(progress: OfflineProgress) => void>();
+function previewOfflineEmit(progress: OfflineProgress) {
+  if (progress.state === "cancelled") previewOffline.delete(progress.fileId);
+  else previewOffline.set(progress.fileId, progress);
+  previewOfflineListeners.forEach((listener) => listener(progress));
+}
+
+export async function downloadOffline(fileIds: string[]): Promise<number> {
+  if (isTauri()) return invoke<number>("offline_download", { fileIds });
+  const fresh = fileIds.filter((id) => !previewOffline.has(id));
+  fresh.forEach((fileId, index) => {
+    const total = previewFiles.find((file) => file.id === fileId)?.size ?? 1_000_000;
+    previewOfflineEmit({ fileId, state: "queued", received: 0, total });
+    [1, 2, 3, 4].forEach((step) =>
+      window.setTimeout(() => {
+        if (!previewOffline.has(fileId)) return;
+        previewOfflineEmit({ fileId, state: step === 4 ? "done" : "downloading", received: (total * step) / 4, total });
+      }, (index * 4 + step) * 400),
+    );
+  });
+  return fresh.length;
+}
+
+export async function cancelOffline(fileIds: string[]): Promise<void> {
+  if (isTauri()) return invoke("offline_cancel", { fileIds });
+  fileIds.forEach((fileId) => previewOfflineEmit({ fileId, state: "cancelled", received: 0, total: 0 }));
+}
+
+export async function removeOffline(fileIds: string[]): Promise<void> {
+  if (isTauri()) return invoke("offline_remove", { fileIds });
+  fileIds.forEach((fileId) => previewOfflineEmit({ fileId, state: "cancelled", received: 0, total: 0 }));
+}
+
+export async function listOffline(): Promise<OfflineProgress[]> {
+  if (isTauri()) return invoke<OfflineProgress[]>("offline_list");
+  return [...previewOffline.values()];
+}
+
+export function onOfflineProgress(callback: (progress: OfflineProgress) => void) {
+  if (!isTauri()) {
+    previewOfflineListeners.add(callback);
+    return () => {
+      previewOfflineListeners.delete(callback);
+    };
+  }
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<OfflineProgress>("offline-progress", (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
 /** The video window entered or left the floating mini-player. */
 export function onPlayerFloating(callback: (floating: boolean) => void) {
   if (!isTauri()) return () => undefined;

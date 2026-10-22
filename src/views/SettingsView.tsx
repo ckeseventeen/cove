@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Clapperboard, Ellipsis, FileText, LoaderCircle, Music } from "lucide-react";
+import { Clapperboard, Ellipsis, FileText, HardDriveDownload, LoaderCircle, Music } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
-import { formatRelative, plural } from "../lib/format";
+import { formatBytes, formatRelative, plural } from "../lib/format";
 import { providerLabel } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import { clearMetadataCache, getUiZoom, onUiZoom, setUiZoom, type Account, type MediaSource, type UiZoom } from "../lib/nimbus";
@@ -171,6 +171,60 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           只扫描这里列出的文件夹及其子文件夹，共索引 {plural(library.files.length, "个媒体文件")}，不会下载云端原文件。
         </p>
       </section>
+
+      {library.offline.size > 0 && (
+        <section className="group">
+          <h2 className="group-title">离线视频</h2>
+          <div className="group-box">
+            {[...library.offline.values()]
+              .filter((item) => item.state !== "cancelled")
+              .map((item) => {
+                const file = library.filesById.get(item.fileId);
+                const active = item.state === "queued" || item.state === "downloading";
+                return (
+                  <div className="group-row" key={item.fileId}>
+                    <span className="glyph blue">
+                      <HardDriveDownload size={15} />
+                    </span>
+                    <span className="row-main">
+                      <span className="row-title truncate" title={file?.displayName}>
+                        {file?.displayName ?? "已不在资料库中的视频"}
+                      </span>
+                      <span className={`row-subtitle ${item.state === "failed" ? "error" : ""}`}>
+                        {item.state === "done"
+                          ? formatBytes(item.total)
+                          : item.state === "queued"
+                            ? "等待下载"
+                            : item.state === "downloading"
+                              ? `正在下载 ${formatBytes(item.received)} / ${formatBytes(item.total)}`
+                              : (item.message ?? "下载失败")}
+                      </span>
+                    </span>
+                    <button
+                      className="icon-btn"
+                      title="更多"
+                      aria-label="下载的更多操作"
+                      onClick={(event) =>
+                        void showContextMenu(event, [
+                          ...(item.state === "failed" ? [{ label: "重新下载", action: () => void library.download([item.fileId]) }] : []),
+                          active
+                            ? { label: "取消下载", action: () => library.cancelDownload([item.fileId]) }
+                            : { label: "移除下载", destructive: true, action: () => library.removeDownload([item.fileId]) },
+                        ])
+                      }
+                    >
+                      <Ellipsis size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+          </div>
+          <p className="group-footer">
+            已下载 {formatBytes([...library.offline.values()].filter((item) => item.state === "done").reduce((sum, item) => sum + item.total, 0))}
+            。下载的视频播放时不再走网络；在影视详情的“⋯”或剧集的右键菜单中下载。
+          </p>
+        </section>
+      )}
 
       <section className="group">
         <h2 className="group-title">显示</h2>

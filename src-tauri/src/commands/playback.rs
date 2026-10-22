@@ -72,7 +72,10 @@ async fn open_native(
     }
     let account = state.store.get_account(&file.account_id)?;
     let show_video = file.media_kind.as_deref() != Some("music");
-    let url = if account.account.provider == "local" {
+    let url = if let Some(copy) = crate::offline::local_copy(&file) {
+        // Downloaded for offline viewing: no streaming.
+        copy.to_string_lossy().into_owned()
+    } else if account.account.provider == "local" {
         file.remote_path.clone()
     } else if account.account.provider == "smb" {
         // mpv reads the mounted share directly, like a file on this Mac.

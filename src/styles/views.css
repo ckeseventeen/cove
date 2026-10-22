@@ -1127,3 +1127,18 @@ kbd.keys {
 .album-facts .page-actions {
   margin-top: 10px;
 }
+
+/* Offline downloads in episode lists */
+.episode-offline {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.offline-ring {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--progress, 0%), var(--fill-pressed, var(--separator)) 0);
+  -webkit-mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+  mask: radial-gradient(circle, transparent 3.5px, #000 4px);
+}

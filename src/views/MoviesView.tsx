@@ -15,6 +15,7 @@ import {
   type WorkProgress,
 } from "../lib/media";
 import { compareWorks, needsAllDetails, type MovieSort } from "../lib/movieLookup";
+import { offlineActions } from "../lib/offline";
 import { showContextMenu } from "../lib/native";
 import { getMovieMetadata, type MovieMetadata } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
@@ -134,6 +135,15 @@ export function MoviesView({ library, sourceId, onOpenWork, onNavigate }: Props)
               onNavigate={onNavigate}
               progress={workProgress(work, library.savedById)}
               onMark={library.markWatched}
+              offlineMenu={
+                !work.isSeries && !["local", "smb"].includes(library.accounts.find((account) => account.id === work.files[0].accountId)?.provider ?? "local")
+                  ? offlineActions([work.files[0].id], library.offline, { download: "下载以离线观看", remove: "移除下载" }).map((action) => ({
+                      label: action.label,
+                      action: () =>
+                        action.kind === "download" ? void library.download(action.ids) : action.kind === "cancel" ? library.cancelDownload(action.ids) : library.removeDownload(action.ids),
+                    }))
+                  : []
+              }
             />
           ))}
           <div ref={sentinel} className="sentinel" />
@@ -211,6 +221,7 @@ function MovieCard({
   onNavigate,
   progress,
   onMark,
+  offlineMenu,
 }: {
   work: MediaWork;
   metadata?: MovieMetadata;
@@ -219,6 +230,8 @@ function MovieCard({
   onNavigate: (route: Route) => void;
   progress: WorkProgress;
   onMark: (fileIds: string[], watched: boolean) => void;
+  /** 下载以离线观看 and the like, for a film from the cloud. */
+  offlineMenu: { label: string; action: () => void }[];
 }) {
   const player = usePlayer();
   const card = useRef<HTMLDivElement>(null);
@@ -275,6 +288,7 @@ function MovieCard({
           progress.done
             ? { label: "标记为未看过", action: () => onMark(work.files.map((file) => file.id), false) }
             : { label: "标记为已看过", action: () => onMark(inOrder.map((file) => file.id), true) },
+          ...offlineMenu,
           "separator",
           {
             label: "在文件中显示",

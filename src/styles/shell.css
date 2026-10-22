@@ -806,3 +806,6 @@ button.th:hover {
 .window[data-video] > .main {
   visibility: hidden;
 }
+.row-subtitle.error {
+  color: var(--red);
+}

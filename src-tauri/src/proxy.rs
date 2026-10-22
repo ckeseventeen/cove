@@ -28,6 +28,8 @@ struct StreamSession {
     file_id: String,
     expires_at: Instant,
     cached_url: Option<(String, Instant)>,
+    /// A download's session: it outlives playback stopping (revoke_all) and ends when released.
+    pinned: bool,
 }
 
 #[derive(Clone)]
@@ -87,28 +89,39 @@ impl StreamProxy {
         for session in sessions.values_mut().filter(|s| s.file_id == file_id) {
             session.expires_at = Instant::now() + SESSION_LIFETIME;
         }
-        sessions.retain(|_, session| session.expires_at > Instant::now());
+        sessions.retain(|_, session| session.pinned || session.expires_at > Instant::now());
     }
     pub async fn revoke_all(&self) {
-        self.sessions.write().await.clear();
+        self.sessions.write().await.retain(|_, session| session.pinned);
     }
 
     pub async fn create_url(&self, file_id: String) -> String {
+        self.session_url(file_id, false).await.0
+    }
+
+    /// A URL for a download, and its token to release afterwards.
+    pub async fn create_download_url(&self, file_id: String) -> (String, String) {
+        self.session_url(file_id, true).await
+    }
+
+    pub async fn release(&self, token: &str) {
+        self.sessions.write().await.remove(token);
+    }
+
+    async fn session_url(&self, file_id: String, pinned: bool) -> (String, String) {
         let token = Uuid::new_v4().simple().to_string();
         let mut sessions = self.sessions.write().await;
-        sessions.retain(|_, session| session.expires_at > Instant::now());
+        sessions.retain(|_, session| session.pinned || session.expires_at > Instant::now());
         sessions.insert(
             token.clone(),
             StreamSession {
                 file_id: file_id.clone(),
                 expires_at: Instant::now() + SESSION_LIFETIME,
                 cached_url: None,
+                pinned,
             },
         );
-        format!(
-            "http://127.0.0.1:{}/stream/{}?token={}",
-            self.port, file_id, token
-        )
+        (format!("http://127.0.0.1:{}/stream/{}?token={}", self.port, file_id, token), token)
     }
 }
 
@@ -157,7 +170,7 @@ async fn stream(
         let mut sessions = context.sessions.write().await;
         let value = sessions.get_mut(&query.token);
         if let Some(session) = value {
-            if session.expires_at > Instant::now() {
+            if session.pinned || session.expires_at > Instant::now() {
                 session.expires_at = Instant::now() + SESSION_LIFETIME;
             }
             Some(session.clone())

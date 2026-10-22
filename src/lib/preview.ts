@@ -8,7 +8,7 @@ export const previewAccounts: Account[] = [
 ];
 
 export const previewSources: MediaSource[] = [
-  { id: 'movies', accountId: 'preview', kind: 'movie', remoteRoot: '/演示/电影', label: '电影与剧集', lastScanAt: 1789142400 },
+  { id: 'movies', accountId: 'preview-baidu', kind: 'movie', remoteRoot: '/演示/电影', label: '电影与剧集', lastScanAt: 1789142400 },
   { id: 'songs', accountId: 'preview', kind: 'music', remoteRoot: '/演示/音乐', label: '音乐收藏', lastScanAt: 1789142400 },
   { id: 'docs', accountId: 'preview', kind: 'document', remoteRoot: '/演示/文档', label: '读书', lastScanAt: 1789142400 },
 ];
@@ -25,7 +25,7 @@ const artists = ['林间', '晚风乐团', '安静的人', '北方以北', '盐�
 
 export const previewFiles: MediaFile[] = [
   ...names.map((name, index): MediaFile => ({
-    id: `movie-${index}`, accountId: 'preview', remotePath: `/演示/电影/${name}`, cloudPath: `/演示/电影/${name}`,
+    id: `movie-${index}`, accountId: 'preview-baidu', remotePath: `/演示/电影/${name}`, cloudPath: `/演示/电影/${name}`,
     displayName: name, size: 2_000_000_000 + index * 1_000_000, sourceId: 'movies', sourceIds: ['movies'], mediaKind: 'movie',
   })),
   ...Array.from({ length: 125 }, (_, index): MediaFile => {
