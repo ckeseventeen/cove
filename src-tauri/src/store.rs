@@ -462,6 +462,17 @@ impl Store {
         Ok(())
     }
 
+    /// Paths of the files a source currently has, to tell what a rescan added or removed.
+    pub fn source_file_paths(&self, source_id: &str) -> Result<std::collections::HashSet<String>> {
+        let connection = self.connection.lock();
+        let mut statement = connection.prepare(
+            "SELECT f.remote_path FROM source_files sf JOIN media_files f ON f.id = sf.file_id
+             WHERE sf.source_id = ?1 AND sf.present = 1",
+        )?;
+        let rows = statement.query_map([source_id], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     pub fn replace_source_files(
         &self,
         source: &MediaSource,

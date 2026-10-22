@@ -14,6 +14,7 @@ import {
   listRecentPlayback,
   onPlayerStopped,
   onReadingProgress,
+  onSourceScan,
   removeAccount as removeAccountCommand,
   removeMediaSource,
   renamePlaylist as renamePlaylistCommand,
@@ -30,7 +31,7 @@ import {
 } from "../lib/nimbus";
 import { onStatus } from "../player/statusStore";
 import type { Notify } from "../ui/Toasts";
-import { scanSummary } from "../lib/scan";
+import { backgroundScanSummary, scanSummary } from "../lib/scan";
 
 const errorText = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause));
 
@@ -139,6 +140,25 @@ export function useLibrary(notify: Notify) {
   }, []);
 
   const clearMovieMetadata = useCallback(() => setMovieMetadataMap({}), []);
+
+  // Folders also update by themselves (auto_scan.rs): follow every scan, and refresh after a background one.
+  const sourcesRef = useRef(sources);
+  sourcesRef.current = sources;
+  useEffect(
+    () =>
+      onSourceScan((event) => {
+        if (event.phase === "started") scanning.current.add(event.sourceId);
+        else scanning.current.delete(event.sourceId);
+        setScanningIds(new Set(scanning.current));
+        // A manual scan reports and refreshes itself.
+        if (!event.background || event.phase !== "finished") return;
+        void refresh().catch(() => undefined);
+        const source = sourcesRef.current.find((item) => item.id === event.sourceId);
+        const message = source && backgroundScanSummary(source.label, source.kind, event.added);
+        if (message) notify(message, "info");
+      }),
+    [notify, refresh],
+  );
 
   const scanSource = useCallback(
     async (source: MediaSource) => {

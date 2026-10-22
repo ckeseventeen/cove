@@ -1,5 +1,4 @@
 use super::super::*;
-use super::library::media_source_scan;
 
 pub(crate) fn save_account(
     store: &Store,
@@ -95,6 +94,7 @@ pub(crate) async fn browse_directory(state: &AppState, account_id: &str, path: &
 pub(crate) async fn account_scan(
     account_id: String,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<ScanResult> {
     let sources = state
         .store
@@ -110,7 +110,7 @@ pub(crate) async fn account_scan(
         skipped_directories: Vec::new(),
     };
     for source in sources {
-        let result = media_source_scan(source.id, state.clone()).await?;
+        let result = crate::auto_scan::scan(&app, &source.id, false).await?;
         total.visited_directories += result.visited_directories;
         total.discovered_files += result.discovered_files;
         total.media_files += result.media_files;

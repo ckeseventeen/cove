@@ -1,4 +1,5 @@
 mod ai_subtitles;
+mod auto_scan;
 mod commands;
 mod config;
 mod credentials;
@@ -67,6 +68,7 @@ pub fn run() {
             app.on_menu_event(|app, event| menu::handle(app, event.id().as_ref()));
             now_playing::install(app.handle().clone());
             documents::install(app.handle().clone());
+            auto_scan::start(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));

@@ -30,3 +30,9 @@ test('a scan stopped by the size limit keeps the index and says so', () => {
 test('results without the skipped list still read as a plain update', () => {
   assert.equal(scan.scanSummary('影视', 'movie', {mediaFiles: 2, truncated: false}).tone, 'success');
 });
+
+test('background rescans mention only what arrived', () => {
+  assert.equal(scan.backgroundScanSummary('影视', 'movie', 3), '“影视”新增 3 个视频');
+  assert.equal(scan.backgroundScanSummary('普听音乐', 'music', 1), '“普听音乐”新增 1 首歌曲');
+  assert.equal(scan.backgroundScanSummary('影视', 'movie', 0), null);
+});

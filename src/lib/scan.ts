@@ -20,3 +20,8 @@ export function scanSummary(
   const folders = skipped.length === 1 ? first : `${first}等 ${skipped.length} 个文件夹`;
   return { message: `${updated}。${folders}无法读取，已跳过，原有条目保留。`, tone: 'info' };
 }
+
+/** A background rescan speaks up only when something new arrived; removals and no-ops stay quiet. */
+export function backgroundScanSummary(label: string, kind: MediaSource['kind'], added: number): string | null {
+  return added > 0 ? `“${label}”新增 ${added} ${UNITS[kind] ?? '个文件'}` : null;
+}

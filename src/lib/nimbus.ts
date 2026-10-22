@@ -557,6 +557,32 @@ export function onReadingProgress(callback: (progress: ReadingProgress) => void)
   };
 }
 
+/** A media folder scan, manual or in the background, as the native side reports it. */
+export type SourceScanEvent = {
+  sourceId: string;
+  phase: "started" | "finished" | "failed";
+  background: boolean;
+  added: number;
+  removed: number;
+  message?: string;
+};
+
+export function onSourceScan(callback: (event: SourceScanEvent) => void) {
+  if (!isTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<SourceScanEvent>("source-scan", (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}
+
 /* ---------- Playlists: ordered lists of library songs, kept in the library database ---------- */
 
 // The browser preview keeps playlists in memory so the layout can be exercised without the app.

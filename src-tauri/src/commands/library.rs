@@ -46,6 +46,7 @@ pub(crate) fn media_source_add(
     remote_root: String,
     label: String,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<MediaSource> {
     if !matches!(kind.as_str(), "movie" | "music" | "document") {
         return Err(NimbusError::Validation("媒体类型只能是影视、音乐或文档".into()));
@@ -70,20 +71,28 @@ pub(crate) fn media_source_add(
         last_scan_at: None,
     };
     state.store.insert_media_source(&source)?;
+    crate::auto_scan::watch_local_sources(&app);
     Ok(source)
 }
 
 #[tauri::command]
-pub(crate) fn media_source_remove(source_id: String, state: State<'_, AppState>) -> Result<()> {
-    state.store.delete_media_source(&source_id)
+pub(crate) fn media_source_remove(source_id: String, state: State<'_, AppState>, app: tauri::AppHandle) -> Result<()> {
+    state.store.delete_media_source(&source_id)?;
+    crate::auto_scan::watch_local_sources(&app);
+    Ok(())
 }
 
 #[tauri::command]
 pub(crate) async fn media_source_scan(
     source_id: String,
-    state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<ScanResult> {
-    let source = state.store.get_media_source(&source_id)?;
+    crate::auto_scan::scan(&app, &source_id, false).await
+}
+
+/// Read a source's folder again and reconcile the library with it.
+pub(crate) async fn scan_source(state: &AppState, source_id: &str) -> Result<ScanResult> {
+    let source = state.store.get_media_source(source_id)?;
     if source.remote_root == "/" {
         return Err(NimbusError::Validation(
             "为避免遍历整个网盘，根目录不能扫描。请移除这个来源，再选择具体的影视或音乐文件夹。"
@@ -101,7 +110,7 @@ pub(crate) async fn media_source_scan(
         .await
         .map_err(|error| NimbusError::Internal(format!("本地扫描任务失败：{error}")))??
     } else {
-        let (_, token) = account_token(&source.account_id, &state).await?;
+        let (_, token) = account_token(&source.account_id, state).await?;
         if stored.account.provider == "webdav" {
             webdav::scan(
                 &stored.account.id,
