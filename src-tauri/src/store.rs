@@ -152,6 +152,28 @@ impl Store {
         if version < 7 {
             migrate_webdav_paths(&connection)?;
         }
+        if version < 8 {
+            // When a scan first saw each file (unknown for what was there before), and how often and
+            // when each was played: the 最近添加 / 最常播放 / 最近播放 lists.
+            let has_added_at: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('media_files') WHERE name = 'added_at'",
+                [],
+                |row| row.get(0),
+            )?;
+            if has_added_at == 0 {
+                connection.execute_batch("ALTER TABLE media_files ADD COLUMN added_at INTEGER;")?;
+            }
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS play_history (
+                   file_id TEXT PRIMARY KEY REFERENCES media_files(id) ON DELETE CASCADE,
+                   play_count INTEGER NOT NULL DEFAULT 0,
+                   last_played_at INTEGER NOT NULL
+                 );
+                 PRAGMA user_version = 8;
+                 COMMIT;",
+            )?;
+        }
         // Film details from an earlier lookup scheme are never read again.
         connection.execute(
             "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
@@ -434,6 +456,42 @@ impl Store {
         Ok(())
     }
 
+    /// Count a play of `file_id`, now.
+    pub fn record_play(&self, file_id: &str) -> Result<()> {
+        self.connection.lock().execute(
+            "INSERT INTO play_history (file_id, play_count, last_played_at) VALUES (?1, 1, unixepoch())
+             ON CONFLICT(file_id) DO UPDATE SET play_count = play_count + 1, last_played_at = unixepoch()",
+            [file_id],
+        )?;
+        Ok(())
+    }
+
+    /// The songs of the smart playlists, by file id, in order: added in the last 30 days (newest
+    /// first), the most played, and the most recently played. Only songs still in a music folder.
+    pub fn smart_music_lists(&self) -> Result<(Vec<String>, Vec<String>, Vec<String>)> {
+        let connection = self.connection.lock();
+        let in_music = "EXISTS (SELECT 1 FROM source_files sf JOIN media_sources s ON s.id = sf.source_id
+                         WHERE sf.file_id = f.id AND sf.present = 1 AND s.kind = 'music')";
+        let ids = |sql: String| -> Result<Vec<String>> {
+            let mut statement = connection.prepare(&sql)?;
+            let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+            Ok(rows.collect::<std::result::Result<_, _>>()?)
+        };
+        let added = ids(format!(
+            "SELECT f.id FROM media_files f WHERE {in_music} AND f.added_at >= unixepoch() - 30 * 86400
+             ORDER BY f.added_at DESC, f.rowid DESC LIMIT 100"
+        ))?;
+        let most = ids(format!(
+            "SELECT f.id FROM play_history p JOIN media_files f ON f.id = p.file_id WHERE {in_music}
+             ORDER BY p.play_count DESC, p.last_played_at DESC LIMIT 50"
+        ))?;
+        let recent = ids(format!(
+            "SELECT f.id FROM play_history p JOIN media_files f ON f.id = p.file_id WHERE {in_music}
+             ORDER BY p.last_played_at DESC LIMIT 50"
+        ))?;
+        Ok((added, most, recent))
+    }
+
     pub fn list_media_sources(&self) -> Result<Vec<MediaSource>> {
         let connection = self.connection.lock();
         let mut statement = connection.prepare(
@@ -525,8 +583,8 @@ impl Store {
         }
         for file in files {
             transaction.execute(
-                "INSERT INTO media_files (id,account_id,remote_path,cloud_path,display_name,size,etag,mime_type,scan_state,source_id,media_kind)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ready',?9,?10)
+                "INSERT INTO media_files (id,account_id,remote_path,cloud_path,display_name,size,etag,mime_type,scan_state,source_id,media_kind,added_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'ready',?9,?10,unixepoch())
                  ON CONFLICT(account_id,remote_path) DO UPDATE SET cloud_path=excluded.cloud_path,
                  display_name=excluded.display_name,size=excluded.size,etag=excluded.etag,mime_type=excluded.mime_type,scan_state='ready'",
                 params![file.id,file.account_id,file.remote_path,file.cloud_path,file.display_name,file.size,file.etag,file.mime_type,source.id,source.kind])?;
@@ -729,8 +787,8 @@ impl Store {
         }
         let file_id = uuid::Uuid::new_v4().to_string();
         connection.execute(
-            "INSERT INTO media_files (id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, scan_state, source_id, media_kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, 'ready', NULL, ?7)
+            "INSERT INTO media_files (id, account_id, remote_path, cloud_path, display_name, size, etag, mime_type, scan_state, source_id, media_kind, added_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, NULL, 'ready', NULL, ?7, unixepoch())
              ON CONFLICT(account_id, remote_path) DO UPDATE SET display_name = excluded.display_name, cloud_path = excluded.cloud_path",
             rusqlite::params![file_id, account_id, remote_path, cp, name, size, media_kind],
         )?;

@@ -34,6 +34,13 @@ pub(crate) fn music_metadata_cached(state: State<'_, AppState>) -> Result<std::c
         .collect())
 }
 
+/// 最近添加 / 最常播放 / 最近播放, as lists of song ids in order.
+#[tauri::command]
+pub(crate) fn music_smart_lists(state: State<'_, AppState>) -> Result<serde_json::Value> {
+    let (added, most, recent) = state.store.smart_music_lists()?;
+    Ok(serde_json::json!({ "recentlyAdded": added, "mostPlayed": most, "recentlyPlayed": recent }))
+}
+
 #[tauri::command]
 pub(crate) fn metadata_cache_clear(state: State<'_, AppState>) -> Result<()> {
     state.store.clear_metadata()

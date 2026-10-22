@@ -347,6 +347,17 @@ export function onPlayerError(callback: (error: PlayerError) => void) {
   };
 }
 
+/** The automatic playlists: song ids in order. */
+export type SmartLists = { recentlyAdded: string[]; mostPlayed: string[]; recentlyPlayed: string[] };
+export type SmartListKind = keyof SmartLists;
+
+export async function listSmartLists(): Promise<SmartLists> {
+  if (isTauri()) return invoke<SmartLists>("music_smart_lists");
+  if (!demoEnabled) return { recentlyAdded: [], mostPlayed: [], recentlyPlayed: [] };
+  const songs = previewFiles.filter((file) => file.mediaKind === "music").map((file) => file.id);
+  return { recentlyAdded: songs.slice(-8).reverse(), mostPlayed: [songs[3], songs[17], songs[8]], recentlyPlayed: [songs[3], songs[40], songs[17], songs[8]] };
+}
+
 /** Song details already looked up, without lyrics, by file: what the 艺人 and 专辑 views group by. */
 export async function listCachedMusic(): Promise<Record<string, SongInfo>> {
   if (isTauri()) return invoke<Record<string, SongInfo>>("music_metadata_cached");

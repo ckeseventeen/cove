@@ -21,6 +21,7 @@ import { DocumentsView } from "../views/DocumentsView";
 import { MoviesView } from "../views/MoviesView";
 import { MusicView } from "../views/MusicView";
 import { PlaylistView } from "../views/PlaylistView";
+import { SmartPlaylistView } from "../views/SmartPlaylistView";
 import { SearchView } from "../views/SearchView";
 import { SettingsView } from "../views/SettingsView";
 import { StorageView, type ClipboardEntry } from "../views/StorageView";
@@ -56,7 +57,7 @@ export function MainWindow() {
   return (
     <PlayerProvider
       notify={notify}
-      onPlaybackStarted={library.refreshRecent}
+      onPlaybackStarted={library.playbackStarted}
       songs={library.songs}
       recent={library.recent}
       loaded={library.loaded}
@@ -379,6 +380,8 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         return <MoviesView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} onOpenWork={setDetail} onNavigate={navigate} />;
       case "music":
         return <MusicView key={route.sourceId ?? "all"} library={library} sourceId={route.sourceId} album={route.album} onNavigate={navigate} />;
+      case "smart":
+        return <SmartPlaylistView library={library} list={route.list} onNavigate={navigate} />;
       case "playlist":
         return <PlaylistView key={route.id} library={library} playlistId={route.id} onNavigate={navigate} />;
       case "documents":

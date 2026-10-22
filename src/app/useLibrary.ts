@@ -13,6 +13,8 @@ import {
   listReadingProgress,
   listRecentPlayback,
   listCachedMusic,
+  listSmartLists,
+  type SmartLists,
   getMusicMetadata,
   markWatched as markWatchedCommand,
   onPlayerStopped,
@@ -147,6 +149,14 @@ export function useLibrary(notify: Notify) {
 
   // Song details for the 艺人 and 专辑 views: what was looked up before, and a lookup of the rest on request.
   const [songInfo, setSongInfo] = useState<ReadonlyMap<string, SongInfo>>(new Map());
+  // 最近添加 / 最常播放 / 最近播放, refreshed when a song starts or a folder changes.
+  const [smartLists, setSmartLists] = useState<SmartLists>({ recentlyAdded: [], mostPlayed: [], recentlyPlayed: [] });
+  const refreshSmartLists = useCallback(() => {
+    void listSmartLists()
+      .then(setSmartLists)
+      .catch(() => undefined);
+  }, []);
+  useEffect(refreshSmartLists, [refreshSmartLists]);
   const [albumLookup, setAlbumLookup] = useState<{ done: number; total: number } | null>(null);
   const lookupStopped = useRef(false);
   useEffect(() => {
@@ -217,12 +227,19 @@ export function useLibrary(notify: Notify) {
         // A manual scan reports and refreshes itself.
         if (!event.background || event.phase !== "finished") return;
         void refresh().catch(() => undefined);
+        if (event.added) refreshSmartLists();
         const source = sourcesRef.current.find((item) => item.id === event.sourceId);
         const message = source && backgroundScanSummary(source.label, source.kind, event.added);
         if (message) notify(message, "info");
       }),
-    [notify, refresh],
+    [notify, refresh, refreshSmartLists],
   );
+
+  /** A song or video started: 继续播放 and the play-based lists move. */
+  const playbackStarted = useCallback(() => {
+    refreshRecent();
+    refreshSmartLists();
+  }, [refreshRecent, refreshSmartLists]);
 
   const scanSource = useCallback(
     async (source: MediaSource) => {
@@ -393,6 +410,8 @@ export function useLibrary(notify: Notify) {
     savedById,
     markWatched,
     songInfo,
+    smartLists,
+    playbackStarted,
     albumLookup,
     lookUpAlbums,
     stopAlbumLookup,

@@ -1,7 +1,8 @@
 import { forwardRef, useRef, useState } from "react";
-import { Clapperboard, FileText, House, ListMusic, LoaderCircle, Music, Plus } from "lucide-react";
+import { CalendarPlus, Clapperboard, FileText, History, House, ListMusic, LoaderCircle, Music, Plus, TrendingUp } from "lucide-react";
 import { showContextMenu } from "../lib/native";
-import type { Account, MediaFile, MediaSource, Playlist } from "../lib/nimbus";
+import type { Account, MediaFile, MediaSource, Playlist, SmartListKind } from "../lib/nimbus";
+import { SMART_LISTS } from "../views/SmartPlaylistView";
 import { usePlayer } from "../player/PlayerProvider";
 import { SearchField } from "../ui/controls";
 import { providerIcon } from "../ui/glyphs";
@@ -27,6 +28,9 @@ type Props = {
   onEditPlaylist: (id: string | null) => void;
   onWindowMouseDown: (event: React.MouseEvent) => void;
 };
+
+/** The automatic playlists show only once they hold songs. */
+const SMART_ICONS: Record<SmartListKind, typeof History> = { recentlyAdded: CalendarPlus, mostPlayed: TrendingUp, recentlyPlayed: History };
 
 /** In-place name field, as when naming a new playlist in Music. */
 function RenameField({ initial, onDone }: { initial: string; onDone: (name: string | null) => void }) {
@@ -138,6 +142,20 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
                 <Plus size={13} />
               </button>
             </h2>
+            {SMART_LISTS.filter(({ kind }) => library.smartLists[kind].length > 0).map(({ kind, title }) => {
+              const Icon = SMART_ICONS[kind];
+              return (
+                <button
+                  key={kind}
+                  className="sidebar-item"
+                  aria-current={current(`smart:${kind}`)}
+                  onClick={() => onNavigate({ name: "smart", list: kind })}
+                >
+                  <Icon size={16} />
+                  <span className="label">{title}</span>
+                </button>
+              );
+            })}
             {library.playlists.map((playlist) => {
               if (editingPlaylist === playlist.id) {
                 return (

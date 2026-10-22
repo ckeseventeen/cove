@@ -8,6 +8,8 @@ export type Route =
   | { name: "music"; sourceId?: string; album?: string }
   | { name: "documents"; sourceId?: string }
   | { name: "playlist"; id: string }
+  /** 最近添加 / 最常播放 / 最近播放. */
+  | { name: "smart"; list: "recentlyAdded" | "mostPlayed" | "recentlyPlayed" }
   // The query lives in the route, so Back and Forward return to the same results.
   | { name: "search"; query: string }
   | { name: "settings" }
@@ -33,6 +35,7 @@ export function sameRoute(left: Route, right: Route) {
     return (left.sourceId ?? null) === (other.sourceId ?? null) && ((left as { album?: string }).album ?? null) === (other.album ?? null);
   }
   if (left.name === "playlist" && right.name === "playlist") return left.id === right.id;
+  if (left.name === "smart" && right.name === "smart") return left.list === right.list;
   if (left.name === "search" && right.name === "search") return left.query === right.query;
   return true;
 }
@@ -84,6 +87,8 @@ export function sidebarKey(route: Route) {
       return route.sourceId ? `source:${route.sourceId}` : route.name;
     case "playlist":
       return `playlist:${route.id}`;
+    case "smart":
+      return `smart:${route.list}`;
     default:
       return route.name;
   }

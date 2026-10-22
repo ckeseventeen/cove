@@ -102,6 +102,10 @@ async fn open_native(
         .await?;
     let snapshot = state.player.status().await;
     let _ = window.app_handle().emit("nimbus-player-state", &snapshot);
+    if !show_video {
+        // Songs feed 最常播放 and 最近播放.
+        let _ = state.store.record_play(&file.id);
+    }
     if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
         if show_video {
             player::attach_controls_window(&main, &controls)?;

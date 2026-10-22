@@ -605,3 +605,26 @@ fn marking_watched_saves_a_finish_in_order_and_unmarking_forgets() {
     assert!(fixture.store.playback_progress(&ids[1]).unwrap().is_some());
     fixture.store.mark_watched(&["missing".to_owned()], true).unwrap();
 }
+
+#[test]
+fn smart_lists_follow_plays_and_new_songs() {
+    let fixture = Fixture::new();
+    let mut source = fixture.source("songs");
+    source.kind = "music".into();
+    fixture.store.delete_media_source(&source.id).unwrap();
+    fixture.store.insert_media_source(&source).unwrap();
+    fixture.store.replace_source_files(&source, &[file("A.flac"), file("B.flac"), file("C.flac")], true).unwrap();
+    let mut ids: Vec<(String, String)> = fixture.store.list_media_files().unwrap().into_iter().map(|file| (file.display_name, file.id)).collect();
+    ids.sort();
+    let id = |name: &str| ids.iter().find(|(file, _)| file == name).unwrap().1.clone();
+    fixture.store.record_play(&id("B.flac")).unwrap();
+    fixture.store.record_play(&id("B.flac")).unwrap();
+    fixture.store.record_play(&id("C.flac")).unwrap();
+    let (added, most, recent) = fixture.store.smart_music_lists().unwrap();
+    assert_eq!(added.len(), 3, "a scan stamps new files as added now");
+    assert_eq!(most, [id("B.flac"), id("C.flac")]);
+    assert_eq!(recent.len(), 2);
+    // Files the library had before the stamp are not "recently added".
+    fixture.store.connection.lock().execute("UPDATE media_files SET added_at = NULL", []).unwrap();
+    assert!(fixture.store.smart_music_lists().unwrap().0.is_empty());
+}
