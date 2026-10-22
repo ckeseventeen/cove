@@ -168,6 +168,17 @@ export async function connectBaidu(label: string, accountId?: string): Promise<A
   appOnly("百度网盘授权需要在 Cove macOS 应用中使用");
 }
 
+/** Whether Google Drive or OneDrive can sign in through the browser (an OAuth app is configured). */
+export async function oauthAvailable(provider: string): Promise<boolean> {
+  return isTauri() ? invoke<boolean>("oauth_available", { provider }) : false;
+}
+
+/** Sign in to Google Drive or OneDrive in the browser; with `accountId`, reconnect that account. */
+export async function connectOAuth(provider: string, label: string, accountId?: string): Promise<Account> {
+  if (isTauri()) return invoke<Account>("oauth_connect", { provider, label, accountId: accountId ?? null });
+  appOnly("浏览器登录需要在 Cove macOS 应用中使用");
+}
+
 /** Stop a Baidu sign-in that is waiting for the browser. */
 export async function cancelBaiduSignIn(): Promise<void> {
   if (isTauri()) return invoke<void>("baidu_oauth_cancel");

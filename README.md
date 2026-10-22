@@ -18,7 +18,12 @@ Cove 是一个本机优先的 macOS 媒体中心，聚合本地磁盘、百度�
 - 百度网盘目录浏览，可将任意目录配置为影视库或音乐库
 - 多账号、多目录媒体来源聚合；每个来源独立增量对账，不再全盘混扫
 
-Google Drive 与 OneDrive 当前使用 OAuth Access Token 接入，令牌存入 macOS Keychain。正式分发前需要分别申请 Google Cloud OAuth Client ID 和 Microsoft Entra 应用，并补全 PKCE 登录及自动刷新。
+Google Drive 与 OneDrive 支持在浏览器中登录（OAuth 2.0 + PKCE，本机回环地址回调），令牌存入 macOS 钥匙串并自动续期。需要先注册自己的应用，把 ID 写进项目根目录的 `.env`（个人版构建会一并打包）：
+
+- **Google Drive**：在 Google Cloud Console 启用 Google Drive API，创建“桌面应用”类型的 OAuth 客户端，授权范围 `drive.readonly`。填写 `NIMBUS_GOOGLE_CLIENT_ID` 和 `NIMBUS_GOOGLE_CLIENT_SECRET`（桌面应用的 secret 按 Google 的说明并不保密）。测试阶段需把自己的账号加为测试用户。
+- **OneDrive**：在 Microsoft Entra 管理中心注册应用，平台选“移动和桌面应用程序”，重定向 URI 填 `http://localhost`，在“身份验证”中允许公共客户端流，API 权限添加 `Files.Read.All`、`User.Read`、`offline_access`。填写 `NIMBUS_ONEDRIVE_CLIENT_ID`。
+
+未配置时，“添加存储”中仍可粘贴访问令牌（约一小时后失效）。
 
 百度网盘开发时从项目根目录 `.env` 读取 `NIMBUS_BAIDU_APP_KEY`、`NIMBUS_BAIDU_SECRET_KEY` 和 `NIMBUS_BAIDU_REDIRECT_URI`。用户授权产生的 Access Token 与 Refresh Token 只保存在 macOS Keychain。旧版全盘扫描结果不会再直接展示，只有用户明确选择的影视/音乐目录会进入聚合媒体库。阿里云盘仍需开放平台应用资质；夸克未提供公开的个人网盘文件 API，因此不使用 Cookie 抓取方案。
 

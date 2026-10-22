@@ -13,6 +13,7 @@ mod menu;
 mod metadata;
 mod model;
 mod now_playing;
+mod oauth;
 mod offline;
 mod player;
 mod proxy;
@@ -139,6 +140,8 @@ pub fn run() {
             commands::accounts::account_remove,
             commands::accounts::baidu_oauth_connect,
             commands::accounts::baidu_oauth_cancel,
+            commands::accounts::oauth_available,
+            commands::accounts::oauth_connect,
             commands::accounts::account_update_credentials,
             commands::accounts::account_browse,
             commands::accounts::account_scan,

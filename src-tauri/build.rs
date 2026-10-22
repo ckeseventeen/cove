@@ -58,6 +58,9 @@ fn main() {
     let baidu_secret = value("NIMBUS_BAIDU_SECRET_KEY");
     let baidu_redirect = value("NIMBUS_BAIDU_REDIRECT_URI");
     let tmdb_token = value("NIMBUS_TMDB_READ_ACCESS_TOKEN");
+    let google_client_id = value("NIMBUS_GOOGLE_CLIENT_ID");
+    let google_client_secret = value("NIMBUS_GOOGLE_CLIENT_SECRET");
+    let onedrive_client_id = value("NIMBUS_ONEDRIVE_CLIENT_ID");
     if std::env::var("NIMBUS_BUNDLE_PERSONAL_CONFIG").as_deref() == Ok("1") {
         println!(
             "cargo:warning=Bundling personal config: Baidu key len={}, TMDB token len={}",
@@ -70,11 +73,14 @@ fn main() {
         );
     }
     let generated = format!(
-        "const BUNDLED_BAIDU_APP_KEY: &str = {:?};\nconst BUNDLED_BAIDU_SECRET_KEY: &str = {:?};\nconst BUNDLED_BAIDU_REDIRECT_URI: &str = {:?};\nconst BUNDLED_TMDB_READ_ACCESS_TOKEN: &str = {:?};\n",
+        "const BUNDLED_BAIDU_APP_KEY: &str = {:?};\nconst BUNDLED_BAIDU_SECRET_KEY: &str = {:?};\nconst BUNDLED_BAIDU_REDIRECT_URI: &str = {:?};\nconst BUNDLED_TMDB_READ_ACCESS_TOKEN: &str = {:?};\nconst BUNDLED_GOOGLE_CLIENT_ID: &str = {:?};\nconst BUNDLED_GOOGLE_CLIENT_SECRET: &str = {:?};\nconst BUNDLED_ONEDRIVE_CLIENT_ID: &str = {:?};\n",
         baidu_key,
         baidu_secret,
         baidu_redirect,
-        tmdb_token
+        tmdb_token,
+        google_client_id,
+        google_client_secret,
+        onedrive_client_id
     );
     let output = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR missing"));
     std::fs::write(output.join("baidu_build_config.rs"), generated)

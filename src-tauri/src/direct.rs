@@ -234,6 +234,14 @@ fn baidu_failure(errno: i64, message: String) -> NimbusError {
 /// Resolves the token used for API calls and returns an updated serialized credential when a
 /// refresh was necessary. Existing raw-token accounts remain supported.
 pub async fn access_token(provider: &str, stored: &str) -> Result<(String, Option<String>)> {
+    if matches!(provider, "google_drive" | "onedrive") {
+        // Signed in through the browser: tokens that refresh. A pasted token is used as it is.
+        let Ok(credential) = serde_json::from_str::<crate::oauth::OAuthCredential>(stored) else {
+            return Ok((stored.to_owned(), None));
+        };
+        let (token, updated) = crate::oauth::access_token(provider, &credential).await?;
+        return Ok((token, updated.map(|credential| serde_json::to_string(&credential)).transpose()?));
+    }
     if provider != "baidu" {
         return Ok((stored.to_owned(), None));
     }

@@ -127,7 +127,7 @@ pub(crate) async fn account_scan(
 }
 
 /// The Baidu sign-in waiting for the browser; 取消 (or a newer sign-in) sends on it.
-static BAIDU_SIGN_IN: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
+pub(crate) static BAIDU_SIGN_IN: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>> =
     std::sync::Mutex::new(None);
 /// Held while a sign-in has the callback port bound.
 static BAIDU_CALLBACK_PORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -213,6 +213,58 @@ pub(crate) async fn baidu_oauth_connect(
     Ok(account)
 }
 
+/// Whether Google Drive or OneDrive can sign in through the browser (an OAuth app is configured).
+#[tauri::command]
+pub(crate) fn oauth_available(provider: String) -> bool {
+    crate::oauth::is_available(&provider)
+}
+
+/// Sign in to Google Drive or OneDrive in the browser; with `account_id`, reconnect that account.
+#[tauri::command]
+pub(crate) async fn oauth_connect(
+    provider: String,
+    label: String,
+    account_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Account> {
+    if !matches!(provider.as_str(), "google_drive" | "onedrive") {
+        return Err(NimbusError::Validation("这个位置不支持浏览器登录".into()));
+    }
+    let existing = match account_id {
+        Some(id) => {
+            let stored = state.store.get_account(&id)?;
+            if stored.account.provider != provider {
+                return Err(NimbusError::Validation("账号类型不一致".into()));
+            }
+            Some(stored)
+        }
+        None => None,
+    };
+    let label = label.trim();
+    if existing.is_none() && label.is_empty() {
+        return Err(NimbusError::Validation("显示名称不能为空".into()));
+    }
+    // One sign-in at a time; 取消 (baidu_oauth_cancel) stops this one too.
+    let (cancel, cancelled) = tokio::sync::oneshot::channel();
+    let previous = BAIDU_SIGN_IN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .replace(cancel);
+    if let Some(previous) = previous {
+        let _ = previous.send(());
+    }
+    let credential = crate::oauth::sign_in(&provider, cancelled).await?;
+    direct::validate(&provider, &credential.access_token).await?;
+    let serialized = Zeroizing::new(serde_json::to_string(&credential)?);
+    if let Some(stored) = existing {
+        credentials::replace(&state.credentials, &stored, serialized).await?;
+        return Ok(stored.account);
+    }
+    let account = save_account(&state.store, &provider, label, &serialized)?;
+    state.credentials.write().await.insert(account.id.clone(), serialized);
+    Ok(account)
+}
+
 /// Opens Baidu's authorization page and waits up to 3 minutes for the browser to come back
 /// with a code.
 async fn baidu_authorization_code(config: &config::BaiduConfig, port: u16) -> Result<String> {
@@ -235,7 +287,7 @@ async fn baidu_authorization_code(config: &config::BaiduConfig, port: u16) -> Re
 
     let parameters = tokio::time::timeout(
         Duration::from_secs(180),
-        baidu_callback(&listener, port, &state_token),
+        oauth_callback(&listener, port, &state_token, "百度网盘"),
     )
     .await
     .map_err(|_| {
@@ -259,12 +311,13 @@ async fn baidu_authorization_code(config: &config::BaiduConfig, port: u16) -> Re
         .ok_or_else(|| NimbusError::Validation("百度授权未返回授权码".into()))
 }
 
-/// Answers requests on the callback port until one carries Baidu's reply. Anything else, such
+/// Answers requests on the callback port until one carries the sign-in reply. Anything else, such
 /// as a favicon request or an idle preconnection, is turned away.
-async fn baidu_callback(
+pub(crate) async fn oauth_callback(
     listener: &tokio::net::TcpListener,
     port: u16,
     state_token: &str,
+    service: &str,
 ) -> Result<std::collections::HashMap<String, String>> {
     loop {
         let (mut socket, _) = listener.accept().await?;
@@ -294,15 +347,9 @@ async fn baidu_callback(
         let success = parameters.contains_key("code")
             && parameters.get("state").map(String::as_str) == Some(state_token);
         let (status, body) = if success {
-            (
-                "200 OK",
-                "<h2>百度网盘授权成功</h2><p>可以关闭这个页面并返回 Cove。</p>",
-            )
+            ("200 OK", format!("<h2>{service}授权成功</h2><p>可以关闭这个页面并返回 Cove。</p>"))
         } else {
-            (
-                "400 Bad Request",
-                "<h2>百度网盘授权失败</h2><p>请关闭页面并返回 Cove 重试。</p>",
-            )
+            ("400 Bad Request", format!("<h2>{service}授权失败</h2><p>请关闭页面并返回 Cove 重试。</p>"))
         };
         let response = format!(
             "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",

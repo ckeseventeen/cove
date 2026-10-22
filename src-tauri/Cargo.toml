@@ -33,3 +33,5 @@ url = "2"
 uuid = { version = "1", features = ["v4"] }
 zeroize = { version = "1", features = ["derive"] }
 notify = "8"
+sha2 = "0.10"
+base64 = "0.22"

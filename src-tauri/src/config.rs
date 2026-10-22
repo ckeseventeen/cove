@@ -121,3 +121,37 @@ impl TmdbConfig {
         })
     }
 }
+
+/// One setting from the environment, the project's .env, or a personal build; empty counts as unset.
+fn setting(name: &str) -> Option<String> {
+    let bundled = match name {
+        "NIMBUS_GOOGLE_CLIENT_ID" => BUNDLED_GOOGLE_CLIENT_ID,
+        "NIMBUS_GOOGLE_CLIENT_SECRET" => BUNDLED_GOOGLE_CLIENT_SECRET,
+        "NIMBUS_ONEDRIVE_CLIENT_ID" => BUNDLED_ONEDRIVE_CLIENT_ID,
+        _ => "",
+    };
+    env::var(name)
+        .ok()
+        .or_else(|| local_values().get(name).cloned())
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| (!bundled.trim().is_empty()).then(|| bundled.to_owned()))
+}
+
+/// The OAuth app registered for Google Drive or OneDrive sign-in. Google's desktop clients carry a
+/// client secret that Google itself documents as not confidential; Microsoft's public clients have none.
+#[derive(Clone)]
+pub struct OAuthClient {
+    pub client_id: String,
+    pub client_secret: Option<String>,
+}
+
+pub fn oauth_client(provider: &str) -> Option<OAuthClient> {
+    match provider {
+        "google_drive" => Some(OAuthClient {
+            client_id: setting("NIMBUS_GOOGLE_CLIENT_ID")?,
+            client_secret: setting("NIMBUS_GOOGLE_CLIENT_SECRET"),
+        }),
+        "onedrive" => Some(OAuthClient { client_id: setting("NIMBUS_ONEDRIVE_CLIENT_ID")?, client_secret: None }),
+        _ => None,
+    }
+}

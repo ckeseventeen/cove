@@ -1,6 +1,6 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CircleAlert, LoaderCircle } from "lucide-react";
-import { addAccount, cancelBaiduSignIn, connectBaidu, updateAccountCredentials, type Account, type AccountInput } from "../lib/nimbus";
+import { addAccount, cancelBaiduSignIn, connectBaidu, connectOAuth, oauthAvailable, updateAccountCredentials, type Account, type AccountInput } from "../lib/nimbus";
 import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import { Sheet } from "../ui/Sheet";
@@ -52,16 +52,33 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
   // Bumped by 取消 so a Baidu sign-in that ends afterwards leaves the closed sheet alone.
   const attempt = useRef(0);
 
+  // Google Drive and OneDrive sign in through the browser once an OAuth app is configured; until then a token is pasted.
+  const [oauth, setOauth] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setOauth(false);
+    if (provider === "google_drive" || provider === "onedrive") {
+      void oauthAvailable(provider)
+        .then((available) => current && setOauth(available))
+        .catch(() => undefined);
+    }
+    return () => {
+      current = false;
+    };
+  }, [provider]);
+  const browserSignIn = provider === "baidu" || oauth;
+  const serviceName = provider === "google_drive" ? "Google" : provider === "onedrive" ? "Microsoft" : "百度";
+
   // A share is named after itself: smb://nas.local/影视 → 影视.
   const shareName = provider === "smb" ? safeDecode(endpoint.trim().replace(/\/+$/, "")).split("/").filter(Boolean).slice(2)[0] : "";
   const name = account?.label ?? (label.trim() || shareName || DEFAULT_NAMES[provider] || "");
   // A share may let guests in, so its password is optional.
   const ready =
     !!name &&
-    (provider === "baidu" ||
+    (browserSignIn ||
       (provider === "smb" ? !!endpoint.trim() : provider === "webdav" ? !!endpoint.trim() && !!password : !!password.trim()));
   // Waiting for the browser can be abandoned; the other checks finish on their own.
-  const cancellable = !saving || provider === "baidu";
+  const cancellable = !saving || browserSignIn;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -73,7 +90,9 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
       const connected =
         provider === "baidu"
           ? await connectBaidu(name, account?.id)
-          : account
+          : browserSignIn
+            ? await connectOAuth(provider, name, account?.id)
+            : account
             ? await updateAccountCredentials(account.id, username.trim(), password)
             : await addAccount({ provider, label: name, endpoint: endpoint.trim(), username: username.trim(), password });
       // A sign-in that completed as 取消 was pressed still saved the account.
@@ -222,7 +241,7 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
                 />
               </>
             )}
-            {(provider === "google_drive" || provider === "onedrive") && (
+            {(provider === "google_drive" || provider === "onedrive") && !oauth && (
               <>
                 <label htmlFor="storage-token">访问令牌</label>
                 <input
@@ -239,7 +258,9 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
             )}
           </div>
           <p className="form-note">
-            {provider === "baidu"
+            {oauth
+              ? `点击“登录”后会在浏览器中打开 ${serviceName} 官方登录页面。Cove 只读取你授权的文件，令牌保存在 macOS 钥匙串中并自动续期。`
+              : provider === "baidu"
               ? account
                 ? "点击“登录”后会在浏览器中打开百度官方授权页面。请登录原来的百度账号，新的令牌会替换钥匙串中的旧令牌。"
                 : "点击“登录”后会在浏览器中打开百度官方授权页面。Cove 只访问你授权的网盘文件，令牌保存在 macOS 钥匙串中。"
@@ -249,9 +270,9 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
                 ? "为保护密码，远程服务器需要使用 HTTPS。密码只保存在 macOS 钥匙串中。"
                 : account
                   ? "请粘贴同一账号新签发的访问令牌，它会替换钥匙串中的旧令牌。"
-                  : "目前需要粘贴由 OAuth 应用签发的访问令牌，令牌保存在 macOS 钥匙串中。"}
+                  : "还没有配置浏览器登录所需的应用，目前需要粘贴访问令牌（约一小时后失效）。令牌保存在 macOS 钥匙串中。"}
           </p>
-          {saving && provider === "baidu" && (
+          {saving && browserSignIn && (
             <p className="form-note waiting">
               <LoaderCircle className="spin" size={12} /> 正在等待浏览器中的授权…
             </p>
@@ -271,10 +292,10 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
             type="submit"
             className="btn prominent"
             disabled={!ready || saving}
-            data-autofocus={account && provider === "baidu" ? true : undefined}
+            data-autofocus={account && browserSignIn ? true : undefined}
           >
             {saving && <LoaderCircle className="spin" size={12} />}
-            {provider === "baidu" ? "登录" : account ? "重新连接" : "连接"}
+            {browserSignIn ? "登录" : account ? "重新连接" : "连接"}
           </button>
         </div>
       </form>
