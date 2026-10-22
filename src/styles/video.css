@@ -361,3 +361,28 @@ html.video-window {
     max-height: calc(100vh - 110px);
   }
 }
+
+/* Playback speed: always visible on the controls, and a brief flash when changed by key */
+.hud-text-button.speed {
+  min-width: 46px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.speed-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 6;
+  padding: 10px 18px;
+  border-radius: 14px;
+  background: var(--hud-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  animation: fade-in 120ms var(--ease);
+}

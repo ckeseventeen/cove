@@ -19,3 +19,12 @@ test('track labels read as names, not codes',()=>{
   assert.equal(trackLabel({id:4,title:'未命名轨道',language:''},'音轨'),'音轨 4');
   assert.equal(trackLabel({id:5,title:'',language:'zh-Hant'},'字幕'),'中文');
 });
+test('speed steps up and down through the list and stops at its ends', () => {
+  const { stepSpeed, formatSpeed } = mod;
+  assert.equal(stepSpeed(1, 1), 1.25);
+  assert.equal(stepSpeed(1.5, -1), 1.25);
+  assert.equal(stepSpeed(1.1, 1), 1.25);
+  assert.equal(stepSpeed(3, 1), 3);
+  assert.equal(stepSpeed(0.5, -1), 0.5);
+  assert.deepEqual([1, 1.5, 1.25, 2].map(formatSpeed), ['1×', '1.5×', '1.25×', '2×']);
+});

@@ -1,13 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Check, Ellipsis, FileText, GraduationCap, LoaderCircle, Play } from "lucide-react";
 import type { Route } from "../app/navigation";
 import type { Library } from "../app/useLibrary";
-import { courseHue, courseProgress, lessonLabel, type Course, type CourseProgress } from "../lib/courses";
+import { courseHue, courseProgress, lessonLabel, type Chapter, type Course, type CourseProgress } from "../lib/courses";
 import { plural } from "../lib/format";
 import { showContextMenu } from "../lib/native";
 import { setPlayerPlaylist, type MediaFile } from "../lib/nimbus";
 import { usePlayer } from "../player/PlayerProvider";
-import { EmptyState } from "../ui/controls";
+import { EmptyState, Segmented } from "../ui/controls";
 import type { Notify } from "../ui/Toasts";
 import { useOpenDocument } from "./DocumentsView";
 
@@ -34,16 +34,18 @@ export function CourseCover({ course, size = "large" }: { course: Course; size?:
   );
 }
 
+/** "已学 3 / 48 节" or "已学完"; null before the first lesson. */
 export function courseStatus(course: Course, progress: CourseProgress) {
   const learned = progress.finished.size;
   if (progress.done) return "已学完";
-  if (!learned && !progress.next) return `${course.lessons.length} 节课`;
+  if (!learned && !progress.next) return null;
   return `已学 ${learned} / ${course.lessons.length} 节`;
 }
 
 export function CoursesView({ library, sourceId, course: courseId, onNavigate, notify }: Props) {
+  // Folders of nothing but PDFs are reading, not courses: they are in 文档.
   const courses = useMemo(
-    () => (sourceId ? library.courses.filter((course) => course.sourceId === sourceId) : library.courses),
+    () => library.courses.filter((course) => course.lessons.length > 0 && (!sourceId || course.sourceId === sourceId)),
     [library.courses, sourceId],
   );
   const course = courseId ? library.courses.find((item) => item.id === courseId) : undefined;
@@ -90,7 +92,9 @@ export function CoursesView({ library, sourceId, course: courseId, onNavigate, n
             >
               <CourseCover course={item} />
               <span className="poster-title truncate">{item.title}</span>
-              <span className={`poster-subtitle truncate ${progress.next && !progress.done ? "in-progress" : ""}`}>{courseStatus(item, progress)}</span>
+              <span className={`poster-subtitle truncate ${progress.next && !progress.done ? "in-progress" : ""}`}>
+                {courseStatus(item, progress) ?? plural(item.lessons.length, "节课")}
+              </span>
               {item.lessons.length > 0 && (progress.finished.size > 0 || progress.partial.size > 0) && (
                 <span className="course-bar" aria-hidden="true">
                   <span style={{ width: `${Math.max(3, (progress.finished.size / item.lessons.length) * 100)}%` }} />
@@ -114,6 +118,8 @@ export function CoursesView({ library, sourceId, course: courseId, onNavigate, n
   );
 }
 
+type CourseTab = "lessons" | "materials";
+
 function CoursePage({ course, library, onNavigate, notify }: { course: Course; library: Library; onNavigate: (route: Route) => void; notify: Notify }) {
   const player = usePlayer();
   const playLesson = usePlayLesson();
@@ -121,6 +127,15 @@ function CoursePage({ course, library, onNavigate, notify }: { course: Course; l
   const progress = courseProgress(course, library.savedById);
   const start = progress.next ?? course.lessons[0];
   const number = (lesson: MediaFile) => course.lessons.indexOf(lesson) + 1;
+  const [tab, setTab] = useState<CourseTab>(course.lessons.length ? "lessons" : "materials");
+  // A large course opens on the part being studied.
+  const [moduleKey, setModuleKey] = useState(
+    () => course.modules.find((module) => progress.next && module.lessons.includes(progress.next))?.key ?? course.modules[0]?.key ?? "",
+  );
+  const module = course.modules.find((item) => item.key === moduleKey) ?? course.modules[0];
+  // Only a large course whose parts hold a fair number of lessons needs a table of contents; a short
+  // one, or one of many tiny chapters, reads best as one list with chapter headings.
+  const byModule = course.modules.length > 1 && course.lessons.length > 30 && course.lessons.length / course.modules.length >= 8;
 
   const lessonMenu = (event: React.MouseEvent, lesson: MediaFile) => {
     const index = course.lessons.indexOf(lesson);
@@ -136,6 +151,53 @@ function CoursePage({ course, library, onNavigate, notify }: { course: Course; l
     ]);
   };
 
+  const lessonRows = (chapters: Chapter[]) =>
+    chapters.map((chapter) => (
+      <section key={chapter.key} className="course-chapter">
+        {chapter.title && <h2 className="course-chapter-title">{chapter.title}</h2>}
+        <ol className="course-lessons">
+          {chapter.items.map((item) => {
+            const partial = progress.partial.get(item.file.id);
+            const learned = progress.finished.has(item.file.id);
+            const current = progress.next?.id === item.file.id;
+            const label = lessonLabel(item.title);
+            return (
+              <li key={item.file.id} className={`course-row ${learned ? "learned" : ""} ${current ? "current" : ""}`} onContextMenu={(event) => lessonMenu(event, item.file)}>
+                <button className="course-row-main" onClick={() => playLesson(course, item.file)} title={item.file.displayName}>
+                  <span className="course-row-index tabular">
+                    {player.openingId === item.file.id ? <LoaderCircle className="spin" size={13} /> : (label.number ?? number(item.file))}
+                  </span>
+                  <span className="course-row-title truncate">{label.text}</span>
+                  {learned && <Check className="episode-check" size={13} strokeWidth={2.5} aria-label="已学" />}
+                  {partial && partial.duration > 0 && (
+                    <span className="episode-progress" title={`看到 ${Math.round((partial.position / partial.duration) * 100)}%`}>
+                      <span style={{ width: `${Math.max(6, (partial.position / partial.duration) * 100)}%` }} />
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+    ));
+
+  const materialRows = course.materialChapters.map((chapter) => (
+    <section key={chapter.key} className="course-chapter">
+      {chapter.title && <h2 className="course-chapter-title">{chapter.title}</h2>}
+      <ol className="course-lessons">
+        {chapter.items.map((item) => (
+          <li key={item.file.id} className="course-row material">
+            <button className="course-row-main" onClick={() => void openDocument(item.file)} title={item.file.displayName}>
+              <span className="course-row-index">{openingId === item.file.id ? <LoaderCircle className="spin" size={13} /> : <FileText size={14} />}</span>
+              <span className="course-row-title truncate">{item.title}</span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </section>
+  ));
+
   return (
     <div className="page">
       <header className="course-hero">
@@ -145,7 +207,8 @@ function CoursePage({ course, library, onNavigate, notify }: { course: Course; l
           <h1 className="large-title selectable">{course.title}</h1>
           <p className="secondary">
             {plural(course.lessons.length, "节课")}
-            {course.materials.length > 0 && ` · ${plural(course.materials.length, "份资料")}`} · {courseStatus(course, progress)}
+            {course.materials.length > 0 && ` · ${plural(course.materials.length, "份资料")}`}
+            {courseStatus(course, progress) && ` · ${courseStatus(course, progress)}`}
           </p>
           <div className="page-actions">
             <button className="btn prominent large" disabled={!start} onClick={() => start && playLesson(course, start)}>
@@ -170,45 +233,53 @@ function CoursePage({ course, library, onNavigate, notify }: { course: Course; l
           </div>
         </div>
       </header>
-      {course.chapters.map((chapter) => (
-        <section key={chapter.key} className="course-chapter">
-          {chapter.title && <h2 className="course-chapter-title">{chapter.title}</h2>}
-          <ol className="course-lessons">
-            {chapter.items.map((item) => {
-              const partial = progress.partial.get(item.file.id);
-              const learned = progress.finished.has(item.file.id);
-              const current = progress.next?.id === item.file.id;
-              if (item.kind === "material") {
-                return (
-                  <li key={item.file.id} className="course-row material">
-                    <button className="course-row-main" onClick={() => void openDocument(item.file)} title={item.file.displayName}>
-                      <span className="course-row-index">{openingId === item.file.id ? <LoaderCircle className="spin" size={13} /> : <FileText size={14} />}</span>
-                      <span className="course-row-title truncate">{item.title}</span>
-                      <span className="course-row-note">资料</span>
-                    </button>
-                  </li>
-                );
-              }
+
+      {course.lessons.length > 0 && course.materials.length > 0 && (
+        <div className="filter-bar">
+          <Segmented<CourseTab>
+            ariaLabel="内容"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: "lessons", label: `课程视频 ${course.lessons.length}` },
+              { value: "materials", label: `资料 ${course.materials.length}` },
+            ]}
+          />
+        </div>
+      )}
+
+      {tab === "materials" ? (
+        materialRows
+      ) : byModule && module ? (
+        <div className="course-browser">
+          <nav className="course-modules" aria-label="课程目录">
+            {course.modules.map((item) => {
+              const learned = item.lessons.filter((lesson) => progress.finished.has(lesson.id)).length;
+              const here = !!progress.next && item.lessons.includes(progress.next);
               return (
-                <li key={item.file.id} className={`course-row ${learned ? "learned" : ""} ${current ? "current" : ""}`} onContextMenu={(event) => lessonMenu(event, item.file)}>
-                  <button className="course-row-main" onClick={() => playLesson(course, item.file)} title={item.file.displayName}>
-                    <span className="course-row-index tabular">
-                      {player.openingId === item.file.id ? <LoaderCircle className="spin" size={13} /> : (lessonLabel(item.title).number ?? number(item.file))}
-                    </span>
-                    <span className="course-row-title truncate">{lessonLabel(item.title).text}</span>
-                    {learned && <Check className="episode-check" size={13} strokeWidth={2.5} aria-label="已学" />}
-                    {partial && partial.duration > 0 && (
-                      <span className="episode-progress" title={`看到 ${Math.round((partial.position / partial.duration) * 100)}%`}>
-                        <span style={{ width: `${Math.max(6, (partial.position / partial.duration) * 100)}%` }} />
-                      </span>
-                    )}
-                  </button>
-                </li>
+                <button
+                  key={item.key}
+                  className="course-module-row"
+                  aria-current={item.key === module.key ? "true" : undefined}
+                  onClick={() => setModuleKey(item.key)}
+                  title={item.title}
+                >
+                  <span className="course-module-title truncate">{item.title || "其他"}</span>
+                  <span className={`course-module-count ${here ? "here" : ""}`}>
+                    {learned === item.lessons.length ? <Check size={12} strokeWidth={2.5} /> : `${learned}/${item.lessons.length}`}
+                  </span>
+                </button>
               );
             })}
-          </ol>
-        </section>
-      ))}
+          </nav>
+          <div className="course-module-body">
+            <h2 className="course-module-heading">{module.title}</h2>
+            {lessonRows(module.chapters)}
+          </div>
+        </div>
+      ) : (
+        lessonRows(course.chapters)
+      )}
     </div>
   );
 }

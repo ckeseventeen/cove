@@ -31,7 +31,8 @@ test('a folder of courses becomes one course per subfolder, chapters in natural 
   ]);
   assert.deepEqual(cv.lessons.map((lesson) => lesson.displayName), ['1-FPN层的作用.mp4', '1-DEMO效果演示.mp4', '2-论文解读分析.mp4']);
   const quant = list.find((course) => course.title === '机器学习量化实战');
-  assert.deepEqual(quant.chapters.map((chapter) => chapter.title), ['', '课件']);
+  assert.deepEqual(quant.chapters.map((chapter) => chapter.title), ['']);
+  assert.deepEqual(quant.materialChapters.map((chapter) => chapter.title), ['课件']);
   assert.equal(quant.lessons[0].displayName, '第01章节、自动化交易综述.mp4');
   assert.equal(quant.materials.length, 1);
   const school = list.find((course) => course.title === '基于Python的量化学习');
@@ -76,4 +77,39 @@ test('a course folder holding one course names it after that course', () => {
   assert.equal(course.title, '机器学习量化实战');
   const chapterOnly = ['01课程介绍/1.开始.mp4'].map((path) => file(`/网课/${path}`, 'holder'));
   assert.equal(courses.buildCourses(chapterOnly, [holder])[0].title, '网课');
+});
+
+test('a large course reads by module, and handouts stay apart from the lessons', () => {
+  const holder = source('big', '/大模型', '大模型');
+  const paths = [
+    '黑马程序员/01_Python基础/01.Linux基础/Day01_Linux基础/01.导学.mp4',
+    '黑马程序员/01_Python基础/01.Linux基础/Day01_Linux基础/02.今日内容.mp4',
+    '黑马程序员/01_Python基础/02.Python入门/Day02/01.变量.mp4',
+    '黑马程序员/02_数据分析/01.Numpy/01.数组.mp4',
+    '黑马程序员/资料/讲义.pdf',
+  ];
+  const [course] = courses.buildCourses(paths.map((path) => file(`/大模型/${path}`, 'big')), [holder]);
+  assert.deepEqual(course.modules.map((module) => [module.title, module.lessons.length]), [['01_Python基础', 3], ['02_数据分析', 1]]);
+  assert.deepEqual(course.modules[0].chapters.map((chapter) => chapter.title), ['01.Linux基础 › Day01_Linux基础', '02.Python入门 › Day02']);
+  assert.equal(course.lessons.length, 4);
+  assert.deepEqual(course.materialChapters.map((chapter) => [chapter.title, chapter.items.length]), [['资料', 1]]);
+});
+
+test('tags at either end of a course name leave the title', () => {
+  assert.deepEqual(courses.courseTitle('黑马程序员-2025年python人工智能开发 V5.0【itjc8.com】'), { title: '黑马程序员-2025年python人工智能开发 V5.0', tags: ['itjc8.com'] });
+  assert.deepEqual(courses.courseTitle('一【『区块链』从零构建以太坊（Ethereum）智能合约到项目实战】'), { title: '『区块链』从零构建以太坊（Ethereum）智能合约到项目实战', tags: [] });
+  assert.deepEqual(courses.courseTitle('金融风控实战【附代码与数据集全套资料】'), { title: '金融风控实战', tags: ['附代码与数据集全套资料'] });
+});
+
+test('Chinese numerals order chapters as numbers', () => {
+  const names = ['第二十二章 框架', '第八章 字符串', '第一部分 新手入门', '第三部分 财富跃迁', '第二部分 高手进阶', '九月', '八月'];
+  const ordered = [...names].sort((left, right) => new Intl.Collator('zh-CN', { numeric: true }).compare(courses.sortKey(left), courses.sortKey(right)));
+  assert.deepEqual(ordered, ['八月', '九月', '第一部分 新手入门', '第二部分 高手进阶', '第三部分 财富跃迁', '第八章 字符串', '第二十二章 框架']);
+});
+
+test('one top-level folder of many chapters uses its chapters as the contents', () => {
+  const holder = source('fin', '/金融', '金融');
+  const paths = ['云聪/课程/第一章 入门/1.开始.mp4', '云聪/课程/第一章 入门/2.基础.mp4', '云聪/课程/第二章 进阶/1.进阶.mp4'];
+  const [course] = courses.buildCourses(paths.map((path) => file(`/金融/${path}`, 'fin')), [holder]);
+  assert.deepEqual(course.modules.map((module) => [module.title, module.lessons.length]), [['第一章 入门', 2], ['第二章 进阶', 1]]);
 });

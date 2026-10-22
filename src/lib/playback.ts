@@ -45,3 +45,17 @@ export function trackLabel(track: { id: number; title: string; language: string 
   if (!language || title.includes(language) || /[一-鿿]/.test(title)) return title;
   return `${title} · ${language}`;
 }
+
+/** Playback speeds offered for video, finer around the 1.25×–2× that lessons are watched at. */
+export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+
+/** The next speed up or down from `current` (which may sit between two steps). */
+export function stepSpeed(current: number, direction: 1 | -1) {
+  if (direction > 0) return SPEEDS.find((speed) => speed > current + 0.001) ?? SPEEDS[SPEEDS.length - 1];
+  return [...SPEEDS].reverse().find((speed) => speed < current - 0.001) ?? SPEEDS[0];
+}
+
+/** "1×", "1.5×", "1.25×". */
+export function formatSpeed(speed: number) {
+  return `${Number(speed.toFixed(2))}×`;
+}

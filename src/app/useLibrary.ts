@@ -65,8 +65,13 @@ export function useLibrary(notify: Notify) {
 
   const works = useMemo(() => buildMovieWorks(files.filter((file) => file.mediaKind === "movie")), [files]);
   const songs = useMemo(() => files.filter((file) => file.mediaKind === "music"), [files]);
-  const documents = useMemo(() => files.filter((file) => file.mediaKind === "document"), [files]);
+  // PDFs from course folders are reading too: papers, textbooks and handouts appear in 文档.
+  const documents = useMemo(
+    () => files.filter((file) => file.mediaKind === "document" || (file.mediaKind === "course" && /\.pdf$/i.test(file.displayName))),
+    [files],
+  );
   const courses = useMemo(() => buildCourses(files.filter((file) => file.mediaKind === "course"), sources), [files, sources]);
+  const courseCount = useMemo(() => courses.filter((course) => course.lessons.length > 0).length, [courses]);
   const readingByKey = useMemo(() => new Map(reading.map((item) => [item.docKey, item])), [reading]);
   const filesById = useMemo(() => new Map(files.map((file) => [file.id, file])), [files]);
   const savedById = useMemo(() => new Map(recent.map((item) => [item.fileId, item])), [recent]);
@@ -456,6 +461,7 @@ export function useLibrary(notify: Notify) {
     songs,
     documents,
     courses,
+    courseCount,
     reading,
     readingByKey,
     savedById,

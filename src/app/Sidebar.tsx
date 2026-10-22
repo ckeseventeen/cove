@@ -142,7 +142,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
           <button className="sidebar-item" aria-current={current("courses")} onClick={() => onNavigate({ name: "courses" })}>
             <GraduationCap size={16} />
             <span className="label">课程</span>
-            <span className="trailing">{library.courses.length || ""}</span>
+            <span className="trailing">{library.courseCount || ""}</span>
           </button>
         </section>
 

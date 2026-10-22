@@ -3,7 +3,10 @@
 import type { MediaFile, MediaSource } from "./nimbus";
 
 export type CourseItem = { file: MediaFile; kind: "lesson" | "material"; title: string };
-export type Chapter = { key: string; title: string; items: CourseItem[] };
+/** One folder of lessons (or of handouts); `path` is its visible folder names below the course. */
+export type Chapter = { key: string; title: string; path: string[]; items: CourseItem[] };
+/** A top-level part of a large course ("01_Python基础"): its chapters titled below it. */
+export type CourseModule = { key: string; title: string; chapters: Chapter[]; lessons: MediaFile[] };
 export type Course = {
   /** "<source id>:<course folder>", stable across scans. */
   id: string;
@@ -13,7 +16,12 @@ export type Course = {
   tags: string[];
   /** The course's folder, for 在文件中显示. */
   folder: string;
+  /** Folders of video lessons, in study order. */
   chapters: Chapter[];
+  /** The same lessons by top-level part, for a large course's table of contents. */
+  modules: CourseModule[];
+  /** Folders of handouts (PDFs), kept apart from the lessons. */
+  materialChapters: Chapter[];
   /** Video lessons in study order. */
   lessons: MediaFile[];
   materials: MediaFile[];
@@ -30,6 +38,30 @@ const COURSE_PARTS = /^(?:课件|讲义|资料|代码|源码|笔记|作业|习�
 
 const stem = (name: string) => name.replace(/\.[^.]+$/, "");
 
+function chineseNumber(text: string) {
+  const digits: Record<string, number> = { 零: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  let result = 0;
+  let current = 0;
+  for (const character of text) {
+    if (character === "百") {
+      result += (current || 1) * 100;
+      current = 0;
+    } else if (character === "十") {
+      result += (current || 1) * 10;
+      current = 0;
+    } else if (digits[character] !== undefined) current = digits[character];
+  }
+  return result + current;
+}
+
+/** Chinese numerals read as numbers for ordering: 第八章 before 第二十二章, 第一部分 before 第三部分, 八月 before 九月. */
+export function sortKey(name: string) {
+  return name.replace(/第([零一二两三四五六七八九十百]+)|([零一二两三四五六七八九十百]+)(?=[章节讲课部篇周天期月集回])/g, (match, after: string | undefined, before: string | undefined) => {
+    const numeral = after ?? before ?? "";
+    return match.replace(numeral, String(chineseNumber(numeral)).padStart(4, "0"));
+  });
+}
+
 /** "【金程教育】【Python基础+量化进阶】基于Python的量化学习" → title and its tags. */
 export function courseTitle(folder: string): { title: string; tags: string[] } {
   const tags: string[] = [];
@@ -39,6 +71,20 @@ export function courseTitle(folder: string): { title: string; tags: string[] } {
     if (!match) break;
     tags.push(match[1].trim());
     rest = rest.slice(match[0].length);
+  }
+  // Trailing tags too ("…V5.0【itjc8.com】"), when short and after a real title. Behind a mere list
+  // marker ("一【『区块链』从零构建…】") the brackets hold the title itself.
+  for (;;) {
+    const match = rest.match(/\s*[【\[]([^】\]]+)[】\]]$/);
+    if (!match || !match.index) break;
+    const before = rest.slice(0, match.index).trim();
+    if ([...before].length <= 2) {
+      rest = match[1].trim();
+      break;
+    }
+    if ([...match[1]].length > 16) break;
+    tags.push(match[1].trim());
+    rest = before;
   }
   return { title: rest.trim() || tags.pop() || folder, tags };
 }
@@ -89,19 +135,36 @@ export function buildCourses(files: MediaFile[], sources: MediaSource[]): Course
         for (let index = 0; index < Math.min(a.length, b.length); index++) {
           // Handouts, code and other side folders come after the lessons.
           const side = Number(COURSE_PARTS.test(a[index])) - Number(COURSE_PARTS.test(b[index]));
-          const order = side || collator.compare(a[index], b[index]);
+          const order = side || collator.compare(sortKey(a[index]), sortKey(b[index]));
           if (order) return order;
         }
         return a.length - b.length;
       });
+      const materialChapters = new Map<string, Chapter>();
       for (const { file, chapterPath } of ordered) {
-        const visible = chapterPath.filter((name) => !WRAPPER.test(name));
+        const path = chapterPath.filter((name) => !WRAPPER.test(name));
         const key = chapterPath.join("/");
-        const chapter = chapters.get(key) ?? { key, title: visible.join(" › "), items: [] };
-        chapter.items.push({ file, kind: DOCUMENT.test(file.displayName) ? "material" : "lesson", title: stem(file.displayName) });
-        chapters.set(key, chapter);
+        const kind = DOCUMENT.test(file.displayName) ? "material" : "lesson";
+        const target = kind === "lesson" ? chapters : materialChapters;
+        const chapter = target.get(key) ?? { key, title: path.join(" › "), path, items: [] };
+        chapter.items.push({ file, kind, title: stem(file.displayName) });
+        target.set(key, chapter);
       }
       const list = [...chapters.values()];
+      // A large course's table of contents: its top-level folders, each with the chapters below.
+      // A large course's table of contents: its top-level folders, each with the chapters below;
+      // when everything sits in one top-level folder, its chapters are the contents.
+      const tops = new Set(list.map((chapter) => chapter.path[0] ?? ""));
+      const depth = tops.size === 1 && list.length > 1 ? 1 : 0;
+      const modules = new Map<string, CourseModule>();
+      for (const chapter of list) {
+        const key = chapter.path.slice(0, depth + 1).join("/");
+        const title = chapter.path.slice(depth, depth + 1).join("") || chapter.title;
+        const module = modules.get(key) ?? { key, title, chapters: [], lessons: [] };
+        module.chapters.push({ ...chapter, title: chapter.path.slice(depth + 1).join(" › ") });
+        module.lessons.push(...chapter.items.map((item) => item.file));
+        modules.set(key, module);
+      }
       const { title, tags } = courseTitle(group.name);
       courses.push({
         id: `${source.id}:${group.name}`,
@@ -110,8 +173,10 @@ export function buildCourses(files: MediaFile[], sources: MediaSource[]): Course
         tags,
         folder: group.folder,
         chapters: list,
-        lessons: list.flatMap((chapter) => chapter.items.filter((item) => item.kind === "lesson").map((item) => item.file)),
-        materials: list.flatMap((chapter) => chapter.items.filter((item) => item.kind === "material").map((item) => item.file)),
+        modules: [...modules.values()],
+        materialChapters: [...materialChapters.values()],
+        lessons: list.flatMap((chapter) => chapter.items.map((item) => item.file)),
+        materials: [...materialChapters.values()].flatMap((chapter) => chapter.items.map((item) => item.file)),
       });
     }
   }

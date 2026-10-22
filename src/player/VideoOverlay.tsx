@@ -20,13 +20,12 @@ import {
   type MovieMetadata,
   type PlayerStatus,
 } from "../lib/nimbus";
-import { trackLabel, unmuteVolume } from "../lib/playback";
+import { formatSpeed, SPEEDS, stepSpeed, trackLabel, unmuteVolume } from "../lib/playback";
 import { Slider } from "../ui/controls";
 import { isModalOpen, useTopmostEscape } from "../ui/Sheet";
 import { AiSubtitlesSheet } from "./AiSubtitlesSheet";
 import { EMPTY_STATUS } from "./statusStore";
 
-const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 
 /** SF Symbols-style "go backward / forward 10 seconds" glyph. */
 function SkipIcon({ forward }: { forward?: boolean }) {
@@ -125,6 +124,31 @@ export function VideoOverlay() {
   const [episodesOpen, setEpisodesOpen] = useState(false);
   // The floating mini-player (a small window above other apps), as the native side reports it.
   const [floating, setFloating] = useState(false);
+  // A speed changed from the keyboard shows briefly in the middle of the picture.
+  const [speedFlash, setSpeedFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number>();
+  // Quick presses step from the speed just asked for, before the player reports it.
+  const pendingSpeed = useRef<{ speed: number; at: number } | null>(null);
+  const currentSpeed = () => {
+    const pending = pendingSpeed.current;
+    return pending && Date.now() - pending.at < 1500 ? pending.speed : latest.current.status.speed;
+  };
+  const changeSpeed = (speed: number) => {
+    pendingSpeed.current = { speed, at: Date.now() };
+    void controlPlayer("speed", speed);
+    setSpeedFlash(formatSpeed(speed));
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setSpeedFlash(null), 900);
+  };
+  const speedMenu = (event: React.MouseEvent) =>
+    void showContextMenu(
+      event,
+      SPEEDS.map((speed) => ({
+        label: speed === 1 ? "正常速度" : formatSpeed(speed),
+        checked: Math.abs(latest.current.status.speed - speed) < 0.01,
+        action: () => void controlPlayer("speed", speed),
+      })),
+    );
   useEffect(() => onPlayerFloating(setFloating), []);
   const toggleFloating = () => void controlPlayer(floating ? "unfloat" : "float");
   const [cachedSrt, setCachedSrt] = useState<string | null>(null);
@@ -339,6 +363,9 @@ export function VideoOverlay() {
         KeyM: toggleMute,
         KeyF: () => void controlPlayer("fullscreen"),
         KeyP: () => void controlPlayer("float"),
+        BracketLeft: () => changeSpeed(stepSpeed(currentSpeed(), -1)),
+        BracketRight: () => changeSpeed(stepSpeed(currentSpeed(), 1)),
+        Backslash: () => changeSpeed(1),
       };
       const action = actions[event.code];
       if (!action) return;
@@ -412,7 +439,7 @@ export function VideoOverlay() {
       {
         label: "播放速度",
         submenu: SPEEDS.map((speed) => ({
-          label: speed === 1 ? "正常" : `${speed}×`,
+          label: speed === 1 ? "正常速度" : formatSpeed(speed),
           checked: Math.abs(status.speed - speed) < 0.01,
           action: () => void controlPlayer("speed", speed),
         })),
@@ -476,6 +503,12 @@ export function VideoOverlay() {
         {subtitle && <span>{subtitle}</span>}
       </div>
 
+      {speedFlash && (
+        <div className="speed-flash" aria-live="polite">
+          {speedFlash}
+        </div>
+      )}
+
       {shownError && (
         <div className="video-error" role="alert">
           {shownError}
@@ -521,6 +554,14 @@ export function VideoOverlay() {
             </button>
           </div>
           <div className="hud-group end">
+            <button
+              className={`hud-text-button speed ${Math.abs(status.speed - 1) > 0.01 ? "active" : ""}`}
+              title="播放速度（[ 减慢，] 加快，\ 恢复）"
+              aria-label={`播放速度 ${formatSpeed(status.speed)}`}
+              onClick={speedMenu}
+            >
+              {formatSpeed(status.speed || 1)}
+            </button>
             {queue.length > 1 && (
               <button
                 className={`hud-text-button ${episodesOpen ? "active" : ""}`}

@@ -57,6 +57,13 @@ const coursePaths = [
   '【金程教育】【Python基础+量化进阶】基于Python的量化学习/01量化投资前导及课程介绍/2.量化策略的python实现.mp4',
   ...Array.from({ length: 4 }, (_, index) => `【金程教育】【Python基础+量化进阶】基于Python的量化学习/02Python基础/${index + 1}.${['变量与类型', '循环与判断', '函数', '面向对象'][index]}.mp4`),
 ];
+// A large course, to see its table of contents.
+for (const [part, days] of [['01_Python基础', 4], ['02_数据分析', 3], ['03_机器学习', 3]] as const) {
+  for (let day = 1; day <= days; day++) {
+    for (let lesson = 1; lesson <= 4; lesson++) coursePaths.push(`黑马程序员-2025年python人工智能开发/${part}/Day0${day}/${String(lesson).padStart(2, '0')}.第${lesson}讲.mp4`);
+  }
+}
+coursePaths.push('100篇大模型必读论文/Attention Is All You Need.pdf', '100篇大模型必读论文/BERT.pdf');
 previewFiles.push(
   ...coursePaths.map((path, index): MediaFile => ({
     id: `course-${index}`, accountId: 'preview-baidu', remotePath: `/演示/网课/${path}`, cloudPath: `/演示/网课/${path}`,
