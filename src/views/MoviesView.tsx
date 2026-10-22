@@ -328,7 +328,7 @@ function MovieCard({
             play();
           }}
         >
-          {opening ? <LoaderCircle className="spin" size={15} /> : <Play size={15} fill="currentColor" strokeWidth={0} />}
+          {opening ? <LoaderCircle className="spin" size={20} /> : <Play size={20} fill="currentColor" strokeWidth={0} />}
         </button>
       </div>
       <div className="poster-title truncate" title={title}>

@@ -181,8 +181,19 @@
   height: 100%;
   object-fit: cover;
 }
-.poster:hover .poster-art.has-image {
-  filter: brightness(0.92);
+/* On hover the poster dims and a play button appears in its middle, as on Home's cards. */
+.poster-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.28);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease);
+  pointer-events: none;
+}
+.poster:hover .poster-art::before {
+  opacity: 1;
 }
 .poster-fallback {
   display: flex;
@@ -205,38 +216,47 @@
 }
 .poster-play {
   position: absolute;
-  left: 8px;
-  bottom: 8px;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 46px;
+  height: 46px;
   border-radius: 50%;
-  background: rgba(30, 30, 32, 0.6);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-  backdrop-filter: blur(12px) saturate(160%);
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  backdrop-filter: blur(14px) saturate(160%);
   color: #fff;
   opacity: 0;
-  transform: scale(0.9);
-  transition: opacity var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease);
+  transform: translate(-50%, -50%) scale(0.88);
+  transition: opacity var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease), background var(--duration-fast) var(--ease);
 }
 .poster-play svg {
-  margin-left: 2px;
+  margin-left: 3px;
 }
 .poster:hover .poster-play,
 .poster-play.busy {
   opacity: 1;
-  transform: none;
+  transform: translate(-50%, -50%);
+}
+.poster-play:hover {
+  background: rgba(255, 255, 255, 0.34);
 }
 .poster-play:active {
-  transform: scale(0.94);
+  transform: translate(-50%, -50%) scale(0.94);
+}
+.poster-play.busy svg {
+  margin-left: 0;
 }
 /* Where the viewer is: a bar along the poster's foot, or a check once finished */
 .poster-progress {
   position: absolute;
   right: 8px;
   bottom: 8px;
-  left: 46px;
+  left: 8px;
+  z-index: 2;
   height: 4px;
   overflow: hidden;
   border-radius: 2px;
@@ -255,6 +275,7 @@
   position: absolute;
   top: 7px;
   right: 7px;
+  z-index: 2;
   display: grid;
   place-items: center;
   width: 20px;
