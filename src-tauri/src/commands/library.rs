@@ -87,13 +87,80 @@ pub(crate) fn metadata_cache_clear(state: State<'_, AppState>) -> Result<()> {
 pub(crate) fn app_status(state: State<'_, AppState>) -> Result<AppStatus> {
     let account_count = state.store.list_accounts()?.len();
     Ok(AppStatus {
-        platform: "macOS".into(),
+        platform: if cfg!(windows) { "Windows" } else { "macOS" }.into(),
         database_ready: true,
         account_count,
         baidu_configured: config::BaiduConfig::load().is_ok(),
         tmdb_configured: config::TmdbConfig::load().is_ok(),
         mpv_available: true, // libmpv is linked; load failure prevents startup.
     })
+}
+
+/// What 设置 › 服务 has saved; secrets are only reported as saved, never sent back.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ServiceSettings {
+    baidu_app_key: String,
+    baidu_secret_key_saved: bool,
+    baidu_redirect_uri: String,
+    default_baidu_redirect_uri: &'static str,
+    tmdb_token_saved: bool,
+}
+
+#[tauri::command]
+pub(crate) async fn service_settings_get() -> Result<ServiceSettings> {
+    tokio::task::spawn_blocking(|| ServiceSettings {
+        baidu_app_key: config::saved("NIMBUS_BAIDU_APP_KEY").unwrap_or_default(),
+        baidu_secret_key_saved: config::saved("NIMBUS_BAIDU_SECRET_KEY").is_some(),
+        baidu_redirect_uri: config::saved("NIMBUS_BAIDU_REDIRECT_URI").unwrap_or_default(),
+        default_baidu_redirect_uri: config::DEFAULT_BAIDU_REDIRECT_URI,
+        tmdb_token_saved: config::saved("NIMBUS_TMDB_READ_ACCESS_TOKEN").is_some(),
+    })
+    .await
+    .map_err(|e| NimbusError::Internal(e.to_string()))
+}
+
+/// Saves settings by their NIMBUS_* names; an empty value removes the saved one, and a name left
+/// out keeps what is saved.
+#[tauri::command]
+pub(crate) async fn service_settings_save(values: std::collections::HashMap<String, String>) -> Result<()> {
+    if let Some(uri) = values.get("NIMBUS_BAIDU_REDIRECT_URI").filter(|uri| !uri.trim().is_empty()) {
+        let redirect = url::Url::parse(uri.trim()).map_err(|_| NimbusError::Validation("百度回调地址不是有效的网址".into()))?;
+        if redirect.scheme() != "http"
+            || !matches!(redirect.host_str(), Some("127.0.0.1" | "localhost"))
+            || redirect.port().is_none()
+        {
+            return Err(NimbusError::Validation(
+                "百度回调地址必须是带端口的本机 HTTP 地址，例如 http://127.0.0.1:53682/oauth/baidu/callback".into(),
+            ));
+        }
+    }
+    tokio::task::spawn_blocking(move || config::save(values))
+        .await
+        .map_err(|e| NimbusError::Internal(e.to_string()))?
+}
+
+#[tauri::command]
+pub(crate) fn sync_status(state: State<'_, AppState>) -> Result<crate::sync::SyncStatus> {
+    crate::sync::status(&state)
+}
+
+/// Turns sync between computers on (`account_id` and a folder on it) or off (no account).
+#[tauri::command]
+pub(crate) fn sync_configure(
+    account_id: Option<String>,
+    folder: String,
+    device_name: String,
+    state: State<'_, AppState>,
+) -> Result<crate::sync::SyncStatus> {
+    crate::sync::configure(&state, account_id, folder, device_name)?;
+    crate::sync::status(&state)
+}
+
+#[tauri::command]
+pub(crate) async fn sync_now(app: tauri::AppHandle) -> Result<crate::sync::SyncStatus> {
+    crate::sync::run(&app).await?;
+    crate::sync::status(&app.state::<AppState>())
 }
 
 #[tauri::command]

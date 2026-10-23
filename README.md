@@ -16,6 +16,7 @@ Cove 是一个本机优先的 macOS 媒体中心，聚合本地磁盘、百度�
 - Google Drive API 与 Microsoft Graph（OneDrive）只读扫描、直连播放
 - 百度网盘官方 OAuth 登录、Token 自动刷新、视频扫描与直连播放
 - 百度网盘目录浏览，可将任意目录配置为影视库或音乐库
+- 多端同步：几台电脑（macOS / Windows）通过同一个百度网盘、WebDAV、SMB 共享或被其他应用同步的本机文件夹，同步媒体文件夹、播放与阅读进度、播放次数和播放列表
 - 多账号、多目录媒体来源聚合；每个来源独立增量对账，不再全盘混扫
 
 Google Drive 与 OneDrive 支持在浏览器中登录（OAuth 2.0 + PKCE，本机回环地址回调），令牌存入 macOS 钥匙串并自动续期。需要先注册自己的应用，把 ID 写进项目根目录的 `.env`（个人版构建会一并打包）：
@@ -25,7 +26,7 @@ Google Drive 与 OneDrive 支持在浏览器中登录（OAuth 2.0 + PKCE，本�
 
 未配置时，“添加存储”中仍可粘贴访问令牌（约一小时后失效）。
 
-百度网盘开发时从项目根目录 `.env` 读取 `NIMBUS_BAIDU_APP_KEY`、`NIMBUS_BAIDU_SECRET_KEY` 和 `NIMBUS_BAIDU_REDIRECT_URI`。用户授权产生的 Access Token 与 Refresh Token 只保存在 macOS Keychain。旧版全盘扫描结果不会再直接展示，只有用户明确选择的影视/音乐目录会进入聚合媒体库。阿里云盘仍需开放平台应用资质；夸克未提供公开的个人网盘文件 API，因此不使用 Cookie 抓取方案。
+百度网盘开发时从项目根目录 `.env` 读取 `NIMBUS_BAIDU_APP_KEY`、`NIMBUS_BAIDU_SECRET_KEY` 和 `NIMBUS_BAIDU_REDIRECT_URI`；不带 `.env` 的构建可在“设置 › 服务”中填写 AppKey、SecretKey（回调地址默认 `http://127.0.0.1:53682/oauth/baidu/callback`）和 TMDB 令牌，保存在钥匙串中。用户授权产生的 Access Token 与 Refresh Token 只保存在 macOS Keychain。旧版全盘扫描结果不会再直接展示，只有用户明确选择的影视/音乐目录会进入聚合媒体库。阿里云盘仍需开放平台应用资质；夸克未提供公开的个人网盘文件 API，因此不使用 Cookie 抓取方案。
 
 已接入 libmpv 原生视图、悬浮视频控制层、工具栏音乐播放器与歌词、播放进度持久化。FUSE 挂载未实现。
 

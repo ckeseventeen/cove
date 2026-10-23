@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CircleAlert, LoaderCircle } from "lucide-react";
-import { addAccount, cancelBaiduSignIn, connectBaidu, connectOAuth, oauthAvailable, updateAccountCredentials, type Account, type AccountInput } from "../lib/nimbus";
+import {
+  addAccount,
+  cancelBaiduSignIn,
+  connectBaidu,
+  connectOAuth,
+  getServiceSettings,
+  getStatus,
+  oauthAvailable,
+  saveServiceSettings,
+  updateAccountCredentials,
+  type Account,
+  type AccountInput,
+} from "../lib/nimbus";
 import { isWindows, SYSTEM } from "../lib/platform";
 import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
@@ -67,6 +79,23 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
       current = false;
     };
   }, [provider]);
+  // A build without a .env has no Baidu open-platform app until one is entered, here or in 设置 › 服务.
+  const [baiduApp, setBaiduApp] = useState<{ configured: boolean; redirect: string } | null>(null);
+  const [appKey, setAppKey] = useState("");
+  const [secretKey, setSecretKey] = useState("");
+  useEffect(() => {
+    if (provider !== "baidu" || baiduApp) return;
+    let current = true;
+    void Promise.all([getStatus(), getServiceSettings()])
+      .then(([status, settings]) => {
+        if (current) setBaiduApp({ configured: status.baiduConfigured, redirect: settings.baiduRedirectUri || settings.defaultBaiduRedirectUri });
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, [provider, baiduApp]);
+  const needsBaiduApp = provider === "baidu" && baiduApp?.configured === false;
   const browserSignIn = provider === "baidu" || oauth;
   const serviceName = provider === "google_drive" ? "Google" : provider === "onedrive" ? "Microsoft" : "百度";
 
@@ -76,6 +105,7 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
   // A share may let guests in, so its password is optional.
   const ready =
     !!name &&
+    (!needsBaiduApp || (!!appKey.trim() && !!secretKey.trim())) &&
     (browserSignIn ||
       (provider === "smb" ? !!endpoint.trim() : provider === "webdav" ? !!endpoint.trim() && !!password : !!password.trim()));
   // Waiting for the browser can be abandoned; the other checks finish on their own.
@@ -88,6 +118,10 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
     setSaving(true);
     setError("");
     try {
+      if (needsBaiduApp) {
+        await saveServiceSettings({ NIMBUS_BAIDU_APP_KEY: appKey, NIMBUS_BAIDU_SECRET_KEY: secretKey });
+        setBaiduApp((app) => app && { ...app, configured: true });
+      }
       const connected =
         provider === "baidu"
           ? await connectBaidu(name, account?.id)
@@ -242,6 +276,29 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
                 />
               </>
             )}
+            {needsBaiduApp && (
+              <>
+                <label htmlFor="storage-app-key">AppKey</label>
+                <input
+                  id="storage-app-key"
+                  className="field"
+                  required
+                  value={appKey}
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  onChange={(event) => setAppKey(event.target.value)}
+                />
+                <label htmlFor="storage-secret-key">SecretKey</label>
+                <input
+                  id="storage-secret-key"
+                  className="field"
+                  type="password"
+                  required
+                  value={secretKey}
+                  onChange={(event) => setSecretKey(event.target.value)}
+                />
+              </>
+            )}
             {(provider === "google_drive" || provider === "onedrive") && !oauth && (
               <>
                 <label htmlFor="storage-token">访问令牌</label>
@@ -261,6 +318,8 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
           <p className="form-note">
             {oauth
               ? `点击“登录”后会在浏览器中打开 ${serviceName} 官方登录页面。Cove 只读取你授权的文件，令牌保存在 ${SYSTEM.systemKeychain}中并自动续期。`
+              : needsBaiduApp
+              ? `先填写你在百度网盘开放平台（pan.baidu.com/union）创建的应用的 AppKey 和 SecretKey，应用的授权回调地址设为 ${baiduApp?.redirect}。它们保存在 ${SYSTEM.systemKeychain}中，之后可在“设置 › 服务”中修改。点击“登录”后会在浏览器中打开百度官方授权页面。`
               : provider === "baidu"
               ? account
                 ? `点击“登录”后会在浏览器中打开百度官方授权页面。请登录原来的百度账号，新的令牌会替换${SYSTEM.keychain}中的旧令牌。`

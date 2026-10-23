@@ -705,6 +705,15 @@ async fn baidu_block_hashes(path: &Path) -> Result<Vec<String>> {
 }
 
 async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) -> Result<()> {
+    upload_baidu_file_as(token, local_path, remote_path, BAIDU_RENAME_ON_CONFLICT).await
+}
+
+/// Uploads a file to `remote_path`, replacing what is there (rtype 3); the sync file is rewritten in place.
+pub async fn replace_baidu_file(token: &str, local_path: &Path, remote_path: &str) -> Result<()> {
+    upload_baidu_file_as(token, local_path, remote_path, "3").await
+}
+
+async fn upload_baidu_file_as(token: &str, local_path: &Path, remote_path: &str, rtype: &str) -> Result<()> {
     const BLOCK_SIZE: usize = 4 * 1024 * 1024;
     let size = tokio::fs::metadata(local_path).await?.len().to_string();
     let hashes = baidu_block_hashes(local_path).await?;
@@ -718,7 +727,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
             ("isdir", "0"),
             ("autoinit", "1"),
             ("block_list", block_list.as_str()),
-            ("rtype", BAIDU_RENAME_ON_CONFLICT),
+            ("rtype", rtype),
         ])
         .send()
         .await?
@@ -789,7 +798,7 @@ async fn upload_baidu_file(token: &str, local_path: &Path, remote_path: &str) ->
             ("isdir", "0"),
             ("uploadid", upload_id),
             ("block_list", block_list.as_str()),
-            ("rtype", BAIDU_RENAME_ON_CONFLICT),
+            ("rtype", rtype),
         ])
         .send()
         .await?
@@ -891,6 +900,59 @@ async fn download_baidu_file(token: &str, fs_id: u64, target: &Path) -> Result<(
         return Err(error.into());
     }
     Ok(())
+}
+
+/// The contents of a small Baidu file (a sync file), read into memory.
+pub async fn read_baidu_file(token: &str, fs_id: u64) -> Result<Vec<u8>> {
+    let url = signed_dlink(&baidu_download_url(token, fs_id).await?, token)?;
+    let response = transfer_http()?.get(url).send().await.map_err(reqwest::Error::without_url)?;
+    if !response.status().is_success() {
+        return Err(NimbusError::Validation(format!("百度网盘下载失败：HTTP {}", response.status())));
+    }
+    Ok(response.bytes().await.map_err(reqwest::Error::without_url)?.to_vec())
+}
+
+/// Who a cloud account belongs to, the same on every computer: the Baidu user, the Google Drive
+/// user or the OneDrive drive.
+pub async fn account_identity(provider: &str, token: &str) -> Result<String> {
+    let value: serde_json::Value = match provider {
+        "baidu" => {
+            http()?
+                .get("https://pan.baidu.com/rest/2.0/xpan/nas")
+                .query(&[("method", "uinfo"), ("access_token", token)])
+                .send()
+                .await?
+                .json()
+                .await?
+        }
+        "google_drive" => {
+            http()?
+                .get("https://www.googleapis.com/drive/v3/about?fields=user(permissionId)")
+                .bearer_auth(token)
+                .send()
+                .await?
+                .json()
+                .await?
+        }
+        "onedrive" => {
+            http()?
+                .get("https://graph.microsoft.com/v1.0/me/drive?$select=id")
+                .bearer_auth(token)
+                .send()
+                .await?
+                .json()
+                .await?
+        }
+        _ => return Err(NimbusError::Validation("未知的网盘类型".into())),
+    };
+    let id = match provider {
+        "baidu" => value.get("uk").map(|uk| uk.to_string()),
+        "google_drive" => value.pointer("/user/permissionId").and_then(|id| id.as_str()).map(str::to_owned),
+        _ => value.get("id").and_then(|id| id.as_str()).map(str::to_owned),
+    };
+    id.filter(|id| !id.is_empty() && id != "null")
+        .map(|id| format!("{provider}:{id}"))
+        .ok_or_else(|| NimbusError::Validation("无法读取网盘账号信息".into()))
 }
 
 pub async fn download_baidu_entry(

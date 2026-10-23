@@ -27,6 +27,7 @@ import {
   onPlayerStopped,
   onReadingProgress,
   onSourceScan,
+  onSyncApplied,
   removeAccount as removeAccountCommand,
   removeMediaSource,
   renamePlaylist as renamePlaylistCommand,
@@ -288,6 +289,22 @@ export function useLibrary(notify: Notify) {
         if (message) notify(message, "info");
       }),
     [notify, refresh, refreshSmartLists],
+  );
+
+  // Another computer's progress, folders or playlists were merged in (sync.rs): show them.
+  useEffect(
+    () =>
+      onSyncApplied(() => {
+        void refresh().catch(() => undefined);
+        void listReadingProgress()
+          .then(setReading)
+          .catch(() => undefined);
+        void listPlaylists()
+          .then(setPlaylists)
+          .catch(() => undefined);
+        refreshSmartLists();
+      }),
+    [refresh, refreshSmartLists],
   );
 
   /** A song or video started: 继续播放 and the play-based lists move. */
