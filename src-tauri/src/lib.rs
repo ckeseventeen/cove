@@ -139,6 +139,8 @@ pub fn run() {
             commands::library::playback_recent,
             commands::library::metadata_cached_movies,
             commands::library::metadata_cache_clear,
+            commands::library::service_settings_get,
+            commands::library::service_settings_save,
             commands::library::music_metadata_cached,
             commands::library::music_smart_lists,
             commands::library::offline_download,

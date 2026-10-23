@@ -12,6 +12,7 @@ import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
 import { AddStorageSheet } from "./AddStorageSheet";
+import { ServiceSettingsSheet } from "./ServiceSettingsSheet";
 
 type Props = {
   library: Library;
@@ -36,6 +37,7 @@ function StatusValue({ state, on, off }: { state: boolean | undefined; on: strin
 export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemoveAccount, onRemoveSource }: Props) {
   const [pending, setPending] = useState<"clear" | "refresh" | null>(null);
   const [reconnecting, setReconnecting] = useState<Account | null>(null);
+  const [configuring, setConfiguring] = useState(false);
   const [zoom, setZoom] = useState<UiZoom | null>(null);
   const { status } = library;
 
@@ -264,6 +266,9 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
               <span className="row-subtitle">登录百度网盘所需的开放平台应用配置</span>
             </span>
             <StatusValue state={status?.baiduConfigured} on="已配置" off="未配置" />
+            <button className="btn" onClick={() => setConfiguring(true)}>
+              设置…
+            </button>
           </div>
           <div className="group-row">
             <span className="row-main">
@@ -271,6 +276,9 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
               <span className="row-subtitle">海报、简介与中文片名</span>
             </span>
             <StatusValue state={status?.tmdbConfigured} on="已配置" off="未配置" />
+            <button className="btn" onClick={() => setConfiguring(true)}>
+              设置…
+            </button>
           </div>
           <div className="group-row">
             <span className="row-main">
@@ -315,6 +323,16 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           </div>
         </div>
       </section>
+
+      {configuring && (
+        <ServiceSettingsSheet
+          onClose={() => setConfiguring(false)}
+          onSaved={() => {
+            notify("服务配置已保存", "success");
+            void library.refresh().catch(() => undefined);
+          }}
+        />
+      )}
 
       {reconnecting && (
         <AddStorageSheet

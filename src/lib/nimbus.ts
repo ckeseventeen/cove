@@ -44,6 +44,20 @@ export type AppStatus = {
   mpvAvailable: boolean;
 };
 
+/** What 设置 › 服务 has saved; secrets are only reported as saved. */
+export type ServiceSettings = {
+  baiduAppKey: string;
+  baiduSecretKeySaved: boolean;
+  baiduRedirectUri: string;
+  defaultBaiduRedirectUri: string;
+  tmdbTokenSaved: boolean;
+};
+
+/** Settings by their NIMBUS_* names; an empty value removes the saved one, a name left out keeps it. */
+export type ServiceSettingsChanges = Partial<
+  Record<"NIMBUS_BAIDU_APP_KEY" | "NIMBUS_BAIDU_SECRET_KEY" | "NIMBUS_BAIDU_REDIRECT_URI" | "NIMBUS_TMDB_READ_ACCESS_TOKEN", string>
+>;
+
 export type MediaFile = {
   id: string;
   accountId: string;
@@ -146,6 +160,23 @@ export async function getStatus(): Promise<AppStatus> {
     tmdbConfigured: false,
     mpvAvailable: false,
   };
+}
+
+export async function getServiceSettings(): Promise<ServiceSettings> {
+  if (isTauri()) return invoke<ServiceSettings>("service_settings_get");
+  return {
+    baiduAppKey: "",
+    baiduSecretKeySaved: false,
+    baiduRedirectUri: "",
+    defaultBaiduRedirectUri: "http://127.0.0.1:53682/oauth/baidu/callback",
+    tmdbTokenSaved: false,
+  };
+}
+
+/** Save the Baidu open-platform app and the TMDB token for builds without a .env. */
+export async function saveServiceSettings(values: ServiceSettingsChanges): Promise<void> {
+  if (isTauri()) return invoke<void>("service_settings_save", { values });
+  appOnly();
 }
 
 export async function listAccounts(): Promise<Account[]> {
