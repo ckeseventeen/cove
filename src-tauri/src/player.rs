@@ -24,7 +24,9 @@ mod native;
 #[path = "player_windows.rs"]
 mod native;
 
-pub use native::{attach_controls_window, detach_controls_window, is_floating, set_floating};
+pub use native::{attach_controls_window, detach_controls_window, is_floating, mpv_available, set_floating, sync_menu};
+#[cfg(windows)]
+pub use native::show_owner_active;
 use native::{ipc_connect, runtime_dir, IpcStream};
 
 /// mpv's settings on every system; each adds where it draws, its control channel and its log.

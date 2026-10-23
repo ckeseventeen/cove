@@ -49,7 +49,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let undo = PredefinedMenuItem::undo(app, Some("撤销"))?;
     let redo = PredefinedMenuItem::redo(app, Some("重做"))?;
     let cut = PredefinedMenuItem::cut(app, Some("剪切"))?;
-    let copy = PredefinedMenuItem::copy(app, Some("拷贝"))?;
+    let copy = PredefinedMenuItem::copy(app, Some(if MAC { "拷贝" } else { "复制" }))?;
     let paste = PredefinedMenuItem::paste(app, Some("粘贴"))?;
     let select_all = PredefinedMenuItem::select_all(app, Some("全选"))?;
     let find = item("cove.find", "查找", Some("CmdOrCtrl+F"))?;
@@ -87,11 +87,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let fullscreen: Box<dyn IsMenuItem<Wry>> = if MAC {
         Box::new(PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?)
     } else {
-        Box::new(item("cove.fullscreen", "全屏幕", Some("F11"))?)
+        Box::new(item("cove.fullscreen", "全屏", Some("F11"))?)
     };
     let view_menu = Submenu::with_items(
         app,
-        "显示",
+        if MAC { "显示" } else { "查看" },
         true,
         &[
             &home,
@@ -198,6 +198,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         help_menu.set_as_help_menu_for_nsapp()?;
     }
     Ok(menu)
+}
+
+/// A menu shortcut pressed in the library window on Windows: WebView2 keeps the keyboard while
+/// the page has focus, so the menu bar never sees it and the page sends it here instead
+/// (`windowsMenuShortcut` in src/lib/platform.ts). Runs as if the item had been clicked.
+#[tauri::command]
+pub fn menu_shortcut(id: String, app: AppHandle) {
+    handle(&app, &id);
 }
 
 /// Route menu clicks to the web UI; window-level actions are handled natively.

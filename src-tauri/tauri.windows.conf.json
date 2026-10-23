@@ -4,6 +4,7 @@
     "windows": [
       {
         "label": "main",
+        "create": false,
         "title": "Cove",
         "width": 1280,
         "height": 800,
@@ -14,6 +15,7 @@
       },
       {
         "label": "player-controls",
+        "create": false,
         "title": "Cove Player Controls",
         "url": "index.html?player-controls=1",
         "width": 1280,

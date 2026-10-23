@@ -188,6 +188,11 @@ html[data-platform="windows"] {
   --font: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --font-display: "Segoe UI Variable Display", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   --font-mono: "Cascadia Mono", Consolas, "Microsoft YaHei UI", monospace;
+  /* Windows 11 sets body text at 14px, a size up from macOS; the small sizes follow it. */
+  --text-body: 14px;
+  --text-callout: 13px;
+  --text-subhead: 12px;
+  --text-footnote: 11px;
 }
 html[data-platform="windows"] .window[data-sidebar="hidden"] .toolbar {
   padding-left: 10px;
@@ -207,4 +212,8 @@ html[data-platform="windows"] ::-webkit-scrollbar-thumb {
 }
 html[data-platform="windows"] ::-webkit-scrollbar-thumb:hover {
   border-width: 3px;
+}
+/* As in Windows 11, the thumb shows only while the pointer is over what scrolls. */
+html[data-platform="windows"] :not(:hover)::-webkit-scrollbar-thumb {
+  background-color: transparent;
 }

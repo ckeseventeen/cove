@@ -41,11 +41,67 @@ export function shortcutLabel(mac: string, on: Platform = platform): string {
   });
 }
 
+type KeyEvent = Modifiers & { key: string; code: string };
+
+/** The Windows menu bar's shortcuts (src-tauri/src/menu.rs), as Ctrl/Alt/Shift + a key. */
+const WINDOWS_MENU_KEYS: Record<string, string> = {
+  "Ctrl+,": "cove.settings",
+  "Ctrl+N": "cove.add-storage",
+  "Ctrl+Shift+N": "cove.new-folder",
+  "Ctrl+Alt+N": "cove.new-playlist",
+  "Ctrl+F": "cove.find",
+  "Ctrl+1": "cove.go.home",
+  "Ctrl+2": "cove.go.movies",
+  "Ctrl+3": "cove.go.music",
+  "Ctrl+4": "cove.go.documents",
+  "Ctrl+5": "cove.go.courses",
+  "Ctrl+[": "cove.back",
+  "Ctrl+]": "cove.forward",
+  "Ctrl+Alt+S": "cove.toggle-sidebar",
+  "Ctrl+Alt+L": "cove.show-lyrics",
+  "Ctrl+Alt+U": "cove.show-queue",
+  "Ctrl+0": "cove.zoom-reset",
+  "Ctrl+=": "cove.zoom-in",
+  "Ctrl+-": "cove.zoom-out",
+  F11: "cove.fullscreen",
+  "Ctrl+Right": "cove.next",
+  "Ctrl+Left": "cove.previous",
+  "Ctrl+Up": "cove.volume-up",
+  "Ctrl+Down": "cove.volume-down",
+  "Ctrl+.": "cove.stop",
+};
+
+/** Keys by their place on the keyboard, so Shift or the layout does not change what they are. */
+const CODE_KEYS: Record<string, string> = {
+  Comma: ",",
+  Period: ".",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Equal: "=",
+  Minus: "-",
+  ArrowLeft: "Left",
+  ArrowRight: "Right",
+  ArrowUp: "Up",
+  ArrowDown: "Down",
+  F11: "F11",
+};
+
+/**
+ * The menu item a key press means on Windows. WebView2 keeps the keyboard while the page has
+ * focus, so the window's menu bar never sees its own shortcuts there; the page passes them on.
+ */
+export function windowsMenuShortcut(event: KeyEvent): string | undefined {
+  if (event.metaKey) return undefined;
+  const key = CODE_KEYS[event.code] ?? (/^(Key|Digit)/.test(event.code) ? event.code.slice(-1) : event.key.toUpperCase());
+  const held = [event.ctrlKey && "Ctrl", event.altKey && "Alt", event.shiftKey && "Shift"].filter(Boolean);
+  return WINDOWS_MENU_KEYS[[...held, key].join("+")];
+}
+
 /** What this system's own parts are called, for text that names them. */
 export function systemWords(on: Platform = platform) {
   return on === "windows"
-    ? { keychain: "凭据管理器", systemKeychain: "Windows 凭据管理器", fileManager: "资源管理器", thisComputer: "这台电脑", system: "Windows" }
-    : { keychain: "钥匙串", systemKeychain: "macOS 钥匙串", fileManager: "访达", thisComputer: "这台 Mac", system: "macOS" };
+    ? { keychain: "凭据管理器", systemKeychain: "Windows 凭据管理器", fileManager: "资源管理器", thisComputer: "这台电脑", system: "Windows", copy: "复制", viewMenu: "查看" }
+    : { keychain: "钥匙串", systemKeychain: "macOS 钥匙串", fileManager: "访达", thisComputer: "这台 Mac", system: "macOS", copy: "拷贝", viewMenu: "显示" };
 }
 
 export const SYSTEM = systemWords();

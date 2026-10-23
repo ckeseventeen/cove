@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { MainWindow } from "./app/MainWindow";
-import { installWindowBehaviour } from "./lib/native";
+import { installWindowBehaviour, installWindowsMenuKeys } from "./lib/native";
 import { demoEnabled, installUiZoom, openNativePlayer } from "./lib/nimbus";
 import { VideoOverlay } from "./player/VideoOverlay";
 import "./styles/tokens.css";
@@ -22,6 +22,8 @@ if (readerWindow) document.documentElement.classList.add("reader-window");
 installWindowBehaviour({ vibrancy: !videoWindow && !readerWindow });
 // A reader zooms its pages, not the interface.
 if (!readerWindow) installUiZoom();
+// Only the library window has a menu bar on Windows.
+if (!videoWindow && !readerWindow) installWindowsMenuKeys();
 
 // Browser layout fixture for the video controls: `?player-controls&demo=1&fixture=video`.
 if (videoWindow && demoEnabled && new URLSearchParams(window.location.search).get("fixture") === "video") {

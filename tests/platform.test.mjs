@@ -31,3 +31,20 @@ test('the shortcut key is ⌘ on macOS and Ctrl on Windows', () => {
   assert.equal(platform.onlyPrimaryKey(keys({ metaKey: true, ctrlKey: true }), 'mac'), false);
   assert.equal(platform.onlyPrimaryKey(keys({ ctrlKey: true, shiftKey: true }), 'windows'), false);
 });
+
+test('Windows menu shortcuts are read from the key press', () => {
+  const press = (code, key, extra) => platform.windowsMenuShortcut({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false, code, key, ...extra });
+  assert.equal(press('Digit2', '2'), 'cove.go.movies');
+  assert.equal(press('Comma', ','), 'cove.settings');
+  assert.equal(press('KeyN', 'n'), 'cove.add-storage');
+  assert.equal(press('KeyN', 'N', { shiftKey: true }), 'cove.new-folder');
+  assert.equal(press('KeyS', 's', { altKey: true }), 'cove.toggle-sidebar');
+  assert.equal(press('BracketLeft', '['), 'cove.back');
+  assert.equal(press('Equal', '='), 'cove.zoom-in');
+  assert.equal(press('ArrowRight', 'ArrowRight'), 'cove.next');
+  assert.equal(press('F11', 'F11', { ctrlKey: false }), 'cove.fullscreen');
+  // Ctrl+Shift+= is "Ctrl++", which the page zooms itself; plain keys and Ctrl+C stay the page's.
+  assert.equal(press('Equal', '+', { shiftKey: true }), undefined);
+  assert.equal(press('Digit2', '2', { ctrlKey: false }), undefined);
+  assert.equal(press('KeyC', 'c'), undefined);
+});

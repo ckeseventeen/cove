@@ -1,7 +1,7 @@
 [package]
 name = "nimbus-desktop"
 version = "0.1.0"
-description = "Cove macOS personal cloud media haven"
+description = "Cove personal cloud media haven for macOS and Windows"
 authors = ["Cove contributors"]
 edition = "2021"
 rust-version = "1.80"
@@ -14,6 +14,8 @@ crate-type = ["staticlib", "rlib"]
 
 [build-dependencies]
 cc = "1"
+# The Windows app manifest, for the test binaries as well as Cove.exe (build.rs).
+embed-resource = "3"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]

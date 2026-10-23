@@ -92,7 +92,7 @@ pub(crate) fn app_status(state: State<'_, AppState>) -> Result<AppStatus> {
         account_count,
         baidu_configured: config::BaiduConfig::load().is_ok(),
         tmdb_configured: config::TmdbConfig::load().is_ok(),
-        mpv_available: true, // libmpv is linked; load failure prevents startup.
+        mpv_available: crate::player::mpv_available(),
     })
 }
 

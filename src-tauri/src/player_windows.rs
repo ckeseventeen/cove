@@ -25,8 +25,9 @@ use windows_sys::Win32::{
     UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
-            CreateWindowExW, DefWindowProcW, GetClientRect, GetParent, RegisterClassW, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-            GWLP_HWNDPARENT, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+            CreateWindowExW, DefWindowProcW, GetClientRect, GetForegroundWindow, GetParent, RegisterClassW, SendMessageW, SetWindowLongPtrW, SetWindowPos,
+            ShowWindow, GWLP_HWNDPARENT, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, WM_NCACTIVATE, WNDCLASSW, WS_CHILD, WS_CLIPCHILDREN,
+            WS_CLIPSIBLINGS,
         },
     },
 };
@@ -75,6 +76,11 @@ fn load_mpv() -> std::result::Result<Mpv, String> {
 
 fn mpv() -> Result<&'static Mpv> {
     MPV.get_or_init(load_mpv).as_ref().map_err(|error| NimbusError::Internal(error.clone()))
+}
+
+/// Whether libmpv-2.dll, and what it needs, can be loaded.
+pub fn mpv_available() -> bool {
+    mpv().is_ok()
 }
 
 fn wide(value: &str) -> Vec<u16> {
@@ -284,6 +290,15 @@ pub fn is_floating() -> bool {
     FLOATING.lock().is_some()
 }
 
+/// The window's menu bar stays out of a video in full screen or the mini-player, where only the
+/// picture shows; the library keeps it, even in full screen, so F11 is always on screen.
+pub fn sync_menu(window: &WebviewWindow, video: bool) {
+    let bare = video && (is_floating() || window.is_fullscreen().unwrap_or(false));
+    if window.is_menu_visible().unwrap_or(bare) == bare {
+        let _ = if bare { window.hide_menu() } else { window.show_menu() };
+    }
+}
+
 /// The part of the window's screen not taken by the taskbar, in physical pixels.
 fn work_area(window: &WebviewWindow) -> Result<RECT> {
     let hwnd = window_handle(window)? as HWND;
@@ -317,11 +332,16 @@ pub fn set_floating(parent: &WebviewWindow, child: Option<&WebviewWindow>, float
             size: parent.inner_size().map_err(window_error)?,
             maximized: parent.is_maximized().unwrap_or(false),
         };
-        let frame = parent.outer_size().map_err(window_error)?;
-        let (border_x, border_y) = (frame.width.saturating_sub(docked.size.width), frame.height.saturating_sub(docked.size.height));
-        if docked.maximized {
+        let maximized = docked.maximized;
+        // Floating from here on, so the resizes below already see the mini-player.
+        *FLOATING.lock() = Some(docked);
+        sync_menu(parent, true);
+        if maximized {
             parent.unmaximize().map_err(window_error)?;
         }
+        let size = parent.inner_size().map_err(window_error)?;
+        let frame = parent.outer_size().map_err(window_error)?;
+        let (border_x, border_y) = (frame.width.saturating_sub(size.width), frame.height.saturating_sub(size.height));
         let area = work_area(parent)?;
         let scale = parent.scale_factor().unwrap_or(1.0);
         let ratio = if aspect > 0.2 && aspect < 5.0 { aspect } else { 16.0 / 9.0 };
@@ -340,11 +360,11 @@ pub fn set_floating(parent: &WebviewWindow, child: Option<&WebviewWindow>, float
         if let Some(child) = child {
             let _ = child.set_always_on_top(true);
         }
-        *FLOATING.lock() = Some(docked);
     } else {
         let Some(docked) = FLOATING.lock().take() else {
             return Ok(());
         };
+        sync_menu(parent, true);
         parent.set_always_on_top(false).map_err(window_error)?;
         if let Some(child) = child {
             let _ = child.set_always_on_top(false);
@@ -372,6 +392,20 @@ pub fn attach_controls_window(parent: &WebviewWindow, child: &WebviewWindow) -> 
     child.set_position(parent.inner_position().map_err(error)?).map_err(error)?;
     child.set_size(parent.inner_size().map_err(error)?).map_err(error)?;
     Ok(())
+}
+
+/// The controls are a window of their own, so the library window's title bar turns inactive
+/// whenever they take the keyboard. Draw it as the controls are: active while they are.
+pub fn show_owner_active(parent: &WebviewWindow, active: bool) {
+    if let Ok(owner) = window_handle(parent) {
+        let _ = parent.run_on_main_thread(move || unsafe {
+            // Leaving the controls for the library window itself: that is active for real.
+            if !active && GetForegroundWindow() == owner as HWND {
+                return;
+            }
+            SendMessageW(owner as HWND, WM_NCACTIVATE, active as usize, 0);
+        });
+    }
 }
 
 /// The controls window stays owned by the library window while hidden; nothing to undo.

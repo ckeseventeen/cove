@@ -156,6 +156,8 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     const needle = filter.trim().toLocaleLowerCase();
     const list = needle ? entries.filter((entry) => entry.name.toLocaleLowerCase().includes(needle)) : [...entries];
     const direction = sort.ascending ? 1 : -1;
+    // The local root keeps the order the system gives it: the home folder, then the disks.
+    if (virtualRoot && sort.field === "name" && sort.ascending) return list;
     return list.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
       let result = 0;
@@ -164,7 +166,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       else if (sort.field === "kind") result = collator.compare(classifyEntry(a.name, a.isDir).label, classifyEntry(b.name, b.isDir).label);
       return (result || collator.compare(a.name, b.name)) * (sort.field === "name" ? direction : result ? direction : 1);
     });
-  }, [entries, filter, sort]);
+  }, [entries, filter, sort, virtualRoot]);
 
   const { count, sentinel } = useIncrementalCount(sorted.length, 300, `${account.id}|${path}|${filter}|${sort.field}|${sort.ascending}`);
   const visible = sorted.slice(0, count);
@@ -241,11 +243,11 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
 
   const copy = (entry: CloudEntry) => {
     if (!capabilities.copy) {
-      notify("这个存储位置暂不支持拷贝", "info");
+      notify(`这个存储位置暂不支持${SYSTEM.copy}`, "info");
       return;
     }
     onClipboard({ accountId: account.id, id: entry.id, path: entry.path, name: entry.name, isDir: entry.isDir });
-    notify(`已拷贝“${entry.name}”。打开目标文件夹后选择“粘贴”。`, "info");
+    notify(`已${SYSTEM.copy}“${entry.name}”。打开目标文件夹后选择“粘贴”。`, "info");
   };
 
   const paste = async (destination = path, source = clipboard) => {
@@ -258,10 +260,10 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     setBusy(true);
     try {
       await copyEntry(source.accountId, source.path, source.id, source.isDir, account.id, destination);
-      notify(`已将“${source.name}”拷贝到“${destination.split("/").filter(Boolean).at(-1) ?? account.label}”`, "success");
+      notify(`已将“${source.name}”${SYSTEM.copy}到“${destination.split("/").filter(Boolean).at(-1) ?? account.label}”`, "success");
       if (destination === path) setReload((value) => value + 1);
     } catch (cause) {
-      notify(`拷贝失败：${errorText(cause)}`, "error");
+      notify(`${SYSTEM.copy}失败：${errorText(cause)}`, "error");
     } finally {
       setBusy(false);
     }
@@ -302,7 +304,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       if (!entry.isDir) items.push({ label: "用默认应用打开", action: () => void openNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
       items.push({ label: `在${SYSTEM.fileManager}中显示`, action: () => void revealNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
     }
-    items.push("separator", { label: `拷贝“${entry.name}”`, enabled: capabilities.copy, action: () => copy(entry) });
+    items.push("separator", { label: `${SYSTEM.copy}“${entry.name}”`, enabled: capabilities.copy, action: () => copy(entry) });
     if (entry.isDir) {
       const pasteHere = !!clipboard && !!clipboardAccount && capabilities.copy && canCopyBetween(clipboardAccount, account) && !(account.provider === "local" && entry.path === "/");
       items.push({ label: clipboard ? `粘贴“${clipboard.name}”到此文件夹` : "粘贴", enabled: pasteHere, action: () => void paste(entry.path) });

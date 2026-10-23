@@ -348,7 +348,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
             )}
           </div>
         </div>
-        <p className="group-footer">{shortcutLabel("也可以在“显示”菜单中调整：⌘= 放大，⌘− 缩小，⌘0 恢复实际大小。")}</p>
+        <p className="group-footer">{shortcutLabel(`也可以在“${SYSTEM.viewMenu}”菜单中调整：⌘= 放大，⌘− 缩小，⌘0 恢复实际大小。`)}</p>
       </section>
 
       <section className="group">
@@ -384,7 +384,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           <div className="group-row">
             <span className="row-main">
               <span className="row-title">本地数据库</span>
-              <span className="row-subtitle">{status?.platform ?? "macOS"}</span>
+              <span className="row-subtitle">{status?.platform ?? SYSTEM.system}</span>
             </span>
             <StatusValue state={status?.databaseReady} on="正常" off="初始化中" />
           </div>

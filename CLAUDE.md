@@ -26,6 +26,8 @@ cargo check --target x86_64-pc-windows-gnu --manifest-path src-tauri/Cargo.toml 
 cargo check --tests --target x86_64-pc-windows-gnu --manifest-path src-tauri/Cargo.toml  # same for the tests
 ```
 
+On Windows itself, the GNU toolchain plus WinLibs MinGW-w64 builds and runs everything (`npm run tauri dev`, `cargo test`); see docs/WINDOWS.md for the setup.
+
 The Windows installer is built by `.github/workflows/windows.yml` (workflow_dispatch or a `v*` tag), which fetches libmpv into `src-tauri/vendor/` (gitignored). `tauri.windows.conf.json` overrides the windows and bundle settings for Windows.
 
 There is no linter configured; `npm run build` (tsc, `strict`) is the type check.
@@ -46,7 +48,7 @@ Rust tests live inline (`#[cfg(test)] mod tests`) in `webdav.rs`, `metadata.rs`,
 
 Browser-only verification: `/?demo=1` serves fixture data from `src/lib/preview.ts` (mock player, no cloud, no video); `/tests/music-layout.html` auto-plays a demo song with long lyrics; `/?player-controls&demo=1&fixture=video` renders the video control overlay; `/?reader=1&src=/tests/fixtures/reader-sample.pdf&page=3` opens the pdf.js reader.
 
-Platform differences in the UI go through `src/lib/platform.ts`: `primaryKey(event)` (⌘ on macOS, Ctrl on Windows), `shortcutLabel("⌥⌘L")`, and `SYSTEM` for names like 钥匙串 / 凭据管理器. CSS keys off `html[data-platform="windows"]`.
+Platform differences in the UI go through `src/lib/platform.ts`: `primaryKey(event)` (⌘ on macOS, Ctrl on Windows), `shortcutLabel("⌥⌘L")`, and `SYSTEM` for names like 钥匙串 / 凭据管理器. CSS keys off `html[data-platform="windows"]`. On Windows, WebView2 swallows menu accelerators while the page has focus, so the library window forwards them (`windowsMenuShortcut` → `menu_shortcut` command → `menu::handle`); a new menu shortcut must be added to that table in `platform.ts` too.
 
 ## Architecture
 
@@ -54,7 +56,7 @@ Platform differences in the UI go through `src/lib/platform.ts`: `primaryKey(eve
 
 **Frontend layout.** `src/app` (window shell `MainWindow`, `Sidebar`, Finder-style back/forward history in `navigation.ts`, library data in `useLibrary.ts`), `src/player` (`PlayerProvider` state, music Now Playing / lyrics, video overlay), `src/views` (one per route), `src/ui` (shared controls, native menu host, sheets, toasts), `src/styles` (`tokens.css` design tokens). Native menus and context menus go through `src/lib/native.ts` (real `NSMenu` via Tauri menu API).
 
-**Two webview windows** (`tauri.conf.json`): `main`, and a hidden transparent `player-controls` window (`index.html?player-controls=1`) layered over the native mpv view for video controls. `lib.rs` keeps it attached to `main` on move/resize. Closing `main` while video plays stops the video; while music plays it hides the window and keeps playing.
+**Two webview windows** (`tauri.conf.json`): `main`, and a hidden transparent `player-controls` window (`index.html?player-controls=1`) layered over the native mpv view for video controls. `lib.rs` keeps it attached to `main` on move/resize. Both windows are `"create": false` in the config and are built in `setup` after `AppState` is managed; created with the app, a fast-loading page (installed builds) calls commands before the state exists and gets "state not managed". Closing `main` while video plays stops the video; while music plays it hides the window and keeps playing.
 
 **Backend (`src-tauri/src`).**
 - `lib.rs` — app setup, `AppState { store, proxy, credentials, player }`, command registration, and a 500 ms poll loop that reads player status, renews proxy sessions, syncs macOS Now Playing, emits `nimbus-player-state`, and saves playback progress every 30 s.

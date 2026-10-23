@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, PanelLeft, Trash2 } from "lucide-react";
 import { workProgress, type MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
-import { shortcutLabel } from "../lib/platform";
+import { isWindows, onlyPrimaryKey, shortcutLabel } from "../lib/platform";
 import { demoEnabled, type Account, type MediaFile, type MediaSource, type Playlist } from "../lib/nimbus";
 import { PlayerCenter, PlayerTools } from "../player/MiniPlayer";
 import { NowPlaying } from "../player/NowPlaying";
@@ -347,10 +347,19 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
       ArrowDown: "cove.volume-down",
     };
     const onKey = (event: KeyboardEvent) => {
+      if (player.isVideo) return;
+      // Back and forward as in Explorer. They are taken from the web view before this sees them
+      // (blockBrowserKeys in native.ts), so they come ahead of the check below.
+      if (isWindows && event.altKey && !event.ctrlKey && !event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        if (isModalOpen() || isEditableTarget(event.target)) return;
+        event.preventDefault();
+        command.current(event.key === "ArrowLeft" ? "cove.back" : "cove.forward");
+        return;
+      }
       // A focused list or control already used the key (Space opening a document, ⌘↑ in Files).
-      if (player.isVideo || event.defaultPrevented) return;
+      if (event.defaultPrevented) return;
       // In the native app these arrive through the menu bar instead.
-      if (!isTauri() && event.metaKey && !event.altKey && !event.ctrlKey && keys[event.key]) {
+      if (!isTauri() && onlyPrimaryKey(event) && keys[event.key]) {
         if (isEditableTarget(event.target) && event.key.startsWith("Arrow")) return;
         event.preventDefault();
         command.current(keys[event.key]);
@@ -362,8 +371,18 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         player.togglePlay();
       }
     };
+    // The mouse's side buttons, as in Explorer and the browsers.
+    const onMouse = (event: MouseEvent) => {
+      if ((event.button !== 3 && event.button !== 4) || player.isVideo || isModalOpen()) return;
+      event.preventDefault();
+      command.current(event.button === 3 ? "cove.back" : "cove.forward");
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("mouseup", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mouseup", onMouse);
+    };
   }, [player]);
 
   const account = route.name === "storage" ? library.accounts.find((item) => item.id === route.accountId) : undefined;

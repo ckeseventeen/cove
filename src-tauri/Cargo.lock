@@ -2269,6 +2269,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "cc",
+ "embed-resource",
  "keyring",
  "libloading 0.8.9",
  "md5",

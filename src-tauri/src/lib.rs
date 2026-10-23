@@ -1,3 +1,8 @@
+// MinGW links its own default manifest beside Cove's (build.rs), and ld reports keeping Cove's
+// as ".rsrc merge failure: multiple non-default manifests". Only that toolchain says it, and the
+// library is linked only as its test binary.
+#![cfg_attr(all(windows, target_env = "gnu", test), allow(linker_messages))]
+
 mod ai_subtitles;
 mod auto_scan;
 mod commands;
@@ -71,6 +76,13 @@ pub fn run() {
                 player: player::PlayerController::new(),
             });
             app.manage(ui_zoom::UiZoom::load(&data_dir));
+            // The windows are made only now, once the state their pages ask for is in place
+            // (`"create": false` in tauri.conf.json): made with the app, a page that loads fast,
+            // as an installed build's does, calls `app_status` before setup has run and shows an
+            // empty library.
+            for window in app.config().app.windows.clone() {
+                tauri::WebviewWindowBuilder::from_config(app.handle(), &window)?.build()?;
+            }
             ui_zoom::apply(app.handle());
             let menu = menu::build(app.handle())?;
             // On Windows the menu belongs to the library window, not to every window (the video
@@ -195,6 +207,7 @@ pub fn run() {
             commands::library::playlist_rename,
             commands::library::playlist_delete,
             commands::library::playlist_set_items,
+            menu::menu_shortcut,
             ui_zoom::ui_zoom_get,
             ui_zoom::ui_zoom_set
         ])
@@ -207,6 +220,10 @@ pub fn run() {
             {
                 if matches!(event, tauri::WindowEvent::Resized(_)) {
                     window.app_handle().state::<AppState>().player.layout(window);
+                    // Entering or leaving full screen is a resize.
+                    if let Some(main) = window.app_handle().get_webview_window("main") {
+                        player::sync_menu(&main, video_ui_visible(window.app_handle()));
+                    }
                 }
                 if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
                     if controls.is_visible().unwrap_or(false) {
@@ -216,6 +233,22 @@ pub fn run() {
                     }
                 }
             }
+            // On Windows the video controls are a window of their own over the library window;
+            // whatever activates the library window (full screen, Alt+Tab, the taskbar) gives the
+            // keyboard to the library page under the video, so hand it on to the controls.
+            #[cfg(windows)]
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) && video_ui_visible(window.app_handle()) {
+                if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
+                    let _ = controls.set_focus();
+                }
+            }
+            // The library window's title bar looks active while its video controls are.
+            #[cfg(windows)]
+            if let (true, tauri::WindowEvent::Focused(focused)) = (window.label() == "player-controls", event) {
+                if let Some(main) = window.app_handle().get_webview_window("main") {
+                    player::show_owner_active(&main, *focused);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() != "main" {
                     return;
@@ -223,10 +256,14 @@ pub fn run() {
                 api.prevent_close();
                 let app_handle = window.app_handle().clone();
                 // A Windows app ends when its window closes; there is no Dock to bring it back.
+                // Closing a video still only leaves the video, as on macOS.
                 if cfg!(not(target_os = "macos")) {
                     tauri::async_runtime::spawn(async move {
+                        let leaving_video = video_ui_visible(&app_handle);
                         stop_playback(&app_handle).await;
-                        app_handle.exit(0);
+                        if !leaving_video {
+                            app_handle.exit(0);
+                        }
                     });
                     return;
                 }
@@ -399,6 +436,7 @@ pub(crate) async fn show_library(app_handle: &tauri::AppHandle, focus: bool) {
         if video_ui {
             let _ = webview.set_fullscreen(false);
         }
+        player::sync_menu(&webview, false);
         if focus || controls_focused {
             let _ = webview.set_focus();
         }

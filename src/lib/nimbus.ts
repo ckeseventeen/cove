@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lookupNameOf, type MediaWork } from "./media";
 import { createMovieLookups, type MovieLookup } from "./movieLookup";
 import { isTauri } from "./native";
-import { isWindows, primaryKey } from "./platform";
+import { isWindows, primaryKey, SYSTEM } from "./platform";
 import type { SongInfo } from "./media";
 import {
   previewAccounts,
@@ -142,7 +142,7 @@ export type ReadingProgress = {
 
 export type Playlist = { id: string; name: string; fileIds: string[]; updatedAt: number };
 
-const APP_ONLY = "此操作需要在 Cove macOS 应用中使用";
+const APP_ONLY = "此操作需要在 Cove 桌面应用中使用";
 export const demoEnabled = !isTauri() && new URLSearchParams(window.location.search).get("demo") === "1";
 const demoAccounts: Account[] = demoEnabled ? previewAccounts : [];
 
@@ -191,13 +191,13 @@ export async function removeAccount(accountId: string): Promise<void> {
 
 export async function addAccount(input: AccountInput): Promise<Account> {
   if (isTauri()) return invoke<Account>("account_add", { input });
-  appOnly("连接存储需要在 Cove macOS 应用中使用");
+  appOnly("连接存储需要在 Cove 桌面应用中使用");
 }
 
 /** Sign in to Baidu in the browser; with `accountId`, renew that account's login in place. */
 export async function connectBaidu(label: string, accountId?: string): Promise<Account> {
   if (isTauri()) return invoke<Account>("baidu_oauth_connect", { label, accountId: accountId ?? null });
-  appOnly("百度网盘授权需要在 Cove macOS 应用中使用");
+  appOnly("百度网盘授权需要在 Cove 桌面应用中使用");
 }
 
 /** Whether Google Drive or OneDrive can sign in through the browser (an OAuth app is configured). */
@@ -208,7 +208,7 @@ export async function oauthAvailable(provider: string): Promise<boolean> {
 /** Sign in to Google Drive or OneDrive in the browser; with `accountId`, reconnect that account. */
 export async function connectOAuth(provider: string, label: string, accountId?: string): Promise<Account> {
   if (isTauri()) return invoke<Account>("oauth_connect", { provider, label, accountId: accountId ?? null });
-  appOnly("浏览器登录需要在 Cove macOS 应用中使用");
+  appOnly("浏览器登录需要在 Cove 桌面应用中使用");
 }
 
 /** Stop a Baidu sign-in that is waiting for the browser. */
@@ -219,7 +219,7 @@ export async function cancelBaiduSignIn(): Promise<void> {
 /** Save a new password or token for an account; its folders, progress and playlists stay. */
 export async function updateAccountCredentials(accountId: string, username: string, password: string): Promise<Account> {
   if (isTauri()) return invoke<Account>("account_update_credentials", { accountId, username, password });
-  appOnly("重新连接需要在 Cove macOS 应用中使用");
+  appOnly("重新连接需要在 Cove 桌面应用中使用");
 }
 
 export async function listMediaFiles(): Promise<MediaFile[]> {
@@ -230,7 +230,7 @@ export async function listMediaFiles(): Promise<MediaFile[]> {
 export async function browseAccount(accountId: string, path: string): Promise<CloudEntry[]> {
   if (isTauri()) return invoke<CloudEntry[]>("account_browse", { accountId, path });
   if (demoEnabled) return previewEntries(path);
-  appOnly("浏览文件需要在 Cove macOS 应用中使用");
+  appOnly("浏览文件需要在 Cove 桌面应用中使用");
 }
 
 export async function copyEntry(
@@ -271,12 +271,12 @@ export async function addMediaSource(
   label: string,
 ): Promise<MediaSource> {
   if (isTauri()) return invoke<MediaSource>("media_source_add", { accountId, kind, remoteRoot, label });
-  appOnly("添加媒体文件夹需要在 Cove macOS 应用中使用");
+  appOnly("添加媒体文件夹需要在 Cove 桌面应用中使用");
 }
 
 export async function scanMediaSource(sourceId: string): Promise<ScanResult> {
   if (isTauri()) return invoke<ScanResult>("media_source_scan", { sourceId });
-  appOnly("扫描需要在 Cove macOS 应用中使用");
+  appOnly("扫描需要在 Cove 桌面应用中使用");
 }
 
 export async function removeMediaSource(sourceId: string): Promise<void> {
@@ -288,7 +288,7 @@ export async function openNativePlayer(fileId: string, fromStart = false): Promi
   if (isTauri()) return invoke<void>("player_open_native", { fileId, fromStart });
   const file = previewFiles.find((item) => item.id === fileId);
   if (demoEnabled && file) return demoPlayer.open(file);
-  appOnly("视频播放需要在 Cove macOS 应用中使用");
+  appOnly("视频播放需要在 Cove 桌面应用中使用");
 }
 
 /** An open replaced by a newer one, or by a stop, rejects with this (player.rs `OPEN_CANCELLED`); it is not a failure. */
@@ -425,7 +425,7 @@ async function fetchMovieMetadata({ fileIds, refresh, lookupName, series }: Movi
     return { ...metadata, genres: metadata.genres ?? [], cast: metadata.cast ?? [] };
   }
   if (demoEnabled && previewMetadata[fileId]) return previewMetadata[fileId];
-  appOnly("影视资料匹配需要在 Cove macOS 应用中使用");
+  appOnly("影视资料匹配需要在 Cove 桌面应用中使用");
 }
 
 const movieLookups = createMovieLookups(fetchMovieMetadata);
@@ -560,7 +560,7 @@ export async function playStorageFile(
       siblings: siblings ?? null,
     });
   }
-  appOnly("直接播放需要在 Cove macOS 应用中使用");
+  appOnly("直接播放需要在 Cove 桌面应用中使用");
 }
 
 export type AiSubtitleConfig = {
@@ -598,19 +598,19 @@ export async function revealNativePath(path: string): Promise<void> {
 
 export async function readTextPreview(path: string): Promise<string> {
   if (isTauri()) return invoke<string>("read_text_preview", { path });
-  appOnly("预览文件内容需要在 Cove macOS 应用中使用");
+  appOnly("预览文件内容需要在 Cove 桌面应用中使用");
 }
 
 /* ---------- Documents: PDFs open in the native PDFKit reader, which remembers the page ---------- */
 
 export async function openDocument(accountId: string, path: string, name: string, entryId?: string, size?: number): Promise<ReadingProgress> {
   if (isTauri()) return invoke<ReadingProgress>("document_open", { accountId, path, name, entryId: entryId ?? null, size: size ?? null });
-  appOnly("阅读 PDF 需要在 Cove macOS 应用中使用");
+  appOnly("阅读 PDF 需要在 Cove 桌面应用中使用");
 }
 
 export async function openDocumentFile(fileId: string): Promise<ReadingProgress> {
   if (isTauri()) return invoke<ReadingProgress>("document_open_file", { fileId });
-  appOnly("阅读 PDF 需要在 Cove macOS 应用中使用");
+  appOnly("阅读 PDF 需要在 Cove 桌面应用中使用");
 }
 
 export async function listReadingProgress(): Promise<ReadingProgress[]> {
@@ -787,7 +787,7 @@ export async function loadAiKey(): Promise<string | null> {
 
 export async function saveAiKey(value: string): Promise<void> {
   if (isTauri()) return invoke("ai_key_save", { value });
-  appOnly("密钥只保存在 macOS 钥匙串中");
+  appOnly(`密钥只保存在 ${SYSTEM.systemKeychain}中`);
 }
 
 /* ---------- Browser preview player: simulates libmpv for layout QA ---------- */

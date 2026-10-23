@@ -15,11 +15,13 @@ Cove 的 Windows 版与 Mac 版共用同一套界面和绝大部分 Rust 代码�
 | PDF 阅读 | PDFKit 原生阅读器 | pdf.js 阅读窗口（`src/reader`），记住页码、可选中文字、缩放 |
 | SMB | NetFS 挂载到数据目录 | 直接用网络路径 `\\nas\share`，WNetAddConnection2W 登录；只支持 445 端口 |
 | 密码与令牌 | 钥匙串 | Windows 凭据管理器；超过约 1000 字符的令牌（OneDrive）分段保存 |
-| 菜单 | 系统菜单栏 | 主窗口的菜单栏（文件 / 编辑 / 显示 / 控制 / 帮助），F11 全屏 |
-| 关闭窗口 | 播放音乐时隐藏窗口继续播放 | 退出 Cove（Windows 没有 Dock 可以找回窗口），先保存进度 |
+| 菜单 | 系统菜单栏 | 主窗口的菜单栏（文件 / 编辑 / 查看 / 控制 / 帮助），F11 全屏；视频全屏和小窗时隐藏 |
+| 菜单快捷键 | 菜单栏直接响应 | WebView2 有焦点时菜单栏收不到按键，由页面把快捷键交给 `menu_shortcut`（`windowsMenuShortcut`，`src/lib/platform.ts`），效果与点菜单相同 |
+| 隐藏文件 | 以 `.` 开头 | 另外不显示带“隐藏”或“系统”属性的项（`$Recycle.Bin`、`System Volume Information` 等），与资源管理器一致 |
+| 关闭窗口 | 播放音乐时隐藏窗口继续播放 | 播放视频时回到资料库（与 Mac 相同）；否则退出 Cove（Windows 没有 Dock 可以找回窗口），先保存进度 |
 | 本地路径 | `/Users/me/影视` | 资料库里写作 `/C:/Users/me/影视`，`/` 列出各个磁盘（`paths.rs`） |
 
-界面上：快捷键显示和按键都把 ⌘ 换成 Ctrl（`src/lib/platform.ts`）；文件中“上一级”用 Alt+↑；字体用 Segoe UI 与微软雅黑；标题栏是系统自带的；“钥匙串”“访达”“这台 Mac”等字样换成 Windows 的说法。
+界面上：快捷键显示和按键都把 ⌘ 换成 Ctrl（`src/lib/platform.ts`）；文件中“上一级”用 Alt+↑；返回 / 前进另有 Alt+← / Alt+→ 和鼠标侧键；WebView2 自带的 F5 / Ctrl+R 刷新、Ctrl+P 打印等浏览器快捷键被屏蔽（`blockBrowserKeys`）；滚动条只在指针移到可滚动区域上时显示；“拷贝”“显示”菜单写作“复制”“查看”；字体用 Segoe UI 与微软雅黑，正文 14px（Windows 11 的正文字号，比 Mac 大一号）；标题栏是系统自带的，播放视频时（键盘在控制层窗口上）仍显示为激活（`show_owner_active`）；“本地磁盘”根目录按系统给出的顺序：个人文件夹在前，然后是各盘符；“钥匙串”“访达”“这台 Mac”等字样换成 Windows 的说法。
 
 ## 构建
 
@@ -54,19 +56,48 @@ npm run tauri build -- --target x86_64-pc-windows-gnu --no-bundle
 
 在 Mac 上试用 pdf.js 阅读器：`NIMBUS_WEB_READER=1` 启动时，PDF 用它打开而不是 PDFKit。
 
+### 在 Windows 上打本地安装包
+
+```bash
+npm run tauri build -- --bundles nsis --config '{"bundle":{"resources":{"vendor/libmpv-2.dll":"libmpv-2.dll","vendor/WebView2Loader.dll":"WebView2Loader.dll"}}}'
+```
+
+MinGW 构建的 Cove.exe 依赖 `WebView2Loader.dll`（MSVC 构建是静态链接的，所以仓库配置里没有它），先从 `src-tauri/target/release/` 复制到 `src-tauri/vendor/`。这样打的包只供自己使用。
+
 ## 要求
 
 - Windows 10 或 11，64 位；WebView2 运行时（Windows 11 自带，Windows 10 安装时会自动下载）。
 - libmpv 需要 `vulkan-1.dll`，由显卡驱动提供。缺少时 Cove 会提示更新显卡驱动。
 - 安装包没有代码签名，首次运行 SmartScreen 会提示“已保护你的电脑”，选择“更多信息 › 仍要运行”。
 
-## 尚待在 Windows 真机上确认
+## 在 Windows 上本地构建（MinGW）
 
-这些代码在 Mac 上只做了交叉编译和类型检查，没有在 Windows 上运行过：
+不装 Visual Studio 也可以在 Windows 上编译和调试：rustup 的 `stable-x86_64-pc-windows-gnu` 加上 WinLibs 的 MinGW-w64（rustup 自带的 dlltool 缺少汇编器，编译会报 “dlltool could not create import library”）。
 
-- 视频画面是否画在主窗口里、控制层是否对齐，以及全屏和小窗播放；
+```powershell
+winget install BrechtSanders.WinLibs.POSIX.UCRT
+```
+
+把 WinLibs 的 `mingw64in` 放在 PATH 最前面，再把 `libmpv-2.dll` 放到 `src-tauri/vendor/` 和 `src-tauri/target/debug/`，即可 `npm run tauri dev`、`cargo test`。调试时建议设 `NIMBUS_DATA_DIR` 到临时目录，不要碰已安装 Cove 的资料库（`%APPDATA%pp.cove.desktop`）。
+
+应用清单（Common Controls 6）由 `build.rs` 用 embed-resource 链接进所有二进制，包括测试；否则测试程序一启动就因找不到 `TaskDialogIndirect` 失败（STATUS_ENTRYPOINT_NOT_FOUND）。MinGW 会再链接它自带的默认清单（ID 和语言相同，binutils 认不出它是默认清单），ld 提示 “multiple non-default manifests” 并保留 Cove 的清单；这条提示在 windows-gnu 下用 `allow(linker_messages)` 屏蔽（`main.rs`、`lib.rs`）。
+
+WebView2 远程调试：设 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` 后启动，`http://127.0.0.1:9223/json` 列出各窗口。
+
+## Windows 真机验证（2026-10-23，Windows 11）
+
+已确认：
+
+- 构建、95 个 Rust 测试、前端测试；
+- 主窗口、菜单栏、菜单快捷键（Ctrl+1…5、Ctrl+, 等）、Alt+← 返回；设置中显示 Windows、播放内核可用；
+- 视频画在主窗口里、控制层对齐；双击全屏（菜单栏隐藏）、Esc 退出；小窗播放在屏幕右下角置顶、恢复原位；播放视频时关闭窗口回到资料库；
+- 本地磁盘列出各盘符，Alt+↑ 上一级，隐藏和系统项不显示；
+- pdf.js 阅读窗口打开、渲染、首页“继续阅读”记下进度。
+
+尚未确认：
+
 - 媒体键与音量浮窗中的播放控制（SMTC）；
 - SMB 登录（WNetAddConnection2W），以及凭据冲突（错误 1219）时的提示；
 - 凭据管理器中分段保存的 OneDrive 令牌；
-- 菜单栏快捷键（Ctrl+1…5 等）在深色模式下的外观；
-- 阅读窗口（pdf.js 部分已在浏览器和 Mac 的 WebView 中验证过：打开到上次的页、选中文字、缩放、页码写回资料库）。
+- 深色模式下的外观；
+- MSVC（GitHub Actions）下的安装包构建与 `cargo test`。

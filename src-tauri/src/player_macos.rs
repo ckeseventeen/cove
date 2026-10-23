@@ -150,6 +150,14 @@ pub fn create_player(view: usize, ipc: &Path, log_path: &Path) -> Result<usize> 
     Ok(handle as usize)
 }
 
+/// libmpv is linked into Cove; it cannot be missing at run time.
+pub fn mpv_available() -> bool {
+    true
+}
+
+/// The menu bar is the system's, outside the window.
+pub fn sync_menu(_window: &WebviewWindow, _video: bool) {}
+
 /// Whether the video window is the floating mini-player.
 pub fn is_floating() -> bool {
     unsafe { nimbus_window_is_floating() == 1 }

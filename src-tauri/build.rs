@@ -85,5 +85,19 @@ fn main() {
     let output = std::path::PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR missing"));
     std::fs::write(output.join("baidu_build_config.rs"), generated)
         .expect("failed to generate bundled Baidu configuration");
-    tauri_build::build()
+    // The app manifest asks for Common Controls 6; a binary without it cannot start
+    // (TaskDialogIndirect is missing from the old comctl32: STATUS_ENTRYPOINT_NOT_FOUND).
+    // tauri-build links its manifest into the app only, so Cove links its own into every binary,
+    // the test binaries too.
+    let windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+    let mut attributes = tauri_build::Attributes::new();
+    if windows {
+        println!("cargo:rerun-if-changed=windows-app-manifest.rc");
+        println!("cargo:rerun-if-changed=windows-app-manifest.xml");
+        embed_resource::compile_for_everything("windows-app-manifest.rc", embed_resource::NONE)
+            .manifest_required()
+            .expect("failed to embed the Windows app manifest");
+        attributes = attributes.windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+    }
+    tauri_build::try_build(attributes).expect("failed to run tauri-build");
 }

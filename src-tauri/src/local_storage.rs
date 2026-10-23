@@ -16,6 +16,23 @@ const VIDEO_EXTENSIONS: &[&str] = &[
 ];
 const AUDIO_EXTENSIONS: &[&str] = &["mp3", "flac", "m4a", "aac", "wav", "ogg", "opus", "ape"];
 
+/// Left out of browsing and scans, as the system's file manager leaves it out: a dot file, and on
+/// Windows also what is marked hidden or system ($Recycle.Bin, System Volume Information, the
+/// "Documents and Settings" junction).
+fn is_hidden(name: &str, item: &fs::DirEntry) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const HIDDEN_OR_SYSTEM: u32 = 0x2 | 0x4;
+        if item.metadata().is_ok_and(|metadata| metadata.file_attributes() & HIDDEN_OR_SYSTEM != 0) {
+            return true;
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = item;
+    name.starts_with('.')
+}
+
 fn normalized(path: &str) -> Result<PathBuf> {
     let path = if path.trim().is_empty() {
         "/"
@@ -121,7 +138,7 @@ pub fn browse(path: &str) -> Result<Vec<CloudEntry>> {
         };
         let path = item.path();
         let name = display_name(&path);
-        if name.starts_with('.') {
+        if is_hidden(&name, &item) {
             continue;
         }
         // Follow symlinks so aliased folders browse like folders, as in Finder.
@@ -180,7 +197,7 @@ pub fn scan_root(
             }
             let path = item.path();
             let name = display_name(&path);
-            if name.starts_with('.') {
+            if is_hidden(&name, &item) {
                 continue;
             }
             let metadata = match item.metadata() {

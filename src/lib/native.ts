@@ -1,7 +1,8 @@
 // Bridges to native macOS behaviour: menus, context menus and window state.
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
-import { isWindows, platform } from "./platform";
+import { isWindows, platform, windowsMenuShortcut } from "./platform";
 
 export const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -115,6 +116,50 @@ export function installWindowBehaviour({ vibrancy }: { vibrancy: boolean }) {
   // Dropping files onto the window must not navigate the web view away.
   window.addEventListener("dragover", (event) => event.preventDefault());
   window.addEventListener("drop", (event) => event.preventDefault());
+  if (isWindows && isTauri()) blockBrowserKeys();
+}
+
+/**
+ * WebView2 keeps Edge's own shortcuts: F5 and Ctrl+R reload the whole app, Ctrl+P prints, F3
+ * searches the page, and Alt+← / Alt+→ and the mouse's side buttons step through the web view's
+ * history. None belongs in Cove; the library window maps the history ones to its own back and
+ * forward (MainWindow).
+ */
+function blockBrowserKeys() {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      const key = event.key.toLowerCase();
+      const reload = key === "f5" || (event.ctrlKey && key === "r");
+      const browser = (event.ctrlKey && (key === "p" || key === "g")) || key === "f3" || key === "f7";
+      const history = event.altKey && (key === "arrowleft" || key === "arrowright");
+      if (reload || browser || key === "browserback" || key === "browserforward") event.preventDefault();
+      // Left for the page to use, but never as the web view's own back and forward.
+      if (history && !isEditableTarget(event.target)) event.preventDefault();
+    },
+    true,
+  );
+  // The side buttons navigate when released; the press is left for the page to see.
+  window.addEventListener("mouseup", (event) => {
+    if (event.button === 3 || event.button === 4) event.preventDefault();
+  });
+}
+
+/**
+ * The library window's menu shortcuts on Windows. WebView2 keeps the keyboard while the page has
+ * focus, so the menu bar never sees Ctrl+1, Ctrl+, or F11; the page hands them to the menu, which
+ * runs them as if clicked. A control that used the key itself (arrows in Files) keeps it, and
+ * arrows stay the text field's while one is focused.
+ */
+export function installWindowsMenuKeys() {
+  if (!isWindows || !isTauri()) return;
+  window.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.repeat) return;
+    const id = windowsMenuShortcut(event);
+    if (!id || (event.key.startsWith("Arrow") && isEditableTarget(event.target))) return;
+    event.preventDefault();
+    void invoke("menu_shortcut", { id }).catch(() => undefined);
+  });
 }
 
 /** True when keyboard shortcuts should be left to the focused control. */

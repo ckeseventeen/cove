@@ -89,6 +89,7 @@ async fn open_native(
     };
     // Show the controls while opening too, so a slow cloud stream has an exit path.
     if show_video {
+        player::sync_menu(&main, true);
         if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
             player::attach_controls_window(&main, &controls)?;
             controls.show().map_err(|error| NimbusError::Internal(error.to_string()))?;

@@ -1,3 +1,4 @@
+import { SYSTEM } from "../lib/platform";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildCourses } from "../lib/courses";
 import { buildMovieWorks, lookupKeyOf, type MediaWork, type SongInfo } from "../lib/media";
@@ -195,7 +196,7 @@ export function useLibrary(notify: Notify) {
     async (fileIds: string[]) => {
       try {
         const queued = await downloadOffline(fileIds);
-        if (!queued) notify("这些视频已下载，或存储在这台 Mac 上，无需下载", "info");
+        if (!queued) notify(`这些视频已下载，或存储在${SYSTEM.thisComputer}上，无需下载`, "info");
       } catch (cause) {
         notify(`无法开始下载：${errorText(cause)}`, "error");
       }

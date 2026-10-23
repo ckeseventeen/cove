@@ -103,7 +103,7 @@ export function QuickLook({ entry, account, onClose, notify }: { entry: CloudEnt
                 <p className="secondary">
                   {capabilities.openNative
                     ? "此类文件请使用系统中的应用打开。"
-                    : `云端文件暂不支持预览。可以先拷贝到${SYSTEM.thisComputer}，再用系统应用打开。`}
+                    : `云端文件暂不支持预览。可以先${SYSTEM.copy}到${SYSTEM.thisComputer}，再用系统应用打开。`}
                 </p>
               )}
             </div>
