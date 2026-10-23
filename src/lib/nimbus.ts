@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { lookupNameOf, type MediaWork } from "./media";
 import { createMovieLookups, type MovieLookup } from "./movieLookup";
 import { isTauri } from "./native";
+import { isWindows, primaryKey } from "./platform";
 import type { SongInfo } from "./media";
 import {
   previewAccounts,
@@ -499,7 +500,7 @@ export function installUiZoom() {
     .catch(() => undefined);
   onUiZoom(show);
   window.addEventListener("keydown", (event) => {
-    if (!event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!primaryKey(event) || (isWindows ? event.metaKey : event.ctrlKey) || event.altKey) return;
     // "⌘+" is ⇧⌘= on the keyboard: match the character and, to be safe, the physical key.
     const plus = event.key === "+" || (event.shiftKey && event.code === "Equal");
     const keys: Record<string, number> = { "=": 1, "-": -1, "0": 0 };

@@ -37,3 +37,9 @@ src-tauri/gen/
 # One-off local investigation notes
 2026-09-09.md
 AUDIT-2026-09-11.md
+
+# libmpv for Windows builds (downloaded by the Windows workflow, or by hand; see docs/WINDOWS.md)
+src-tauri/vendor/
+
+# Windows test packages made on this Mac
+release/

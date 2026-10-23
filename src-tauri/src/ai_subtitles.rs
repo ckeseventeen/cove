@@ -289,21 +289,35 @@ async fn translate_batch(
     Ok(translated)
 }
 
+/// Run a command-line tool without flashing a console window on Windows.
+fn quiet(command: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn find_ffmpeg() -> Option<PathBuf> {
-    let candidates = [
-        "/opt/homebrew/bin/ffmpeg",
-        "/usr/local/bin/ffmpeg",
-        "/usr/bin/ffmpeg",
-    ];
-    for candidate in candidates {
-        let p = PathBuf::from(candidate);
-        if p.is_file() {
-            return Some(p);
+    // On Windows, an ffmpeg.exe placed beside Cove.exe comes first.
+    let beside = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("ffmpeg.exe")));
+    let candidates = if cfg!(windows) {
+        vec![beside]
+    } else {
+        ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"].map(|path| Some(PathBuf::from(path))).to_vec()
+    };
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
-    if let Ok(output) = Command::new("which").arg("ffmpeg").output() {
+    let lookup = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(output) = quiet(Command::new(lookup).arg("ffmpeg")).output() {
         if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            // `where` lists every match, one per line.
+            let path_str = String::from_utf8_lossy(&output.stdout).lines().next().unwrap_or_default().trim().to_string();
             if !path_str.is_empty() {
                 return Some(PathBuf::from(path_str));
             }
@@ -366,7 +380,8 @@ fn build_srt_content(segments: &[SubtitleSegment], mode: &str) -> String {
 }
 
 pub fn get_subtitles_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    // Windows names the home folder USERPROFILE.
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).unwrap_or_else(|| ".".into());
     let dir = PathBuf::from(home).join(".cove").join("subtitles");
     let _ = fs::create_dir_all(&dir);
     dir
@@ -416,7 +431,7 @@ pub async fn ai_subtitles_generate(
     // 1. Determine media source input
     let provider = state.store.get_account(&file.account_id)?.account.provider;
     let media_input = if file.account_id == "local" {
-        file.remote_path.clone()
+        crate::paths::native(&file.remote_path).to_string_lossy().into_owned()
     } else if provider == "smb" {
         crate::smb::local_file(&state, &file.account_id, &file.remote_path).await?.to_string_lossy().into_owned()
     } else {
@@ -427,9 +442,11 @@ pub async fn ai_subtitles_generate(
     }
 
     let ffmpeg_bin = find_ffmpeg().ok_or_else(|| {
-        NimbusError::Internal(
-            "未在系统中找到 ffmpeg 命令，请先安装 ffmpeg（如 brew install ffmpeg）".into(),
-        )
+        NimbusError::Internal(if cfg!(windows) {
+            "未找到 ffmpeg，请安装 ffmpeg（如 winget install ffmpeg），或把 ffmpeg.exe 放在 Cove.exe 旁边".into()
+        } else {
+            "未在系统中找到 ffmpeg 命令，请先安装 ffmpeg（如 brew install ffmpeg）".into()
+        })
     })?;
 
     let emit_progress = |stage: &str, percent: u32, message: &str| {
@@ -504,7 +521,7 @@ pub async fn ai_subtitles_generate(
     .arg(&list_path)
     .arg(work_dir.join("chunk_%04d.mp3"));
 
-    let extract_output = tokio::task::spawn_blocking(move || cmd.output())
+    let extract_output = tokio::task::spawn_blocking(move || quiet(&mut cmd).output())
         .await
         .map_err(|e| NimbusError::Internal(format!("音频提取失败：{e}")))?
         .map_err(|e| NimbusError::Internal(format!("音频提取失败：{e}")))?;

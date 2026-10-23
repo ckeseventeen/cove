@@ -1,6 +1,7 @@
 import { forwardRef, useRef, useState } from "react";
 import { CalendarPlus, Clapperboard, FileText, GraduationCap, History, House, ListMusic, LoaderCircle, Music, PanelLeft, Plus, TrendingUp } from "lucide-react";
 import { showContextMenu } from "../lib/native";
+import { shortcutLabel } from "../lib/platform";
 import type { Account, MediaFile, MediaSource, Playlist, SmartListKind } from "../lib/nimbus";
 import { SMART_LISTS } from "../views/SmartPlaylistView";
 import { usePlayer } from "../player/PlayerProvider";
@@ -108,7 +109,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
   return (
     <aside className="sidebar" aria-label="边栏">
       <div className="sidebar-header" data-tauri-drag-region onMouseDown={onWindowMouseDown}>
-        <button className="icon-btn" title="隐藏边栏 (⌃⌘S)" aria-label="隐藏边栏" onClick={onToggleSidebar}>
+        <button className="icon-btn" title={`隐藏边栏 (${shortcutLabel("⌃⌘S")})`} aria-label="隐藏边栏" onClick={onToggleSidebar}>
           <PanelLeft size={17} />
         </button>
       </div>

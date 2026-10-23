@@ -1,6 +1,6 @@
-//! Documents: open PDFs in the native reader and remember the page reached.
+//! Documents: open PDFs in a reader and remember the page reached. macOS reads them in PDFKit
+//! (pdf_view.m); Windows in a window of Cove's own pdf.js reader (src/reader).
 use std::{
-    ffi::{c_char, c_int, CStr, CString},
     path::{Path, PathBuf},
     sync::OnceLock,
 };
@@ -15,37 +15,97 @@ use crate::{
     AppState,
 };
 
-unsafe extern "C" {
-    fn nimbus_pdf_install(callback: extern "C" fn(*const c_char, c_int, c_int));
-    fn nimbus_pdf_open(path: *const c_char, title: *const c_char, key: *const c_char, page: c_int);
+static APP: OnceLock<AppHandle> = OnceLock::new();
+
+#[cfg(target_os = "macos")]
+mod pdfkit {
+    use std::ffi::{c_char, c_int, CStr, CString};
+
+    unsafe extern "C" {
+        fn nimbus_pdf_install(callback: extern "C" fn(*const c_char, c_int, c_int));
+        fn nimbus_pdf_open(path: *const c_char, title: *const c_char, key: *const c_char, page: c_int);
+    }
+
+    extern "C" fn on_page_changed(key: *const c_char, page: c_int, page_count: c_int) {
+        if key.is_null() {
+            return;
+        }
+        let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().into_owned();
+        super::page_changed(&key, page.max(0) as u32, page_count.max(0) as u32);
+    }
+
+    pub fn install() {
+        unsafe { nimbus_pdf_install(on_page_changed) };
+    }
+
+    pub fn open(file: &str, title: &str, key: &str, page: u32) {
+        let text = |value: &str| CString::new(value.replace('\0', "")).unwrap_or_default();
+        let (file, title, key) = (text(file), text(title), text(key));
+        unsafe { nimbus_pdf_open(file.as_ptr(), title.as_ptr(), key.as_ptr(), page as c_int) };
+    }
 }
 
-static APP: OnceLock<AppHandle> = OnceLock::new();
+/// Whether PDFs open in the pdf.js reader: always on Windows; on macOS only to try it out
+/// (`NIMBUS_WEB_READER=1`).
+fn web_reader() -> bool {
+    cfg!(not(target_os = "macos")) || std::env::var_os("NIMBUS_WEB_READER").is_some()
+}
 
 pub fn install(app: AppHandle) {
     if APP.set(app).is_ok() {
-        unsafe { nimbus_pdf_install(on_page_changed) };
+        #[cfg(target_os = "macos")]
+        pdfkit::install();
     }
 }
 
-extern "C" fn on_page_changed(key: *const c_char, page: c_int, page_count: c_int) {
+/// Remember the page a reader is on (0-based) and tell the library.
+fn page_changed(key: &str, page: u32, page_count: u32) {
     let Some(app) = APP.get() else {
         return;
     };
-    if key.is_null() {
-        return;
-    }
-    let key = unsafe { CStr::from_ptr(key) }.to_string_lossy().into_owned();
     let state = app.state::<AppState>();
-    if state
-        .store
-        .save_reading_page(&key, page.max(0) as u32, page_count.max(0) as u32)
-        .is_ok()
-    {
-        if let Ok(Some(progress)) = state.store.reading_progress(&key) {
+    if state.store.save_reading_page(key, page, page_count).is_ok() {
+        if let Ok(Some(progress)) = state.store.reading_progress(key) {
             let _ = app.emit("reading-progress", progress);
         }
     }
+}
+
+/// The pdf.js reader reports the page it is on.
+#[tauri::command]
+pub(crate) fn document_page_changed(key: String, page: u32, page_count: u32) {
+    page_changed(&key, page, page_count);
+}
+
+/// Open `file` in a reader window of its own, or bring forward the one already reading it.
+fn open_web_reader(app: &AppHandle, file: &Path, title: &str, key: &str, page: u32) -> Result<()> {
+    let failed = |error: tauri::Error| NimbusError::Internal(format!("无法打开阅读窗口：{error}"));
+    // Only this document becomes readable to the reader, through the asset protocol.
+    app.asset_protocol_scope()
+        .allow_file(file)
+        .map_err(|error| NimbusError::Internal(format!("无法打开文档：{error}")))?;
+    let label = format!("reader-{:x}", md5::compute(key));
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("reader", "1")
+        .append_pair("key", key)
+        .append_pair("title", title)
+        .append_pair("file", &file.to_string_lossy())
+        .append_pair("page", &page.to_string())
+        .finish();
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(format!("index.html?{query}").into()))
+        .title(title)
+        .inner_size(960.0, 900.0)
+        .min_inner_size(480.0, 360.0)
+        .center()
+        .build()
+        .map_err(failed)?;
+    Ok(())
 }
 
 /// The identity used to remember a document: the same file reached from the library or from Files.
@@ -144,7 +204,7 @@ pub(crate) async fn local_copy(
         return Ok(file);
     }
     if provider == "local" {
-        let file = PathBuf::from(path);
+        let file = crate::paths::native(path);
         if !file.is_absolute() || !file.is_file() {
             return Err(NimbusError::Validation("文件不存在或无法访问".into()));
         }
@@ -231,13 +291,13 @@ async fn open(
         page_count: 0,
         updated_at: 0,
     })?;
-    let text = |value: &str| CString::new(value.replace('\0', "")).unwrap_or_default();
-    let (file, title, key) = (
-        text(&file.to_string_lossy()),
-        text(progress.name.trim_end_matches(".pdf").trim_end_matches(".PDF")),
-        text(&progress.doc_key),
-    );
-    unsafe { nimbus_pdf_open(file.as_ptr(), title.as_ptr(), key.as_ptr(), progress.page as c_int) };
+    let title = progress.name.trim_end_matches(".pdf").trim_end_matches(".PDF");
+    if web_reader() {
+        open_web_reader(app, &file, title, &progress.doc_key, progress.page)?;
+    } else {
+        #[cfg(target_os = "macos")]
+        pdfkit::open(&file.to_string_lossy(), title, &progress.doc_key, progress.page);
+    }
     let _ = app.emit("reading-progress", &progress);
     Ok(progress)
 }

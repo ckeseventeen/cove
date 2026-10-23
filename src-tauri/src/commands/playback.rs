@@ -80,7 +80,7 @@ async fn open_native(
         // Downloaded for offline viewing: no streaming.
         copy.to_string_lossy().into_owned()
     } else if account.account.provider == "local" {
-        file.remote_path.clone()
+        crate::paths::native(&file.remote_path).to_string_lossy().into_owned()
     } else if account.account.provider == "smb" {
         // mpv reads the mounted share directly, like a file on this Mac.
         crate::smb::local_file(state, &file.account_id, &file.remote_path).await?.to_string_lossy().into_owned()

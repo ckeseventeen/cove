@@ -163,7 +163,7 @@ fn local_file_management_to_library_and_resume_flow() {
     let f = Fixture::new();
     let folder =
         crate::local_storage::create_folder(f.directory.to_str().unwrap(), "个人文件").unwrap();
-    let path = std::path::Path::new(&folder).join("示例电影.2024.mp4");
+    let path = crate::paths::native(&folder).join("示例电影.2024.mp4");
     std::fs::write(&path, b"synthetic media index fixture").unwrap();
     let destination =
         crate::local_storage::create_folder(f.directory.to_str().unwrap(), "影音库").unwrap();

@@ -1,0 +1,58 @@
+# Builds the Windows installer (Cove_<version>_x64-setup.exe) on a Windows machine. Start it from
+# the Actions tab (Windows › Run workflow) or by pushing a v* tag; the installer is attached to the
+# run as the Cove-Windows artifact. No personal keys are built in (docs/WINDOWS.md).
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  # libmpv from the Windows builds that mpv.io links to; change both lines together.
+  MPV_DEV_URL: https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-dev-x86_64-20261021-git-e471496c56.7z
+  MPV_DEV_SHA256: efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633
+
+jobs:
+  installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Fetch libmpv
+        shell: pwsh
+        run: |
+          Invoke-WebRequest $env:MPV_DEV_URL -OutFile mpv-dev.7z
+          $hash = (Get-FileHash mpv-dev.7z -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:MPV_DEV_SHA256) { throw "libmpv download does not match its checksum ($hash)" }
+          7z e mpv-dev.7z libmpv-2.dll -osrc-tauri/vendor -y
+
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run tauri build -- --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cove-Windows
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+      # After the upload, so a test that fails only on Windows shows in the run without holding
+      # back the installer.
+      - run: cargo test --manifest-path src-tauri/Cargo.toml

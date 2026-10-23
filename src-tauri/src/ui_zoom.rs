@@ -87,6 +87,13 @@ pub fn apply(app: &AppHandle) {
     }
 }
 
+/// Give the library window back its minimum size for the interface size (after the mini-player).
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn apply_min_size(window: &WebviewWindow) {
+    let level = *window.app_handle().state::<UiZoom>().level.lock();
+    fit_min_size(window, level);
+}
+
 fn fit_min_size(window: &WebviewWindow, level: f64) {
     let monitor = window.current_monitor().ok().flatten();
     let (mut width, mut height) = (MIN_SIZE.0 * level, MIN_SIZE.1 * level);

@@ -1,9 +1,7 @@
 use parking_lot::Mutex;
 use std::{
-    ffi::{c_char, c_int, c_void, CString},
     fs,
     io::{BufRead, BufReader, Write},
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -18,6 +16,39 @@ use serde_json::{json, Value};
 use tauri::WebviewWindow;
 
 use crate::error::{NimbusError, Result};
+
+#[cfg(target_os = "macos")]
+#[path = "player_macos.rs"]
+mod native;
+#[cfg(windows)]
+#[path = "player_windows.rs"]
+mod native;
+
+pub use native::{attach_controls_window, detach_controls_window, is_floating, set_floating};
+use native::{ipc_connect, runtime_dir, IpcStream};
+
+/// mpv's settings on every system; each adds where it draws, its control channel and its log.
+const MPV_OPTIONS: &[(&str, &str)] = &[
+    ("config", "no"),
+    ("terminal", "no"),
+    ("osc", "no"),
+    ("idle", "yes"),
+    ("keep-open", "yes"),
+    ("hwdec", "auto-safe"),
+    ("background-color", "#000000"),
+    ("audio-display", "no"),
+    ("keepaspect", "yes"),
+    ("cache", "yes"),
+    ("cache-on-disk", "yes"),
+    ("cache-pause", "no"),
+    ("demuxer-max-bytes", "512MiB"),
+    ("demuxer-max-back-bytes", "128MiB"),
+    // Cove finds subtitle files beside a video itself, for every kind of storage
+    // (sidecar_subtitles.rs); mpv's own search only sees local files and picks its own track.
+    ("sub-auto", "no"),
+    // Embedded subtitles: Chinese first, then English.
+    ("slang", "zh-CN,zh-Hans,chs,sc,chi,zho,zh,cht,zh-TW,zh-Hant,eng,en"),
+];
 
 /// What an open replaced by a newer one, or by a stop, fails with. It is not a playback
 /// failure: the request that replaced it owns the windows, so callers stay quiet.
@@ -48,81 +79,6 @@ pub struct PlayerController {
     native_handle: Arc<Mutex<Option<usize>>>,
     native_view: Arc<Mutex<Option<usize>>>,
     playlist: Arc<Mutex<Vec<crate::model::MediaFile>>>,
-}
-
-#[repr(C)]
-struct MpvHandle {
-    _private: [u8; 0],
-}
-
-#[link(name = "mpv")]
-unsafe extern "C" {
-    fn mpv_terminate_destroy(ctx: *mut MpvHandle);
-    fn mpv_create() -> *mut MpvHandle;
-    fn mpv_initialize(ctx: *mut MpvHandle) -> c_int;
-    fn mpv_set_option_string(
-        ctx: *mut MpvHandle,
-        name: *const c_char,
-        data: *const c_char,
-    ) -> c_int;
-    fn nimbus_mpv_view_create(window: *mut c_void, controls_height: f64) -> *mut c_void;
-    fn nimbus_mpv_view_attach(view: *mut c_void, ctx: *mut MpvHandle) -> c_int;
-    fn nimbus_mpv_view_set_hidden(view: *mut c_void, hidden: bool);
-    fn nimbus_mpv_view_set_controls_height(view: *mut c_void, controls_height: f64);
-    fn nimbus_attach_controls_window(parent: *mut c_void, child: *mut c_void);
-    fn nimbus_detach_controls_window(child: *mut c_void);
-    fn nimbus_mpv_view_clear(view: *mut c_void);
-    fn nimbus_window_is_floating() -> c_int;
-    fn nimbus_window_set_floating(window: *mut c_void, child: *mut c_void, floating: bool, aspect: f64) -> c_int;
-}
-
-/// Whether the video window is the floating mini-player.
-pub fn is_floating() -> bool {
-    unsafe { nimbus_window_is_floating() == 1 }
-}
-
-/// Float the video window as a mini-player (`aspect` = the video's width / height), or put it back.
-pub fn set_floating(parent: &WebviewWindow, child: Option<&WebviewWindow>, floating: bool, aspect: f64) -> Result<()> {
-    let parent_window = parent
-        .ns_window()
-        .map_err(|error| NimbusError::Internal(format!("无法取得播放器主窗口：{error}")))? as usize;
-    let child_window = child.and_then(|child| child.ns_window().ok()).map_or(0, |window| window as usize);
-    parent
-        .run_on_main_thread(move || unsafe {
-            nimbus_window_set_floating(parent_window as *mut c_void, child_window as *mut c_void, floating, aspect);
-        })
-        .map_err(|error| NimbusError::Internal(format!("无法切换小窗播放：{error}")))
-}
-
-pub fn attach_controls_window(parent: &WebviewWindow, child: &WebviewWindow) -> Result<()> {
-    let parent_window = parent
-        .ns_window()
-        .map_err(|error| NimbusError::Internal(format!("无法取得播放器主窗口：{error}")))?
-        as usize;
-    let child_window = child
-        .ns_window()
-        .map_err(|error| NimbusError::Internal(format!("无法取得播放器控制窗口：{error}")))?
-        as usize;
-    parent
-        .run_on_main_thread(move || unsafe {
-            nimbus_attach_controls_window(
-                parent_window as *mut c_void,
-                child_window as *mut c_void,
-            );
-        })
-        .map_err(|error| NimbusError::Internal(format!("无法显示播放器控制层：{error}")))
-}
-
-pub fn detach_controls_window(child: &WebviewWindow) -> Result<()> {
-    let child_window = child
-        .ns_window()
-        .map_err(|error| NimbusError::Internal(format!("无法取得播放器控制窗口：{error}")))?
-        as usize;
-    child
-        .run_on_main_thread(move || unsafe {
-            nimbus_detach_controls_window(child_window as *mut c_void);
-        })
-        .map_err(|error| NimbusError::Internal(format!("无法收起播放器控制层：{error}")))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,7 +112,7 @@ impl PlayerController {
             gate: Arc::new(tokio::sync::Mutex::new(())),
             generation: Arc::new(AtomicU64::new(0)),
             snapshot: Arc::new(Mutex::new(None)),
-            socket_path: runtime_dir().join(format!("cove-mpv-{}.sock", std::process::id())),
+            socket_path: native::ipc_path(),
             current_file_id: Arc::new(Mutex::new(None)),
             native_handle: Arc::new(Mutex::new(None)),
             native_view: Arc::new(Mutex::new(None)),
@@ -286,9 +242,7 @@ impl PlayerController {
         *self.current_file_id.lock() = None;
         *self.snapshot.lock() = None;
         let view = self.ensure_native_view(&window).await?;
-        unsafe {
-            nimbus_mpv_view_clear(view as *mut c_void);
-        }
+        native::view_clear(view);
         self.set_view_visible(&window, show_video).await?;
         let socket = self.socket_path.clone();
         let current_file_id = Arc::clone(&self.current_file_id);
@@ -299,15 +253,15 @@ impl PlayerController {
             let _ = fs::write(
                 &log_path,
                 format!(
-                    "Cove embedded libmpv opening {title}\nIPC: {}\nNSView: 0x{view:x}\n",
+                    "Cove embedded libmpv opening {title}\nIPC: {}\nView: 0x{view:x}\n",
                     socket.display()
                 ),
             );
             let mut handle_guard = native_handle.lock();
             if handle_guard.is_none() {
                 let _ = fs::remove_file(&socket);
-                let handle = create_embedded_player(view, &socket, &log_path)?;
-                *handle_guard = Some(handle as usize);
+                let handle = native::create_player(view, &socket, &log_path)?;
+                *handle_guard = Some(handle);
             }
             drop(handle_guard);
             wait_for_socket(&socket)?;
@@ -348,22 +302,11 @@ impl PlayerController {
         if let Some(view) = *self.native_view.lock() {
             return Ok(view);
         }
-        let native_window = window
-            .ns_window()
-            .map_err(|error| NimbusError::Internal(format!("无法取得 Nimbus 原生窗口：{error}")))?
-            as usize;
+        let native_window = native::window_handle(window)?;
         let (sender, receiver) = mpsc::sync_channel(1);
         window
             .run_on_main_thread(move || {
-                let result = (|| {
-                    let view = unsafe { nimbus_mpv_view_create(native_window as *mut c_void, 0.0) };
-                    if view.is_null() {
-                        Err("无法创建 OpenGL 视频视图".to_owned())
-                    } else {
-                        Ok(view as usize)
-                    }
-                })();
-                let _ = sender.send(result);
+                let _ = sender.send(native::view_create(native_window));
             })
             .map_err(|error| NimbusError::Internal(format!("无法创建视频视图：{error}")))?;
         let view =
@@ -381,9 +324,7 @@ impl PlayerController {
             return Ok(());
         };
         window
-            .run_on_main_thread(move || {
-                unsafe { nimbus_mpv_view_set_hidden(view as *mut c_void, !visible) };
-            })
+            .run_on_main_thread(move || native::view_set_hidden(view, !visible))
             .map_err(|error| NimbusError::Internal(format!("无法更新视频视图：{error}")))
     }
 
@@ -392,10 +333,16 @@ impl PlayerController {
             return Ok(());
         };
         window
-            .run_on_main_thread(move || unsafe {
-                nimbus_mpv_view_set_controls_height(view as *mut c_void, height.clamp(0.0, 260.0));
-            })
+            .run_on_main_thread(move || native::view_set_controls_height(view, height.clamp(0.0, 260.0)))
             .map_err(|error| NimbusError::Internal(format!("无法调整视频视图：{error}")))
+    }
+
+    /// Fit the video to its window again after the window changed size (Windows; macOS views
+    /// follow their window by themselves).
+    pub fn layout(&self, window: &tauri::Window) {
+        if let Some(view) = *self.native_view.lock() {
+            let _ = window.run_on_main_thread(move || native::view_layout(view));
+        }
     }
 
     /// Remove the IPC socket when the app exits so stale sockets do not accumulate.
@@ -451,9 +398,7 @@ impl PlayerController {
             *self.current_file_id.lock() = None;
             *self.snapshot.lock() = None;
             if let Some(view) = *self.native_view.lock() {
-                unsafe {
-                    nimbus_mpv_view_clear(view as *mut c_void);
-                }
+                native::view_clear(view);
             }
         }
         result
@@ -497,92 +442,10 @@ impl PlayerController {
     }
 }
 
-fn create_embedded_player(view: usize, socket: &Path, log_path: &Path) -> Result<*mut MpvHandle> {
-    let handle = unsafe { mpv_create() };
-    if handle.is_null() {
-        return Err(NimbusError::Internal("libmpv 初始化失败".into()));
-    }
-    let socket_value = socket.to_string_lossy().into_owned();
-    let log_value = log_path.to_string_lossy().into_owned();
-    for (name, value) in [
-        ("config", "no"),
-        ("terminal", "no"),
-        ("osc", "no"),
-        ("idle", "yes"),
-        ("keep-open", "yes"),
-        ("hwdec", "auto-safe"),
-        ("background-color", "#000000"),
-        ("audio-display", "no"),
-        ("keepaspect", "yes"),
-        ("cache", "yes"),
-        ("cache-on-disk", "yes"),
-        ("cache-pause", "no"),
-        ("demuxer-max-bytes", "512MiB"),
-        ("demuxer-max-back-bytes", "128MiB"),
-        // Cove finds subtitle files beside a video itself, for every kind of storage
-        // (sidecar_subtitles.rs); mpv's own search only sees local files and picks its own track.
-        ("sub-auto", "no"),
-        // Embedded subtitles: Chinese first, then English.
-        ("slang", "zh-CN,zh-Hans,chs,sc,chi,zho,zh,cht,zh-TW,zh-Hant,eng,en"),
-        ("input-ipc-server", socket_value.as_str()),
-        ("log-file", log_value.as_str()),
-    ] {
-        let name = CString::new(name).expect("static option name");
-        let value = CString::new(value)
-            .map_err(|_| NimbusError::Internal("libmpv 选项包含无效字符".into()))?;
-        let result = unsafe { mpv_set_option_string(handle, name.as_ptr(), value.as_ptr()) };
-        if result < 0 {
-            unsafe {
-                mpv_terminate_destroy(handle);
-            }
-            return Err(NimbusError::Internal(format!(
-                "libmpv 设置选项失败（错误 {result}）"
-            )));
-        }
-    }
-    // Cove owns the system media keys through MPRemoteCommandCenter; older or
-    // differently built libmpv versions may not know this option, so it is optional.
-    for (name, value) in [("input-media-keys", "no")] {
-        let name = CString::new(name).expect("static option name");
-        let value = CString::new(value).expect("static option value");
-        unsafe { mpv_set_option_string(handle, name.as_ptr(), value.as_ptr()) };
-    }
-    let result = unsafe { mpv_initialize(handle) };
-    if result < 0 {
-        unsafe {
-            mpv_terminate_destroy(handle);
-        }
-        return Err(NimbusError::Internal(format!(
-            "libmpv 启动失败（错误 {result}）"
-        )));
-    }
-    let result = unsafe { nimbus_mpv_view_attach(view as *mut c_void, handle) };
-    if result < 0 {
-        unsafe {
-            mpv_terminate_destroy(handle);
-        }
-        return Err(NimbusError::Internal(format!(
-            "libmpv OpenGL 渲染器初始化失败（错误 {result}）"
-        )));
-    }
-    Ok(handle)
-}
-
-/// Per-user temporary directory ($TMPDIR on macOS) so the IPC socket and log are private.
-fn runtime_dir() -> PathBuf {
-    let dir = std::env::temp_dir();
-    // Unix socket paths are limited to 104 bytes on macOS.
-    if dir.as_os_str().len() < 72 {
-        dir
-    } else {
-        PathBuf::from("/tmp")
-    }
-}
-
 fn wait_for_socket(path: &Path) -> Result<()> {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        if path.exists() && UnixStream::connect(path).is_ok() {
+        if ipc_connect(path).is_ok() {
             return Ok(());
         }
         thread::sleep(Duration::from_millis(50));
@@ -614,12 +477,8 @@ fn wait_for_media(path: &Path, expected: &str, generation: &AtomicU64, current: 
     MediaWait::TimedOut
 }
 
-fn connect(path: &Path) -> Result<UnixStream> {
-    let stream =
-        UnixStream::connect(path).map_err(|_| NimbusError::Validation("播放器尚未启动".into()))?;
-    stream.set_read_timeout(Some(Duration::from_secs(1)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(1)))?;
-    Ok(stream)
+fn connect(path: &Path) -> Result<IpcStream> {
+    ipc_connect(path)
 }
 
 fn send(path: &Path, command: Value) -> Result<()> {
@@ -650,7 +509,7 @@ fn request(path: &Path, command: Value) -> Result<Value> {
 /// One line from mpv, waiting until `deadline`. The socket's 1 s read timeout only
 /// paces the wait; a slow reply (seeking in a buffering cloud stream) is not an error.
 fn read_reply_line(
-    reader: &mut BufReader<UnixStream>,
+    reader: &mut BufReader<IpcStream>,
     deadline: Instant,
 ) -> Result<Option<String>> {
     let mut line = Vec::new();
@@ -809,6 +668,7 @@ fn read_status(path: &Path) -> Result<PlayerStatus> {
     })
 }
 
-#[cfg(test)]
+// These talk to a stand-in mpv over a Unix socket.
+#[cfg(all(test, unix))]
 #[path = "tests/player.rs"]
 mod tests;

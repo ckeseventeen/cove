@@ -1,6 +1,7 @@
 // Bridges to native macOS behaviour: menus, context menus and window state.
 import { listen } from "@tauri-apps/api/event";
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
+import { isWindows, platform } from "./platform";
 
 export const isTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -94,7 +95,10 @@ export function onMenuAction(handler: (id: string) => void) {
 /** Window-level native conventions shared by every Cove window. */
 export function installWindowBehaviour({ vibrancy }: { vibrancy: boolean }) {
   const root = document.documentElement;
-  if (vibrancy && isTauri()) root.dataset.nativeVibrancy = "";
+  // Styles that differ by system key off this: fonts, the window buttons' space, scroll bars.
+  root.dataset.platform = platform;
+  // Only the macOS window draws the sidebar material behind the page.
+  if (vibrancy && isTauri() && !isWindows) root.dataset.nativeVibrancy = "";
   const update = () => {
     if (document.hasFocus()) delete root.dataset.windowInactive;
     else root.dataset.windowInactive = "";

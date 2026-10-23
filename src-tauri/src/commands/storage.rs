@@ -28,9 +28,9 @@ pub(crate) async fn storage_play_file(
     };
 
     let size = if account_id == "local"
-        || (path.starts_with('/') && !path.contains("://") && std::path::Path::new(&path).exists())
+        || (path.starts_with('/') && !path.contains("://") && crate::paths::native(&path).exists())
     {
-        std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+        std::fs::metadata(crate::paths::native(&path)).map(|m| m.len()).unwrap_or(0)
     } else {
         0
     };
@@ -194,7 +194,7 @@ fn cloud_file_id(entry_id: Option<String>) -> Result<String> {
 }
 
 fn existing_local_path(path: &str) -> Result<std::path::PathBuf> {
-    let path = std::path::Path::new(path);
+    let path = crate::paths::native(path);
     if !path.is_absolute() {
         return Err(NimbusError::Validation("需要本机绝对路径".into()));
     }
@@ -205,15 +205,11 @@ fn existing_local_path(path: &str) -> Result<std::path::PathBuf> {
 async fn open_local(path: String, reveal: bool) -> Result<()> {
     tokio::task::spawn_blocking(move || {
         let path = existing_local_path(&path)?;
-        let mut command = std::process::Command::new("/usr/bin/open");
         if reveal {
-            command.arg("-R");
+            crate::opener::reveal(&path)
+        } else {
+            crate::opener::open_path(&path)
         }
-        let status = command.arg(path).status()?;
-        if !status.success() {
-            return Err(NimbusError::Validation("系统应用未能打开该文件".into()));
-        }
-        Ok(())
     })
     .await
     .map_err(|error| NimbusError::Internal(error.to_string()))?

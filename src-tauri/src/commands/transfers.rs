@@ -51,7 +51,7 @@ pub(crate) async fn entry_copy(
             let (_, token) = account_token(&destination_account_id, &state).await?;
             direct::upload_baidu_entry(
                 &token,
-                std::path::Path::new(&source_path),
+                &crate::paths::native(&source_path),
                 &destination_path,
             )
             .await

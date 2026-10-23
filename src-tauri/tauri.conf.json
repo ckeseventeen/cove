@@ -51,7 +51,11 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; media-src 'self' http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost data: https://*.mzstatic.com https://image.tmdb.org; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* asset: http://asset.localhost; media-src 'self' http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost data: https://*.mzstatic.com https://image.tmdb.org; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
     }
   },
   "bundle": {
@@ -61,7 +65,8 @@
     ],
     "icon": [
       "icons/icon.icns",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico"
     ],
     "category": "Entertainment",
     "shortDescription": "Your private personal media haven",

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleAlert, ExternalLink, LoaderCircle, X } from "lucide-react";
 import { formatBytes, formatDate } from "../lib/format";
 import { isEditableTarget } from "../lib/native";
+import { SYSTEM } from "../lib/platform";
 import { openNativePath, readTextPreview, revealNativePath, type Account, type CloudEntry } from "../lib/nimbus";
 import { classifyEntry, storageCapabilities } from "../lib/storage";
 import { EntryIcon } from "../ui/glyphs";
@@ -70,8 +71,8 @@ export function QuickLook({ entry, account, onClose, notify }: { entry: CloudEnt
           </div>
           {capabilities.openNative && (
             <>
-              <button className="btn" onClick={() => run(revealNativePath, "无法在访达中显示")}>
-                在访达中显示
+              <button className="btn" onClick={() => run(revealNativePath, `无法在${SYSTEM.fileManager}中显示`)}>
+                在{SYSTEM.fileManager}中显示
               </button>
               <button className="btn prominent" data-autofocus onClick={() => run(openNativePath, "无法打开")}>
                 <ExternalLink size={12} />
@@ -102,7 +103,7 @@ export function QuickLook({ entry, account, onClose, notify }: { entry: CloudEnt
                 <p className="secondary">
                   {capabilities.openNative
                     ? "此类文件请使用系统中的应用打开。"
-                    : "云端文件暂不支持预览。可以先拷贝到这台 Mac，再用系统应用打开。"}
+                    : `云端文件暂不支持预览。可以先拷贝到${SYSTEM.thisComputer}，再用系统应用打开。`}
                 </p>
               )}
             </div>

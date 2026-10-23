@@ -11,6 +11,7 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { aiEndpoint, savedKeyOwner } from "../lib/aiSubtitles";
 import { isTauri } from "../lib/native";
+import { SYSTEM } from "../lib/platform";
 import { Popup, Segmented } from "../ui/controls";
 import { Sheet } from "../ui/Sheet";
 
@@ -226,7 +227,7 @@ export function AiSubtitlesSheet({
             ]}
           />
         </div>
-        <p className="form-note">密钥保存在 macOS 钥匙串中。生成时会把音轨发送到所选服务，可能产生费用。</p>
+        <p className="form-note">密钥保存在 {SYSTEM.systemKeychain}中。生成时会把音轨发送到所选服务，可能产生费用。</p>
         {progress && (
           <div className="ai-progress">
             <div className="progress">

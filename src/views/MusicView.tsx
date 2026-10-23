@@ -6,6 +6,7 @@ import type { Library } from "../app/useLibrary";
 import { formatBytes, plural } from "../lib/format";
 import { compareAlbumOrder, containingFolder, musicFolderOf, songParts } from "../lib/media";
 import { showContextMenu } from "../lib/native";
+import { primaryKey } from "../lib/platform";
 import type { MediaFile } from "../lib/nimbus";
 import { extensionOf } from "../lib/storage";
 import { usePlayer } from "../player/PlayerProvider";
@@ -280,7 +281,7 @@ export function SongTable({
 
   const onRowMouseDown = (event: React.MouseEvent, file: MediaFile) => {
     if (event.button !== 0) return;
-    if (event.metaKey) {
+    if (primaryKey(event)) {
       const next = new Set(selection);
       if (next.has(file.id)) next.delete(file.id);
       else next.add(file.id);
@@ -395,7 +396,7 @@ export function SongTable({
               draggable
               onMouseDown={(event) => onRowMouseDown(event, file)}
               onClick={(event) => {
-                if (!event.metaKey && !event.shiftKey && selection.size > 1) selectOnly(file.id);
+                if (!primaryKey(event) && !event.shiftKey && selection.size > 1) selectOnly(file.id);
               }}
               onDoubleClick={() => play(file)}
               onContextMenu={(event) => menu(event, file)}

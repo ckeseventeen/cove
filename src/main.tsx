@@ -12,11 +12,16 @@ import "./styles/views.css";
 import "./styles/player.css";
 import "./styles/video.css";
 
-// The same bundle serves the library window and the transparent video controls window.
-const videoWindow = new URLSearchParams(window.location.search).has("player-controls");
+// The same bundle serves the library window, the transparent video controls window and (on
+// Windows) the PDF reader windows.
+const query = new URLSearchParams(window.location.search);
+const videoWindow = query.has("player-controls");
+const readerWindow = query.has("reader");
 if (videoWindow) document.documentElement.classList.add("video-window");
-installWindowBehaviour({ vibrancy: !videoWindow });
-installUiZoom();
+if (readerWindow) document.documentElement.classList.add("reader-window");
+installWindowBehaviour({ vibrancy: !videoWindow && !readerWindow });
+// A reader zooms its pages, not the interface.
+if (!readerWindow) installUiZoom();
 
 // Browser layout fixture for the video controls: `?player-controls&demo=1&fixture=video`.
 if (videoWindow && demoEnabled && new URLSearchParams(window.location.search).get("fixture") === "video") {
@@ -24,6 +29,16 @@ if (videoWindow && demoEnabled && new URLSearchParams(window.location.search).ge
   void openNativePlayer("movie-10");
 }
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>{videoWindow ? <VideoOverlay /> : <MainWindow />}</React.StrictMode>,
-);
+const root = ReactDOM.createRoot(document.getElementById("root")!);
+if (readerWindow) {
+  // pdf.js loads only in reader windows.
+  void import("./reader/Reader").then(({ Reader }) =>
+    root.render(
+      <React.StrictMode>
+        <Reader />
+      </React.StrictMode>,
+    ),
+  );
+} else {
+  root.render(<React.StrictMode>{videoWindow ? <VideoOverlay /> : <MainWindow />}</React.StrictMode>);
+}

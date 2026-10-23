@@ -1,6 +1,7 @@
-//! System Now Playing: Control Center, media keys, AirPods and Touch Bar controls.
+//! System Now Playing: on macOS Control Center, media keys, AirPods and Touch Bar controls; on
+//! Windows the media keys and the player in the volume flyout (System Media Transport Controls).
 use std::{
-    ffi::{c_char, c_int, CString},
+    ffi::c_int,
     sync::OnceLock,
     time::{Duration, Instant},
 };
@@ -11,27 +12,178 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::player::PlayerStatus;
 
-unsafe extern "C" {
-    fn nimbus_now_playing_install(callback: extern "C" fn(c_int, f64));
-    fn nimbus_now_playing_update(
-        title: *const c_char,
-        artist: *const c_char,
-        album: *const c_char,
-        duration: f64,
-        elapsed: f64,
-        playing: bool,
-        video: bool,
-    );
-    fn nimbus_now_playing_set_artwork(bytes: *const u8, length: usize);
-    fn nimbus_now_playing_clear();
-}
-
 const REMOTE_PLAY: c_int = 1;
 const REMOTE_PAUSE: c_int = 2;
 const REMOTE_TOGGLE: c_int = 3;
 const REMOTE_NEXT: c_int = 4;
 const REMOTE_PREVIOUS: c_int = 5;
 const REMOTE_SEEK: c_int = 6;
+
+/// What a track shows in the system's player.
+struct Shown<'a> {
+    title: &'a str,
+    artist: &'a str,
+    album: &'a str,
+    duration: f64,
+    elapsed: f64,
+    playing: bool,
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    video: bool,
+}
+
+#[cfg(target_os = "macos")]
+mod system {
+    use std::ffi::{c_char, c_int, CString};
+
+    unsafe extern "C" {
+        fn nimbus_now_playing_install(callback: extern "C" fn(c_int, f64));
+        fn nimbus_now_playing_update(
+            title: *const c_char,
+            artist: *const c_char,
+            album: *const c_char,
+            duration: f64,
+            elapsed: f64,
+            playing: bool,
+            video: bool,
+        );
+        fn nimbus_now_playing_set_artwork(bytes: *const u8, length: usize);
+        fn nimbus_now_playing_clear();
+    }
+
+    extern "C" fn on_remote_command(command: c_int, value: f64) {
+        super::remote_command(command, value);
+    }
+
+    pub fn install() {
+        unsafe { nimbus_now_playing_install(on_remote_command) };
+    }
+
+    pub fn clear() {
+        unsafe { nimbus_now_playing_clear() };
+    }
+
+    pub fn set_artwork(bytes: Option<&[u8]>) {
+        match bytes {
+            Some(bytes) => unsafe { nimbus_now_playing_set_artwork(bytes.as_ptr(), bytes.len()) },
+            None => unsafe { nimbus_now_playing_set_artwork(std::ptr::null(), 0) },
+        }
+    }
+
+    pub fn update(shown: &super::Shown) {
+        let text = |value: &str| CString::new(value.replace('\0', "")).unwrap_or_default();
+        let (title, artist, album) = (text(shown.title), text(shown.artist), text(shown.album));
+        unsafe {
+            nimbus_now_playing_update(
+                title.as_ptr(),
+                artist.as_ptr(),
+                album.as_ptr(),
+                shown.duration,
+                shown.elapsed,
+                shown.playing,
+                shown.video,
+            );
+        }
+    }
+}
+
+#[cfg(windows)]
+mod system {
+    use std::{cell::RefCell, time::Duration};
+
+    use parking_lot::Mutex;
+    use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig};
+    use tauri::Manager;
+
+    thread_local! {
+        /// The controls live on the main thread, which owns the window they belong to.
+        static CONTROLS: RefCell<Option<MediaControls>> = const { RefCell::new(None) };
+    }
+    /// The cover, as a file the system reads it from.
+    static ARTWORK: Mutex<Option<String>> = Mutex::new(None);
+
+    fn on_main(change: impl FnOnce(&mut MediaControls) + Send + 'static) {
+        let Some(app) = super::APP.get() else {
+            return;
+        };
+        let _ = app.run_on_main_thread(move || {
+            CONTROLS.with(|slot| {
+                if let Some(controls) = slot.borrow_mut().as_mut() {
+                    change(controls);
+                }
+            })
+        });
+    }
+
+    pub fn install() {
+        let Some(app) = super::APP.get() else {
+            return;
+        };
+        let Some(hwnd) = app.get_webview_window("main").and_then(|window| window.hwnd().ok()) else {
+            return;
+        };
+        let hwnd = hwnd.0 as usize;
+        let _ = app.run_on_main_thread(move || {
+            let config = PlatformConfig { dbus_name: "cove", display_name: "Cove", hwnd: Some(hwnd as *mut std::ffi::c_void) };
+            let Ok(mut controls) = MediaControls::new(config) else {
+                return;
+            };
+            let attached = controls.attach(|event| match event {
+                MediaControlEvent::Play => super::remote_command(super::REMOTE_PLAY, 0.0),
+                MediaControlEvent::Pause | MediaControlEvent::Stop => super::remote_command(super::REMOTE_PAUSE, 0.0),
+                MediaControlEvent::Toggle => super::remote_command(super::REMOTE_TOGGLE, 0.0),
+                MediaControlEvent::Next => super::remote_command(super::REMOTE_NEXT, 0.0),
+                MediaControlEvent::Previous => super::remote_command(super::REMOTE_PREVIOUS, 0.0),
+                MediaControlEvent::SetPosition(MediaPosition(position)) => {
+                    super::remote_command(super::REMOTE_SEEK, position.as_secs_f64())
+                }
+                _ => {}
+            });
+            if attached.is_ok() {
+                CONTROLS.with(|slot| *slot.borrow_mut() = Some(controls));
+            }
+        });
+    }
+
+    pub fn clear() {
+        *ARTWORK.lock() = None;
+        on_main(|controls| {
+            let _ = controls.set_playback(MediaPlayback::Stopped);
+        });
+    }
+
+    pub fn set_artwork(bytes: Option<&[u8]>) {
+        let Some(bytes) = bytes else {
+            *ARTWORK.lock() = None;
+            return;
+        };
+        // A new name for each cover, so the system does not show a cached earlier one; Windows
+        // reads the image by its extension.
+        let extension = if bytes.starts_with(b"\x89PNG") { "png" } else { "jpg" };
+        let path = std::env::temp_dir().join(format!("cove-artwork-{:x}.{extension}", md5::compute(bytes)));
+        if std::fs::write(&path, bytes).is_ok() {
+            *ARTWORK.lock() = Some(format!("file://{}", path.display()));
+        }
+    }
+
+    pub fn update(shown: &super::Shown) {
+        let (title, artist, album) = (shown.title.to_owned(), shown.artist.to_owned(), shown.album.to_owned());
+        let (duration, elapsed, playing) = (shown.duration, shown.elapsed, shown.playing);
+        let cover = ARTWORK.lock().clone();
+        on_main(move |controls| {
+            let given = |value: &str| Some(value).filter(|value| !value.trim().is_empty()).map(str::to_owned);
+            let (artist, album) = (given(&artist), given(&album));
+            let _ = controls.set_metadata(MediaMetadata {
+                title: Some(title.as_str()),
+                artist: artist.as_deref(),
+                album: album.as_deref(),
+                cover_url: cover.as_deref(),
+                duration: (duration > 0.0).then(|| Duration::from_secs_f64(duration)),
+            });
+            let progress = Some(MediaPosition(Duration::from_secs_f64(elapsed.max(0.0))));
+            let _ = controls.set_playback(if playing { MediaPlayback::Playing { progress } } else { MediaPlayback::Paused { progress } });
+        });
+    }
+}
 
 static APP: OnceLock<AppHandle> = OnceLock::new();
 static STATE: Mutex<Published> = parking_lot::const_mutex(Published::new());
@@ -84,7 +236,7 @@ impl Published {
 
 pub fn install(app: AppHandle) {
     if APP.set(app).is_ok() {
-        unsafe { nimbus_now_playing_install(on_remote_command) };
+        system::install();
     }
 }
 
@@ -94,7 +246,7 @@ pub fn sync(status: &PlayerStatus, describe: impl FnOnce(&str) -> (String, bool)
     let Some(file_id) = status.file_id.as_deref() else {
         if state.file_id.take().is_some() {
             *state = Published::new();
-            unsafe { nimbus_now_playing_clear() };
+            system::clear();
         }
         return;
     };
@@ -103,7 +255,7 @@ pub fn sync(status: &PlayerStatus, describe: impl FnOnce(&str) -> (String, bool)
         let info = state.info.take().filter(|info| info.file_id == file_id);
         let artwork = state.artwork.take().filter(|(owner, _)| owner == file_id);
         if artwork.is_none() {
-            unsafe { nimbus_now_playing_set_artwork(std::ptr::null(), 0) };
+            system::set_artwork(None);
         }
         *state = Published::new();
         state.file_id = Some(file_id.to_owned());
@@ -179,7 +331,7 @@ async fn load_artwork(file_id: String, url: String) {
     }
     state.artwork = Some((file_id.clone(), url));
     state.revision += 1;
-    unsafe { nimbus_now_playing_set_artwork(bytes.as_ptr(), bytes.len()) };
+    system::set_artwork(Some(&bytes));
     if state.file_id.as_deref() == Some(file_id.as_str()) {
         state.published_revision = state.revision;
         publish(&state);
@@ -203,10 +355,6 @@ fn publish(state: &Published) {
         .map(|info| info.title.as_str())
         .filter(|title| !title.trim().is_empty())
         .unwrap_or(&state.title);
-    let text = |value: &str| CString::new(value.replace('\0', "")).unwrap_or_default();
-    let title = text(title);
-    let artist = text(info.map(|info| info.artist.as_str()).unwrap_or_default());
-    let album = text(info.map(|info| info.album.as_str()).unwrap_or_default());
     let elapsed = state.elapsed
         + if state.playing {
             state
@@ -216,20 +364,19 @@ fn publish(state: &Published) {
         } else {
             0.0
         };
-    unsafe {
-        nimbus_now_playing_update(
-            title.as_ptr(),
-            artist.as_ptr(),
-            album.as_ptr(),
-            state.duration,
-            elapsed,
-            state.playing,
-            state.video,
-        );
-    }
+    system::update(&Shown {
+        title,
+        artist: info.map(|info| info.artist.as_str()).unwrap_or_default(),
+        album: info.map(|info| info.album.as_str()).unwrap_or_default(),
+        duration: state.duration,
+        elapsed,
+        playing: state.playing,
+        video: state.video,
+    });
 }
 
-extern "C" fn on_remote_command(command: c_int, value: f64) {
+/// A button pressed in the system's player, or a media key.
+fn remote_command(command: c_int, value: f64) {
     let Some(app) = APP.get().cloned() else {
         return;
     };

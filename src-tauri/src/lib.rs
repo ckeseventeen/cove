@@ -15,6 +15,8 @@ mod model;
 mod now_playing;
 mod oauth;
 mod offline;
+mod opener;
+mod paths;
 mod player;
 mod proxy;
 mod sidecar_subtitles;
@@ -23,10 +25,10 @@ mod store;
 mod ui_zoom;
 mod webdav;
 
-use std::{process::Command, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use error::{NimbusError, Result};
-use keyring::Entry;
+use credentials::{secret_delete, secret_set, SERVICE};
 use model::{Account, AccountInput, AppStatus, CloudEntry, MediaFile, MediaSource, ScanResult};
 use store::Store;
 use tauri::{Emitter, Manager, State};
@@ -69,7 +71,15 @@ pub fn run() {
             });
             app.manage(ui_zoom::UiZoom::load(&data_dir));
             ui_zoom::apply(app.handle());
-            app.set_menu(menu::build(app.handle())?)?;
+            let menu = menu::build(app.handle())?;
+            // On Windows the menu belongs to the library window, not to every window (the video
+            // controls and readers have none).
+            #[cfg(target_os = "macos")]
+            app.set_menu(menu)?;
+            #[cfg(not(target_os = "macos"))]
+            if let Some(main) = app.get_webview_window("main") {
+                main.set_menu(menu)?;
+            }
             app.on_menu_event(|app, event| menu::handle(app, event.id().as_ref()));
             now_playing::install(app.handle().clone());
             documents::install(app.handle().clone());
@@ -172,6 +182,7 @@ pub fn run() {
             documents::document_open,
             documents::document_open_file,
             documents::document_progress_list,
+            documents::document_page_changed,
             commands::library::playlist_list,
             commands::library::playlist_create,
             commands::library::playlist_rename,
@@ -187,6 +198,9 @@ pub fn run() {
                     tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)
                 )
             {
+                if matches!(event, tauri::WindowEvent::Resized(_)) {
+                    window.app_handle().state::<AppState>().player.layout(window);
+                }
                 if let Some(controls) = window.app_handle().get_webview_window("player-controls") {
                     if controls.is_visible().unwrap_or(false) {
                         if let Some(main) = window.app_handle().get_webview_window("main") {
@@ -201,6 +215,14 @@ pub fn run() {
                 }
                 api.prevent_close();
                 let app_handle = window.app_handle().clone();
+                // A Windows app ends when its window closes; there is no Dock to bring it back.
+                if cfg!(not(target_os = "macos")) {
+                    tauri::async_runtime::spawn(async move {
+                        stop_playback(&app_handle).await;
+                        app_handle.exit(0);
+                    });
+                    return;
+                }
                 tauri::async_runtime::spawn(async move {
                     let state = app_handle.state::<AppState>();
                     let current = state
@@ -229,6 +251,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("failed to build Cove")
         .run(|app_handle, event| match event {
+            #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => show_main_window(app_handle),
             tauri::RunEvent::Exit => {
                 let state = app_handle.state::<AppState>();

@@ -1,8 +1,11 @@
-//! The macOS menu bar. Custom items emit `menu-action` events handled by the web windows.
+//! The menu bar: the macOS one, or on Windows the library window's. Custom items emit
+//! `menu-action` events handled by the web windows.
 use tauri::{
     menu::{AboutMetadata, IsMenuItem, Menu, PredefinedMenuItem, Submenu},
-    AppHandle, Emitter, Wry,
+    AppHandle, Emitter, Manager, Wry,
 };
+
+const MAC: bool = cfg!(target_os = "macos");
 
 pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let item = |id: &str, text: &str, accelerator: Option<&str>| {
@@ -25,40 +28,23 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         }),
     )?;
     let settings = item("cove.settings", "设置…", Some("CmdOrCtrl+,"))?;
-    let services = PredefinedMenuItem::services(app, Some("服务"))?;
-    let hide = PredefinedMenuItem::hide(app, Some("隐藏 Cove"))?;
-    let hide_others = PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?;
-    let show_all = PredefinedMenuItem::show_all(app, Some("全部显示"))?;
-    let quit = PredefinedMenuItem::quit(app, Some("退出 Cove"))?;
-    let app_menu = Submenu::with_items(
-        app,
-        "Cove",
-        true,
-        &[
-            &about,
-            &separator()?,
-            &settings,
-            &separator()?,
-            &services,
-            &separator()?,
-            &hide,
-            &hide_others,
-            &show_all,
-            &separator()?,
-            &quit,
-        ],
-    )?;
+    let quit = PredefinedMenuItem::quit(app, Some(if MAC { "退出 Cove" } else { "退出" }))?;
 
     let add_storage = item("cove.add-storage", "添加存储…", Some("CmdOrCtrl+N"))?;
     let new_folder = item("cove.new-folder", "新建文件夹", Some("Shift+CmdOrCtrl+N"))?;
     let new_playlist = item("cove.new-playlist", "新建播放列表", Some("Alt+CmdOrCtrl+N"))?;
     let close = PredefinedMenuItem::close_window(app, Some("关闭窗口"))?;
-    let file_menu = Submenu::with_items(
-        app,
-        "文件",
-        true,
-        &[&add_storage, &new_folder, &new_playlist, &separator()?, &close],
-    )?;
+    // Windows keeps 设置 and 退出 in 文件, where the macOS app menu has them.
+    let file_menu = if MAC {
+        Submenu::with_items(app, "文件", true, &[&add_storage, &new_folder, &new_playlist, &separator()?, &close])?
+    } else {
+        Submenu::with_items(
+            app,
+            "文件",
+            true,
+            &[&add_storage, &new_folder, &new_playlist, &separator()?, &settings, &separator()?, &quit],
+        )?
+    };
 
     let undo = PredefinedMenuItem::undo(app, Some("撤销"))?;
     let redo = PredefinedMenuItem::redo(app, Some("重做"))?;
@@ -91,13 +77,18 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let courses = item("cove.go.courses", "课程", Some("CmdOrCtrl+5"))?;
     let back = item("cove.back", "返回", Some("CmdOrCtrl+["))?;
     let forward = item("cove.forward", "前进", Some("CmdOrCtrl+]"))?;
-    let sidebar = item("cove.toggle-sidebar", "显示/隐藏边栏", Some("Ctrl+CmdOrCtrl+S"))?;
+    let sidebar = item("cove.toggle-sidebar", "显示/隐藏边栏", Some(if MAC { "Ctrl+CmdOrCtrl+S" } else { "Ctrl+Alt+S" }))?;
     let lyrics = item("cove.show-lyrics", "歌词", Some("Alt+CmdOrCtrl+L"))?;
     let queue = item("cove.show-queue", "待播清单", Some("Alt+CmdOrCtrl+U"))?;
     let actual_size = item("cove.zoom-reset", "实际大小", Some("CmdOrCtrl+0"))?;
     let zoom_in = item("cove.zoom-in", "放大", Some("CmdOrCtrl+="))?;
     let zoom_out = item("cove.zoom-out", "缩小", Some("CmdOrCtrl+-"))?;
-    let fullscreen = PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?;
+    // Full screen is a window service on macOS only; Windows gets it as an item of Cove's.
+    let fullscreen: Box<dyn IsMenuItem<Wry>> = if MAC {
+        Box::new(PredefinedMenuItem::fullscreen(app, Some("进入全屏幕"))?)
+    } else {
+        Box::new(item("cove.fullscreen", "全屏幕", Some("F11"))?)
+    };
     let view_menu = Submenu::with_items(
         app,
         "显示",
@@ -120,7 +111,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &zoom_in,
             &zoom_out,
             &separator()?,
-            &fullscreen,
+            fullscreen.as_ref(),
         ],
     )?;
 
@@ -162,8 +153,35 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     )?;
 
     let help = item("cove.help", "Cove 帮助", None)?;
+    if !MAC {
+        let help_menu = Submenu::with_items(app, "帮助", true, &[&help, &separator()?, &about])?;
+        let items: [&dyn IsMenuItem<Wry>; 5] = [&file_menu, &edit_menu, &view_menu, &controls_menu, &help_menu];
+        return Menu::with_items(app, &items);
+    }
     let help_menu = Submenu::with_items(app, "帮助", true, &[&help])?;
 
+    let services = PredefinedMenuItem::services(app, Some("服务"))?;
+    let hide = PredefinedMenuItem::hide(app, Some("隐藏 Cove"))?;
+    let hide_others = PredefinedMenuItem::hide_others(app, Some("隐藏其他"))?;
+    let show_all = PredefinedMenuItem::show_all(app, Some("全部显示"))?;
+    let app_menu = Submenu::with_items(
+        app,
+        "Cove",
+        true,
+        &[
+            &about,
+            &separator()?,
+            &settings,
+            &separator()?,
+            &services,
+            &separator()?,
+            &hide,
+            &hide_others,
+            &show_all,
+            &separator()?,
+            &quit,
+        ],
+    )?;
     let items: [&dyn IsMenuItem<Wry>; 7] = [
         &app_menu,
         &file_menu,
@@ -174,8 +192,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         &help_menu,
     ];
     let menu = Menu::with_items(app, &items)?;
-    window_menu.set_as_windows_menu_for_nsapp()?;
-    help_menu.set_as_help_menu_for_nsapp()?;
+    #[cfg(target_os = "macos")]
+    {
+        window_menu.set_as_windows_menu_for_nsapp()?;
+        help_menu.set_as_help_menu_for_nsapp()?;
+    }
     Ok(menu)
 }
 
@@ -193,6 +214,12 @@ pub fn handle(app: &AppHandle, id: &str) {
     };
     if let Some(direction) = zoom {
         crate::ui_zoom::step(app, direction);
+        return;
+    }
+    if id == "cove.fullscreen" {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_fullscreen(!window.is_fullscreen().unwrap_or(false));
+        }
         return;
     }
     // A video is stopped here: while it loads, neither web window knows about a file yet.

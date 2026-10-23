@@ -5,7 +5,6 @@ use std::time::Duration;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
-use std::process::Command;
 use uuid::Uuid;
 
 use crate::{
@@ -140,7 +139,7 @@ pub async fn sign_in(provider: &str, cancelled: tokio::sync::oneshot::Receiver<(
     let state = Uuid::new_v4().simple().to_string();
     let (verifier, challenge) = pkce();
     let url = authorization_url(&endpoints, &client, &redirect, &state, &challenge)?;
-    Command::new("open").arg(url.as_str()).spawn()?;
+    crate::opener::open_url(url.as_str())?;
 
     let wait = tokio::time::timeout(
         Duration::from_secs(180),

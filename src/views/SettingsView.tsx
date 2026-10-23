@@ -7,6 +7,7 @@ import { formatBytes, formatRelative, plural } from "../lib/format";
 import { providerLabel } from "../lib/media";
 import { showContextMenu } from "../lib/native";
 import { clearMetadataCache, getUiZoom, onUiZoom, setUiZoom, type Account, type MediaSource, type UiZoom } from "../lib/nimbus";
+import { shortcutLabel, SYSTEM } from "../lib/platform";
 import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
@@ -91,7 +92,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
               <ProviderGlyph provider={account.provider} />
               <span className="row-main">
                 <span className="row-title">{account.label}</span>
-                <span className="row-subtitle">{account.provider === "local" ? "这台 Mac" : providerLabel(account.provider)}</span>
+                <span className="row-subtitle">{account.provider === "local" ? SYSTEM.thisComputer : providerLabel(account.provider)}</span>
               </span>
               <button
                 className="icon-btn"
@@ -116,7 +117,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           ))}
         </div>
         <p className="group-footer">
-          密码与授权令牌只保存在 macOS 钥匙串中，失效时可在“更多”菜单中选择“重新连接…”。移除账号不会改动存储中的文件。{" "}
+          密码与授权令牌只保存在 {SYSTEM.systemKeychain}中，失效时可在“更多”菜单中选择“重新连接…”。移除账号不会改动存储中的文件。{" "}
           <button className="btn plain inline" onClick={onAddStorage}>
             添加存储…
           </button>
@@ -251,7 +252,7 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
             )}
           </div>
         </div>
-        <p className="group-footer">也可以在“显示”菜单中调整：⌘= 放大，⌘− 缩小，⌘0 恢复实际大小。</p>
+        <p className="group-footer">{shortcutLabel("也可以在“显示”菜单中调整：⌘= 放大，⌘− 缩小，⌘0 恢复实际大小。")}</p>
       </section>
 
       <section className="group">

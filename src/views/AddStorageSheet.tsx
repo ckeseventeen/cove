@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CircleAlert, LoaderCircle } from "lucide-react";
 import { addAccount, cancelBaiduSignIn, connectBaidu, connectOAuth, oauthAvailable, updateAccountCredentials, type Account, type AccountInput } from "../lib/nimbus";
+import { isWindows, SYSTEM } from "../lib/platform";
 import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import { Sheet } from "../ui/Sheet";
@@ -8,7 +9,7 @@ import { Sheet } from "../ui/Sheet";
 type Provider = AccountInput["provider"];
 
 const PROVIDERS: { value: Provider; label: string; available: boolean }[] = [
-  { value: "smb", label: "SMB 共享（NAS、其他 Mac）", available: true },
+  { value: "smb", label: isWindows ? "SMB 共享（NAS、其他电脑）" : "SMB 共享（NAS、其他 Mac）", available: true },
   { value: "webdav", label: "WebDAV", available: true },
   { value: "baidu", label: "百度网盘", available: true },
   { value: "google_drive", label: "Google Drive", available: true },
@@ -259,18 +260,18 @@ export function AddStorageSheet({ onClose, onAdded, account }: Props) {
           </div>
           <p className="form-note">
             {oauth
-              ? `点击“登录”后会在浏览器中打开 ${serviceName} 官方登录页面。Cove 只读取你授权的文件，令牌保存在 macOS 钥匙串中并自动续期。`
+              ? `点击“登录”后会在浏览器中打开 ${serviceName} 官方登录页面。Cove 只读取你授权的文件，令牌保存在 ${SYSTEM.systemKeychain}中并自动续期。`
               : provider === "baidu"
               ? account
-                ? "点击“登录”后会在浏览器中打开百度官方授权页面。请登录原来的百度账号，新的令牌会替换钥匙串中的旧令牌。"
-                : "点击“登录”后会在浏览器中打开百度官方授权页面。Cove 只访问你授权的网盘文件，令牌保存在 macOS 钥匙串中。"
+                ? `点击“登录”后会在浏览器中打开百度官方授权页面。请登录原来的百度账号，新的令牌会替换${SYSTEM.keychain}中的旧令牌。`
+                : `点击“登录”后会在浏览器中打开百度官方授权页面。Cove 只访问你授权的网盘文件，令牌保存在 ${SYSTEM.systemKeychain}中。`
               : provider === "smb"
-                ? "地址包含共享名称，例如 smb://nas.local/影视。macOS 会像访达一样连接这个共享，密码只保存在钥匙串中。"
+                ? `地址包含共享名称，例如 smb://nas.local/影视。${SYSTEM.system} 会像${SYSTEM.fileManager}一样连接这个共享，密码只保存在${SYSTEM.keychain}中。`
                 : provider === "webdav"
-                ? "为保护密码，远程服务器需要使用 HTTPS。密码只保存在 macOS 钥匙串中。"
+                ? `为保护密码，远程服务器需要使用 HTTPS。密码只保存在 ${SYSTEM.systemKeychain}中。`
                 : account
-                  ? "请粘贴同一账号新签发的访问令牌，它会替换钥匙串中的旧令牌。"
-                  : "还没有配置浏览器登录所需的应用，目前需要粘贴访问令牌（约一小时后失效）。令牌保存在 macOS 钥匙串中。"}
+                  ? `请粘贴同一账号新签发的访问令牌，它会替换${SYSTEM.keychain}中的旧令牌。`
+                  : `还没有配置浏览器登录所需的应用，目前需要粘贴访问令牌（约一小时后失效）。令牌保存在 ${SYSTEM.systemKeychain}中。`}
           </p>
           {saving && browserSignIn && (
             <p className="form-note waiting">

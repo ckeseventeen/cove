@@ -1,4 +1,7 @@
-const SHORTCUTS: [string, string][] = [
+import { isWindows, shortcutLabel, SYSTEM } from "../lib/platform";
+
+/** Keys as macOS writes them, and where Windows differs beyond ⌘ → Ctrl, its own. */
+const SHORTCUTS: [string, string, string?][] = [
   ["⌘F", "搜索资料库"],
   ["⌘1 – ⌘5", "首页、影视、音乐、文档、课程"],
   ["⌘[ / ⌘]", "返回 / 前进"],
@@ -14,10 +17,10 @@ const SHORTCUTS: [string, string][] = [
   ["Delete（播放列表中）", "从播放列表中移除所选歌曲"],
   ["点按工具栏中的封面", "打开或关闭“正在播放”"],
   ["空格（文件中）", "快速查看所选文件"],
-  ["⌘↑（文件中）", "前往上一级文件夹"],
+  ["⌘↑（文件中）", "前往上一级文件夹", "Alt+↑（文件中）"],
   ["⌘C / ⌘V（文件中）", "拷贝 / 粘贴文件"],
-  ["F 或绿灯（播放视频时）", "进入或退出全屏"],
-  ["⌘W 或红灯（播放视频时）", "停止视频，回到资料库"],
+  ["F 或绿灯（播放视频时）", "进入或退出全屏", "F（播放视频时）"],
+  ["⌘W 或红灯（播放视频时）", "停止视频，回到资料库", "Ctrl+W（播放视频时）"],
   ["控制栏中的“选集”", "切换剧集与季"],
   ["[ / ]（播放视频时）", "减慢 / 加快播放速度；\\ 恢复正常速度"],
   ["P（播放视频时）", "小窗播放：缩到屏幕角落、浮在其他 App 之上；再按或双击恢复"],
@@ -41,7 +44,7 @@ export function HelpView() {
             <span className="glyph blue small">1</span>
             <span className="row-main">
               <span className="row-title">添加存储</span>
-              <span className="row-subtitle">点边栏“位置”旁的 +，添加 WebDAV、百度网盘等存储。凭据只保存在钥匙串中。</span>
+              <span className="row-subtitle">点边栏“位置”旁的 +，添加 WebDAV、百度网盘等存储。凭据只保存在{SYSTEM.keychain}中。</span>
             </span>
           </li>
           <li className="group-row">
@@ -63,14 +66,14 @@ export function HelpView() {
       <section className="group">
         <h2 className="group-title">键盘快捷键</h2>
         <div className="group-box">
-          {SHORTCUTS.map(([keys, action]) => (
+          {SHORTCUTS.map(([keys, action, windowsKeys]) => (
             <div className="group-row" key={keys}>
               <span className="row-main row-title">{action}</span>
-              <kbd className="row-value keys">{keys}</kbd>
+              <kbd className="row-value keys">{isWindows ? (windowsKeys ?? shortcutLabel(keys)) : keys}</kbd>
             </div>
           ))}
         </div>
-        <p className="group-footer">媒体键、AirPods 与“控制中心”中的播放控制同样可用。移除账号或媒体文件夹不会删除存储中的任何文件。</p>
+        <p className="group-footer">{isWindows ? "媒体键和音量浮窗中的播放控制同样可用。" : "媒体键、AirPods 与“控制中心”中的播放控制同样可用。"}移除账号或媒体文件夹不会删除存储中的任何文件。</p>
       </section>
     </div>
   );

@@ -2,7 +2,11 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default Cove desktop capability",
-  "windows": ["main", "player-controls"],
+  "windows": [
+    "main",
+    "player-controls",
+    "reader-*"
+  ],
   "permissions": [
     "core:default",
     "core:window:default",

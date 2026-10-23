@@ -3,6 +3,7 @@ import { ListVideo, LoaderCircle, Pause, PictureInPicture2, Play, Volume1, Volum
 import { cleanWorkTitle, compareSeasons, displayTitleOf, episodeLabel, episodeNumberOf, episodeOf, lookupNameOf, seasonLabel, seasonOf, videoQueue } from "../lib/media";
 import { formatClock } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
+import { onlyPrimaryKey, shortcutLabel } from "../lib/platform";
 import {
   controlPlayer,
   getCachedAiSubtitles,
@@ -342,8 +343,8 @@ export function VideoOverlay() {
         void controlPlayer("exit_fullscreen");
         return;
       }
-      // ⌘W leaves the video like the red button; this borderless window cannot close itself.
-      if (event.metaKey && event.key.toLowerCase() === "w" && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      // ⌘W (Ctrl+W) leaves the video like the red button; this borderless window cannot close itself.
+      if (onlyPrimaryKey(event) && event.key.toLowerCase() === "w") {
         event.preventDefault();
         void controlPlayer("stop");
         return;
@@ -404,7 +405,7 @@ export function VideoOverlay() {
               <p>正在准备播放…</p>
             </>
           )}
-          <button className="hud-text-button" title="停止播放 (⌘.)" onClick={() => void controlPlayer("stop")}>
+          <button className="hud-text-button" title={`停止播放 (${shortcutLabel("⌘.")})`} onClick={() => void controlPlayer("stop")}>
             停止
           </button>
         </div>

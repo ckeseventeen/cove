@@ -16,6 +16,7 @@ import { SOURCE_KIND_ORDER, SOURCE_KINDS } from "../app/sourceKinds";
 import type { Library } from "../app/useLibrary";
 import { formatBytes, formatDate, plural } from "../lib/format";
 import { isEditableTarget, onMenuAction, showContextMenu, type MenuEntry } from "../lib/native";
+import { isWindows, primaryKey, SYSTEM } from "../lib/platform";
 import {
   addMediaSource,
   browseAccount,
@@ -299,7 +300,7 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     if (!entry.isDir && kind !== "pdf") items.push({ label: "快速查看", action: () => setQuickLook(entry) });
     if (capabilities.openNative) {
       if (!entry.isDir) items.push({ label: "用默认应用打开", action: () => void openNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
-      items.push({ label: "在访达中显示", action: () => void revealNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
+      items.push({ label: `在${SYSTEM.fileManager}中显示`, action: () => void revealNativePath(entry.path).catch((cause) => notify(errorText(cause), "error")) });
     }
     items.push("separator", { label: `拷贝“${entry.name}”`, enabled: capabilities.copy, action: () => copy(entry) });
     if (entry.isDir) {
@@ -393,11 +394,12 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
       container.current?.querySelector(`[data-entry="${CSS.escape(entry.id)}"]`)?.scrollIntoView({ block: "nearest" });
     };
     const step = view === "grid" ? columnsInGrid() : 1;
-    if (event.metaKey && event.key === "ArrowUp") {
+    // Up a folder: ⌘↑ as in Finder, Alt+↑ as in Explorer.
+    if ((isWindows ? event.altKey : event.metaKey) && event.key === "ArrowUp") {
       event.preventDefault();
       const parent = parentPath(path);
       if (parent) go(parent);
-    } else if ((event.metaKey && event.key === "ArrowDown") || event.key === "Enter") {
+    } else if ((!isWindows && event.metaKey && event.key === "ArrowDown") || event.key === "Enter") {
       event.preventDefault();
       if (selectedEntry) open(selectedEntry);
     } else if (event.key === "ArrowDown") {
@@ -422,11 +424,11 @@ export function StorageView({ library, account, path, clipboard, onClipboard, on
     } else if (event.key === "End") {
       event.preventDefault();
       select(ordered.length - 1);
-    } else if (event.metaKey && event.key.toLowerCase() === "c" && selectedEntry) {
+    } else if (primaryKey(event) && event.key.toLowerCase() === "c" && selectedEntry) {
       event.preventDefault();
       if (Date.now() - lastCopy.current > 300) copy(selectedEntry);
       lastCopy.current = Date.now();
-    } else if (event.metaKey && event.key.toLowerCase() === "v" && canPaste) {
+    } else if (primaryKey(event) && event.key.toLowerCase() === "v" && canPaste) {
       event.preventDefault();
       void paste();
     }

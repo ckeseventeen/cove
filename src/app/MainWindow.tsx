@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ChevronLeft, ChevronRight, PanelLeft, Trash2 } from "lucide-react";
 import { workProgress, type MediaWork } from "../lib/media";
 import { isEditableTarget, isTauri, onMenuAction } from "../lib/native";
+import { shortcutLabel } from "../lib/platform";
 import { demoEnabled, type Account, type MediaFile, type MediaSource, type Playlist } from "../lib/nimbus";
 import { PlayerCenter, PlayerTools } from "../player/MiniPlayer";
 import { NowPlaying } from "../player/NowPlaying";
@@ -452,14 +453,14 @@ function Shell({ library, notify }: { library: Library; notify: Notify }) {
         <header className="toolbar" data-tauri-drag-region onMouseDown={windowMouseDown}>
           <div className="toolbar-group">
             {!sidebarShown && (
-              <button className="icon-btn" title="显示边栏 (⌃⌘S)" aria-label="显示边栏" onClick={toggleSidebarView}>
+              <button className="icon-btn" title={`显示边栏 (${shortcutLabel("⌃⌘S")})`} aria-label="显示边栏" onClick={toggleSidebarView}>
                 <PanelLeft size={17} />
               </button>
             )}
-            <button className="icon-btn" title="返回 (⌘[)" aria-label="返回" disabled={!canGoBack(history)} onClick={back}>
+            <button className="icon-btn" title={`返回 (${shortcutLabel("⌘[")})`} aria-label="返回" disabled={!canGoBack(history)} onClick={back}>
               <ChevronLeft size={19} />
             </button>
-            <button className="icon-btn" title="前进 (⌘])" aria-label="前进" disabled={!canGoForward(history)} onClick={forward}>
+            <button className="icon-btn" title={`前进 (${shortcutLabel("⌘]")})`} aria-label="前进" disabled={!canGoForward(history)} onClick={forward}>
               <ChevronRight size={19} />
             </button>
           </div>

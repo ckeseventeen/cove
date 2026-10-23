@@ -8,7 +8,7 @@ pub(crate) fn save_account(
 ) -> Result<Account> {
     let id = Uuid::new_v4().to_string();
     let secret_ref = format!("account:{id}");
-    Entry::new("app.nimbus.desktop", &secret_ref)?.set_password(credential)?;
+    secret_set(SERVICE, &secret_ref, credential)?;
     let account = Account {
         id,
         provider: provider.into(),
@@ -18,8 +18,7 @@ pub(crate) fn save_account(
         status: "ok".into(),
     };
     if let Err(error) = store.insert_account(&account, &secret_ref) {
-        let _ = Entry::new("app.nimbus.desktop", &secret_ref)
-            .and_then(|entry| entry.delete_credential());
+        secret_delete(SERVICE, &secret_ref);
         return Err(error);
     }
     Ok(account)
@@ -49,8 +48,7 @@ pub(crate) async fn account_remove(
     state.credentials.write().await.remove(&account_id);
     let secret_ref = stored.secret_ref;
     tauri::async_runtime::spawn_blocking(move || {
-        let _ = Entry::new("app.nimbus.desktop", &secret_ref)
-            .and_then(|entry| entry.delete_credential());
+        secret_delete(SERVICE, &secret_ref);
     });
     Ok(())
 }
@@ -283,7 +281,7 @@ async fn baidu_authorization_code(config: &config::BaiduConfig, port: u16) -> Re
         .append_pair("redirect_uri", &config.redirect_uri)
         .append_pair("scope", "basic,netdisk")
         .append_pair("state", &state_token);
-    Command::new("open").arg(authorization.as_str()).spawn()?;
+    crate::opener::open_url(authorization.as_str())?;
 
     let parameters = tokio::time::timeout(
         Duration::from_secs(180),
@@ -438,7 +436,7 @@ pub(crate) async fn account_add(
 
     if input.provider == "webdav" || input.provider == "smb" {
         let secret_ref = format!("account:{id}");
-        Entry::new("app.nimbus.desktop", &secret_ref)?.set_password(&password)?;
+        secret_set(SERVICE, &secret_ref, &password)?;
         let account = Account {
             id,
             provider: input.provider.clone(),
@@ -449,8 +447,7 @@ pub(crate) async fn account_add(
             status: "ok".into(),
         };
         if let Err(error) = state.store.insert_account(&account, &secret_ref) {
-            let _ = Entry::new("app.nimbus.desktop", &secret_ref)
-                .and_then(|entry| entry.delete_credential());
+            secret_delete(SERVICE, &secret_ref);
             return Err(error);
         }
         state

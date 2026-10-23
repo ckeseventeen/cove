@@ -22,7 +22,7 @@ fn normalized(path: &str) -> Result<PathBuf> {
     } else {
         path.trim()
     };
-    let value = PathBuf::from(path);
+    let value = crate::paths::native(path);
     if !value.is_absolute() {
         return Err(NimbusError::Validation("本地路径必须是绝对路径".into()));
     }
@@ -53,36 +53,59 @@ fn display_name(path: &Path) -> String {
         .to_owned()
 }
 
+fn place(path: String, name: &str) -> CloudEntry {
+    CloudEntry {
+        id: path.clone(),
+        path,
+        name: name.into(),
+        is_dir: true,
+        size: 0,
+        modified_at: None,
+    }
+}
+
+/// What "/" shows: the home folder and the disks.
+#[cfg(not(windows))]
+fn roots() -> Vec<CloudEntry> {
+    let mut roots = Vec::new();
+    if let Ok(home) = std::env::var("HOME") {
+        roots.push(place(home, "个人文件夹"));
+    }
+    roots.push(place("/Volumes".into(), "磁盘与外置设备"));
+    roots.push(place("/Users/Shared".into(), "共享文件"));
+    roots
+}
+
+/// What "/" shows: the home folder, then each drive as Explorer names it ("本地磁盘 (C:)").
+#[cfg(windows)]
+fn roots() -> Vec<CloudEntry> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("USERPROFILE") {
+        roots.push(place(crate::paths::portable(Path::new(&home)), "个人文件夹"));
+    }
+    let drives = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
+    for index in 0..26u8 {
+        if drives & (1 << index) == 0 {
+            continue;
+        }
+        let letter = (b'A' + index) as char;
+        let root: Vec<u16> = format!("{letter}:\\\0").encode_utf16().collect();
+        let kind = unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(root.as_ptr()) };
+        let name = match kind {
+            // DRIVE_REMOVABLE, DRIVE_REMOTE, DRIVE_CDROM
+            2 => format!("可移动磁盘 ({letter}:)"),
+            4 => format!("网络驱动器 ({letter}:)"),
+            5 => continue,
+            _ => format!("本地磁盘 ({letter}:)"),
+        };
+        roots.push(place(format!("/{letter}:"), &name));
+    }
+    roots
+}
+
 pub fn browse(path: &str) -> Result<Vec<CloudEntry>> {
     if path.trim().is_empty() || path.trim() == "/" {
-        let mut roots = Vec::new();
-        if let Ok(home) = std::env::var("HOME") {
-            roots.push(CloudEntry {
-                id: home.clone(),
-                path: home,
-                name: "个人文件夹".into(),
-                is_dir: true,
-                size: 0,
-                modified_at: None,
-            });
-        }
-        roots.push(CloudEntry {
-            id: "/Volumes".into(),
-            path: "/Volumes".into(),
-            name: "磁盘与外置设备".into(),
-            is_dir: true,
-            size: 0,
-            modified_at: None,
-        });
-        roots.push(CloudEntry {
-            id: "/Users/Shared".into(),
-            path: "/Users/Shared".into(),
-            name: "共享文件".into(),
-            is_dir: true,
-            size: 0,
-            modified_at: None,
-        });
-        return Ok(roots);
+        return Ok(roots());
     }
     let directory = normalized(path)?;
     if !directory.is_dir() {
@@ -112,8 +135,8 @@ pub fn browse(path: &str) -> Result<Vec<CloudEntry>> {
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|duration| duration.as_secs() as i64);
         entries.push(CloudEntry {
-            id: path.to_string_lossy().into_owned(),
-            path: path.to_string_lossy().into_owned(),
+            id: crate::paths::portable(&path),
+            path: crate::paths::portable(&path),
             name,
             is_dir: metadata.is_dir(),
             size: metadata.len(),
@@ -175,7 +198,7 @@ pub fn scan_root(
             }
             discovered += 1;
             if media_matches(&path, kind) {
-                let value = path.to_string_lossy().into_owned();
+                let value = crate::paths::portable(&path);
                 files.push(MediaFile {
                     id: Uuid::new_v4().to_string(),
                     account_id: account_id.to_owned(),
@@ -199,7 +222,7 @@ pub fn scan_root(
                     "无法读取这个文件夹。请确认它仍然存在，并且 Cove 有权访问。".into(),
                 ));
             }
-            skipped.push(directory.to_string_lossy().into_owned());
+            skipped.push(crate::paths::portable(&directory));
         }
     }
     let result = ScanResult {
@@ -331,19 +354,19 @@ pub fn copy_entry(source: &str, destination_directory: &str) -> Result<String> {
     } else {
         copy_file_exclusive(&source, &destination)?;
     }
-    Ok(destination.to_string_lossy().into_owned())
+    Ok(crate::paths::portable(&destination))
 }
 
 pub fn create_folder(parent: &str, name: &str) -> Result<String> {
     let parent = normalized(parent)?;
     let name = name.trim();
-    if name.is_empty() || matches!(name, "." | "..") || name.contains('/') {
+    if name.is_empty() || matches!(name, "." | "..") || name.contains(['/', '\\']) {
         return Err(NimbusError::Validation("文件夹名称无效".into()));
     }
     let path = parent.join(name);
     fs::create_dir(&path)
         .map_err(|error| NimbusError::Validation(format!("无法新建文件夹：{error}")))?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(crate::paths::portable(&path))
 }
 
 #[cfg(test)]
@@ -377,8 +400,8 @@ mod tests {
         let second =
             copy_entry(source.to_str().unwrap(), destination_dir.to_str().unwrap()).unwrap();
         assert_ne!(first, second);
-        assert_eq!(fs::read(first).unwrap(), b"nimbus");
-        assert_eq!(fs::read(second).unwrap(), b"nimbus");
+        assert_eq!(fs::read(crate::paths::native(&first)).unwrap(), b"nimbus");
+        assert_eq!(fs::read(crate::paths::native(&second)).unwrap(), b"nimbus");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -389,7 +412,7 @@ mod tests {
         fs::write(root.join("Season.1/E01.mkv"), b"video").unwrap();
         let folder = copy_entry(root.join("Season.1").to_str().unwrap(), root.to_str().unwrap()).unwrap();
         assert!(folder.ends_with("Season.1 副本 1"), "{folder}");
-        assert_eq!(fs::read(Path::new(&folder).join("E01.mkv")).unwrap(), b"video");
+        assert_eq!(fs::read(crate::paths::native(&folder).join("E01.mkv")).unwrap(), b"video");
         let file = copy_entry(root.join("Season.1/E01.mkv").to_str().unwrap(), root.join("Season.1").to_str().unwrap()).unwrap();
         assert!(file.ends_with("E01 副本 1.mkv"), "{file}");
         fs::remove_dir_all(root).unwrap();
@@ -418,6 +441,7 @@ mod failure_tests {
         assert!(scan_root("local", root.to_str().unwrap(), "movie", 100).is_err());
     }
     #[test]
+    #[cfg(unix)]
     fn unreadable_subfolder_is_skipped_and_the_scan_goes_on() {
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!("nimbus-skip-{}", Uuid::new_v4()));
@@ -545,6 +569,7 @@ mod failure_tests {
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
+    #[cfg(unix)]
     fn cannot_copy_into_self_through_symlink() {
         let root = std::env::temp_dir().join(format!("nimbus-copy-{}", Uuid::new_v4()));
         let source = root.join("source");

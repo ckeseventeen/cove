@@ -193,7 +193,7 @@ pub(crate) fn watch_local_sources(app: &AppHandle) {
     let wanted: Vec<(PathBuf, String)> = sources
         .into_iter()
         .filter(|source| source.account_id == "local" && source.remote_root != "/")
-        .map(|source| (PathBuf::from(&source.remote_root), source.id))
+        .map(|source| (crate::paths::native(&source.remote_root), source.id))
         .filter(|(root, _)| root.is_dir())
         .collect();
     if *WATCHED.lock() == wanted {

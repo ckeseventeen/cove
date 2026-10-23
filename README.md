@@ -62,6 +62,10 @@ npm install
 npm run dev
 ```
 
+## Windows 版
+
+Windows 10 / 11（64 位）版本与 Mac 版共用界面和大部分代码：视频由 libmpv 画在窗口里，PDF 在 pdf.js 阅读窗口中打开，密码存入 Windows 凭据管理器，SMB 共享直接用网络路径访问。安装包由 GitHub Actions 构建（Actions › Windows › Run workflow）。差异、构建方法与待验证事项见 [docs/WINDOWS.md](docs/WINDOWS.md)。
+
 ## 下一里程碑
 
 1. 完成真实云盘与长时播放集成验收。

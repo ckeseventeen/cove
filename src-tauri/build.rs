@@ -3,8 +3,8 @@ fn main() {
     println!("cargo:rerun-if-changed=src/now_playing.m");
     println!("cargo:rerun-if-changed=src/pdf_view.m");
     println!("cargo:rerun-if-changed=src/smb_mount.m");
-    #[cfg(target_os = "macos")]
-    {
+    // The target, not the machine building it: a Windows build made on a Mac has no Objective-C.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         let prefix = std::env::var("NIMBUS_MPV_PREFIX").unwrap_or_else(|_| {
             if std::path::Path::new("/opt/homebrew/include/mpv").exists() {
                 "/opt/homebrew".into()
