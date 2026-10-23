@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
@@ -43,6 +43,8 @@ jobs:
 
       - run: npm ci
 
+      # Node 22 expands the tests/*.test.mjs glob itself; cmd.exe, which npm runs scripts with
+      # on Windows, does not.
       - run: npm test
 
       - run: npm run tauri build -- --bundles nsis
