@@ -6,13 +6,26 @@ import type { Library } from "../app/useLibrary";
 import { formatBytes, formatRelative, plural } from "../lib/format";
 import { providerLabel } from "../lib/media";
 import { showContextMenu } from "../lib/native";
-import { clearMetadataCache, getUiZoom, onUiZoom, setUiZoom, type Account, type MediaSource, type UiZoom } from "../lib/nimbus";
+import {
+  clearMetadataCache,
+  getSyncStatus,
+  getUiZoom,
+  onSyncState,
+  onUiZoom,
+  setUiZoom,
+  syncNow,
+  type Account,
+  type MediaSource,
+  type SyncStatus,
+  type UiZoom,
+} from "../lib/nimbus";
 import { shortcutLabel, SYSTEM } from "../lib/platform";
 import { Popup } from "../ui/controls";
 import { ProviderGlyph } from "../ui/glyphs";
 import type { Notify } from "../ui/Toasts";
 import { AddStorageSheet } from "./AddStorageSheet";
 import { ServiceSettingsSheet } from "./ServiceSettingsSheet";
+import { SyncSettingsSheet } from "./SyncSettingsSheet";
 
 type Props = {
   library: Library;
@@ -38,6 +51,8 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
   const [pending, setPending] = useState<"clear" | "refresh" | null>(null);
   const [reconnecting, setReconnecting] = useState<Account | null>(null);
   const [configuring, setConfiguring] = useState(false);
+  const [sync, setSync] = useState<SyncStatus | null>(null);
+  const [syncSheet, setSyncSheet] = useState(false);
   const [zoom, setZoom] = useState<UiZoom | null>(null);
   const { status } = library;
 
@@ -52,6 +67,38 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
       off();
     };
   }, []);
+
+  // Follow sync rounds, whether started here or by the timer.
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      void getSyncStatus()
+        .then((value) => live && setSync(value))
+        .catch(() => undefined);
+    load();
+    const off = onSyncState((phase) => {
+      if (phase === "started") setSync((value) => value && { ...value, running: true });
+      else load();
+    });
+    return () => {
+      live = false;
+      off();
+    };
+  }, []);
+
+  const syncAgain = () => {
+    setSync((value) => value && { ...value, running: true });
+    void syncNow()
+      .then((value) => {
+        setSync(value);
+        notify("同步完成", "success");
+      })
+      .catch((cause) => {
+        void getSyncStatus().then(setSync).catch(() => undefined);
+        notify(`同步失败：${cause instanceof Error ? cause.message : String(cause)}`, "error");
+      });
+  };
+  const syncAccount = sync?.accountId ? library.accounts.find((account) => account.id === sync.accountId) : undefined;
 
   const changeZoom = (value: string) => {
     void setUiZoom(Number(value))
@@ -234,6 +281,53 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
       )}
 
       <section className="group">
+        <h2 className="group-title">多端同步</h2>
+        <div className="group-box">
+          <div className="group-row">
+            <span className="row-main">
+              <span className="row-title">
+                {!sync?.accountId
+                  ? "未开启"
+                  : syncAccount?.provider === "local"
+                    ? sync.folder
+                    : `${syncAccount?.label ?? "已移除的存储"} · ${sync.folder}`}
+              </span>
+              <span className={`row-subtitle ${sync?.lastError ? "error" : ""}`}>
+                {!sync?.accountId
+                  ? "在几台电脑间同步媒体文件夹、播放和阅读进度、播放列表"
+                  : sync.running
+                    ? "正在同步…"
+                    : sync.lastError
+                      ? `同步失败：${sync.lastError}`
+                      : `“${sync.deviceName}”上次同步于 ${formatRelative(sync.lastSyncAt)}`}
+              </span>
+            </span>
+            {sync?.accountId && (
+              <button className="btn" disabled={sync.running} onClick={syncAgain}>
+                {sync.running && <LoaderCircle className="spin" size={12} />}
+                立即同步
+              </button>
+            )}
+            <button className="btn" disabled={!sync} onClick={() => setSyncSheet(true)}>
+              设置…
+            </button>
+          </div>
+          {sync?.accountId &&
+            sync.devices.map((device) => (
+              <div className="group-row" key={device.name}>
+                <span className="row-main">
+                  <span className="row-title">{device.name}</span>
+                </span>
+                <span className="row-value">同步于 {formatRelative(device.syncedAt)}</span>
+              </div>
+            ))}
+        </div>
+        <p className="group-footer">
+          每台电脑选同一个网盘和文件夹即可，每隔几分钟自动同步。本机磁盘上的文件夹不参与同步，密码和授权也不会离开这台电脑。
+        </p>
+      </section>
+
+      <section className="group">
         <h2 className="group-title">显示</h2>
         <div className="group-box">
           <div className="group-row">
@@ -323,6 +417,18 @@ export function SettingsView({ library, notify, onNavigate, onAddStorage, onRemo
           </div>
         </div>
       </section>
+
+      {syncSheet && sync && (
+        <SyncSettingsSheet
+          status={sync}
+          accounts={library.accounts}
+          onClose={() => setSyncSheet(false)}
+          onSaved={(value) => {
+            setSync(value);
+            notify(value.accountId ? "已开启多端同步，正在同步…" : "已关闭多端同步", "success");
+          }}
+        />
+      )}
 
       {configuring && (
         <ServiceSettingsSheet

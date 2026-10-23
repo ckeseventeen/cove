@@ -872,3 +872,58 @@ function createDemoPlayer() {
 }
 
 const demoPlayer = createDemoPlayer();
+
+/** Sync between computers (sync.rs): where the shared folder is and how the last round went. */
+export type SyncStatus = {
+  /** The account holding the sync folder; null when sync is off. */
+  accountId: string | null;
+  folder: string;
+  deviceName: string;
+  lastSyncAt: number | null;
+  lastError: string | null;
+  /** The other computers whose files were in the folder last time. */
+  devices: { name: string; syncedAt: number }[];
+  running: boolean;
+};
+
+export async function getSyncStatus(): Promise<SyncStatus> {
+  if (isTauri()) return invoke<SyncStatus>("sync_status");
+  return { accountId: null, folder: "/Cove 同步", deviceName: "浏览器预览", lastSyncAt: null, lastError: null, devices: [], running: false };
+}
+
+/** Turn sync on (an account and a folder on it) or off (`accountId` null). */
+export async function configureSync(accountId: string | null, folder: string, deviceName: string): Promise<SyncStatus> {
+  if (isTauri()) return invoke<SyncStatus>("sync_configure", { accountId, folder, deviceName });
+  appOnly();
+}
+
+export async function syncNow(): Promise<SyncStatus> {
+  if (isTauri()) return invoke<SyncStatus>("sync_now");
+  appOnly();
+}
+
+/** A sync round "started", "finished" or "failed". */
+export function onSyncState(callback: (phase: "started" | "finished" | "failed") => void) {
+  return listenNative<"started" | "finished" | "failed">("sync-state", callback);
+}
+
+/** Another computer's changes were merged into this library. */
+export function onSyncApplied(callback: () => void) {
+  return listenNative<null>("sync-applied", () => callback());
+}
+
+function listenNative<T>(name: string, callback: (payload: T) => void) {
+  if (!isTauri()) return () => undefined;
+  let disposed = false;
+  let unlisten: (() => void) | undefined;
+  listen<T>(name, (event) => callback(event.payload))
+    .then((off) => {
+      if (disposed) off();
+      else unlisten = off;
+    })
+    .catch(() => undefined);
+  return () => {
+    disposed = true;
+    unlisten?.();
+  };
+}

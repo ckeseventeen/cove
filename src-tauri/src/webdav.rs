@@ -409,6 +409,73 @@ pub async fn browse(
         .collect())
 }
 
+/// The address of file `name` in folder `path` below the account's address.
+fn file_url(base: &Url, path: &str, name: &str) -> Result<Url> {
+    let mut url = folder_url(base, path)?;
+    url.path_segments_mut()
+        .map_err(|_| NimbusError::Validation("目录不属于这个 WebDAV 来源".into()))?
+        .pop_if_empty()
+        .push(name);
+    Ok(url)
+}
+
+fn check_auth(status: StatusCode) -> Result<()> {
+    if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+        return Err(NimbusError::Validation("认证失败，请检查用户名和密码".into()));
+    }
+    Ok(())
+}
+
+/// Creates folder `path` (below the account's address) and the folders above it that are missing.
+pub async fn make_folder(endpoint: &str, path: &str, username: &str, password: &str) -> Result<()> {
+    let base = validated_url(endpoint)?;
+    let http = client()?;
+    let mut current = String::new();
+    for segment in path.split('/').filter(|part| !part.is_empty()) {
+        current = format!("{current}/{segment}");
+        let response = http
+            .request(Method::from_bytes(b"MKCOL").expect("valid WebDAV method"), folder_url(&base, &current)?)
+            .basic_auth(username, Some(password))
+            .send()
+            .await?;
+        check_auth(response.status())?;
+        // 405: the folder is there already.
+        if !response.status().is_success() && response.status() != StatusCode::METHOD_NOT_ALLOWED {
+            return Err(NimbusError::Validation(format!("WebDAV 新建文件夹失败：HTTP {}", response.status())));
+        }
+    }
+    Ok(())
+}
+
+/// The contents of file `name` in folder `path`.
+pub async fn read_file(endpoint: &str, path: &str, name: &str, username: &str, password: &str) -> Result<Vec<u8>> {
+    let url = file_url(&validated_url(endpoint)?, path, name)?;
+    let response = client()?.get(url).basic_auth(username, Some(password)).send().await?;
+    check_auth(response.status())?;
+    if !response.status().is_success() {
+        return Err(NimbusError::Validation(format!("WebDAV 读取文件失败：HTTP {}", response.status())));
+    }
+    Ok(response.bytes().await?.to_vec())
+}
+
+/// Writes file `name` in folder `path`, replacing it.
+pub async fn write_file(
+    endpoint: &str,
+    path: &str,
+    name: &str,
+    contents: Vec<u8>,
+    username: &str,
+    password: &str,
+) -> Result<()> {
+    let url = file_url(&validated_url(endpoint)?, path, name)?;
+    let response = client()?.put(url).basic_auth(username, Some(password)).body(contents).send().await?;
+    check_auth(response.status())?;
+    if !response.status().is_success() {
+        return Err(NimbusError::Validation(format!("WebDAV 写入文件失败：HTTP {}", response.status())));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod regression_tests {
     use super::*;

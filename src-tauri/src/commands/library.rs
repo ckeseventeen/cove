@@ -141,6 +141,29 @@ pub(crate) async fn service_settings_save(values: std::collections::HashMap<Stri
 }
 
 #[tauri::command]
+pub(crate) fn sync_status(state: State<'_, AppState>) -> Result<crate::sync::SyncStatus> {
+    crate::sync::status(&state)
+}
+
+/// Turns sync between computers on (`account_id` and a folder on it) or off (no account).
+#[tauri::command]
+pub(crate) fn sync_configure(
+    account_id: Option<String>,
+    folder: String,
+    device_name: String,
+    state: State<'_, AppState>,
+) -> Result<crate::sync::SyncStatus> {
+    crate::sync::configure(&state, account_id, folder, device_name)?;
+    crate::sync::status(&state)
+}
+
+#[tauri::command]
+pub(crate) async fn sync_now(app: tauri::AppHandle) -> Result<crate::sync::SyncStatus> {
+    crate::sync::run(&app).await?;
+    crate::sync::status(&app.state::<AppState>())
+}
+
+#[tauri::command]
 pub(crate) fn media_file_list(state: State<'_, AppState>) -> Result<Vec<MediaFile>> {
     state.store.list_media_files()
 }

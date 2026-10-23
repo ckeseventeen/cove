@@ -22,6 +22,7 @@ mod proxy;
 mod sidecar_subtitles;
 mod smb;
 mod store;
+mod sync;
 mod ui_zoom;
 mod webdav;
 
@@ -85,6 +86,7 @@ pub fn run() {
             documents::install(app.handle().clone());
             auto_scan::start(app.handle().clone());
             offline::start(app.handle().clone());
+            sync::start(app.handle().clone());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_millis(500));
@@ -141,6 +143,9 @@ pub fn run() {
             commands::library::metadata_cache_clear,
             commands::library::service_settings_get,
             commands::library::service_settings_save,
+            commands::library::sync_status,
+            commands::library::sync_configure,
+            commands::library::sync_now,
             commands::library::music_metadata_cached,
             commands::library::music_smart_lists,
             commands::library::offline_download,

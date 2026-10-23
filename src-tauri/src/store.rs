@@ -205,6 +205,34 @@ impl Store {
             }
             connection.execute_batch("PRAGMA user_version = 9;")?;
         }
+        if version < 10 {
+            // Sync between computers: which account an account is on every computer (the same
+            // Baidu user, WebDAV address or share), what was deleted here, and this computer's sync
+            // settings.
+            let has_identity: i64 = connection.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('accounts') WHERE name = 'sync_identity'",
+                [],
+                |row| row.get(0),
+            )?;
+            if has_identity == 0 {
+                connection.execute_batch("ALTER TABLE accounts ADD COLUMN sync_identity TEXT;")?;
+            }
+            connection.execute_batch(
+                "BEGIN IMMEDIATE;
+                 CREATE TABLE IF NOT EXISTS sync_deleted (
+                   kind TEXT NOT NULL,
+                   key TEXT NOT NULL,
+                   deleted_at INTEGER NOT NULL,
+                   PRIMARY KEY (kind, key)
+                 );
+                 CREATE TABLE IF NOT EXISTS sync_settings (
+                   key TEXT PRIMARY KEY,
+                   value TEXT NOT NULL
+                 );
+                 PRAGMA user_version = 10;
+                 COMMIT;",
+            )?;
+        }
         // Film details from an earlier lookup scheme are never read again.
         connection.execute(
             "DELETE FROM metadata_cache WHERE kind LIKE 'movie-v%' AND kind <> ?1",
@@ -214,6 +242,15 @@ impl Store {
         Ok(Self {
             connection: parking_lot::Mutex::new(connection),
         })
+    }
+
+    /// Runs `work` in one transaction (the sync between computers reads and merges everything at once).
+    pub(crate) fn transaction<T>(&self, work: impl FnOnce(&rusqlite::Transaction) -> Result<T>) -> Result<T> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        let value = work(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
     }
 
     pub fn list_playlists(&self) -> Result<Vec<Playlist>> {
@@ -264,9 +301,11 @@ impl Store {
     }
 
     pub fn delete_playlist(&self, id: &str) -> Result<()> {
-        self.connection
-            .lock()
-            .execute("DELETE FROM playlists WHERE id = ?1", [id])?;
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction()?;
+        crate::sync::record_playlist_deleted(&transaction, id)?;
+        transaction.execute("DELETE FROM playlists WHERE id = ?1", [id])?;
+        transaction.commit()?;
         Ok(())
     }
 
@@ -494,6 +533,7 @@ impl Store {
                     params![file_id, count - 1 - index as i64],
                 )?;
             } else {
+                crate::sync::record_progress_deleted(&transaction, file_id)?;
                 transaction.execute("DELETE FROM playback_progress WHERE file_id = ?1", [file_id])?;
             }
         }
@@ -589,6 +629,7 @@ impl Store {
     pub fn delete_media_source(&self, id: &str) -> Result<()> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction()?;
+        crate::sync::record_source_deleted(&transaction, id)?;
         transaction.execute("DELETE FROM source_files WHERE source_id = ?1", [id])?;
         transaction.execute("DELETE FROM media_sources WHERE id = ?1", [id])?;
         transaction.commit()?;
