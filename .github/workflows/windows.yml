@@ -1,6 +1,7 @@
 # Builds the Windows installer (Cove_<version>_x64-setup.exe) on a Windows machine. Start it from
 # the Actions tab (Windows › Run workflow) or by pushing a v* tag; the installer is attached to the
-# run as the Cove-Windows artifact. No personal keys are built in (docs/WINDOWS.md).
+# run as the Cove-Windows artifact, and for a tag also to that tag's GitHub Release. No personal
+# keys are built in (docs/WINDOWS.md).
 name: Windows
 
 on:
@@ -9,7 +10,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write # to publish the Release for a v* tag
 
 env:
   # libmpv from the Windows builds that mpv.io links to; change both lines together.
@@ -54,6 +55,23 @@ jobs:
           name: Cove-Windows
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+      # A tag's installer also goes on its Release, shown on the repository's front page. The
+      # Release is made if the tag has none yet; a rerun replaces the installer.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-Item src-tauri/target/release/bundle/nsis/*.exe).FullName
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME $installer --clobber
+          } else {
+            gh release create $env:GITHUB_REF_NAME $installer --title "Cove $env:GITHUB_REF_NAME" --generate-notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # After the upload, so a test that fails only on Windows shows in the run without holding
       # back the installer.
