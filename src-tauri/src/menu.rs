@@ -28,7 +28,14 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         }),
     )?;
     let settings = item("cove.settings", "设置…", Some("CmdOrCtrl+,"))?;
-    let quit = PredefinedMenuItem::quit(app, Some(if MAC { "退出 Cove" } else { "退出" }))?;
+    // Windows quits through Cove, which ends libmpv first (lib.rs `quit`); the system item would
+    // end the event loop with it still running.
+    let quit: Box<dyn IsMenuItem<Wry>> = if MAC {
+        Box::new(PredefinedMenuItem::quit(app, Some("退出 Cove"))?)
+    } else {
+        Box::new(item("cove.quit", "退出", Some("Ctrl+Q"))?)
+    };
+    let quit = quit.as_ref();
 
     let add_storage = item("cove.add-storage", "添加存储…", Some("CmdOrCtrl+N"))?;
     let new_folder = item("cove.new-folder", "新建文件夹", Some("Shift+CmdOrCtrl+N"))?;
@@ -42,7 +49,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             app,
             "文件",
             true,
-            &[&add_storage, &new_folder, &new_playlist, &separator()?, &settings, &separator()?, &quit],
+            &[&add_storage, &new_folder, &new_playlist, &separator()?, &settings, &separator()?, quit],
         )?
     };
 
@@ -179,7 +186,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &hide_others,
             &show_all,
             &separator()?,
-            &quit,
+            quit,
         ],
     )?;
     let items: [&dyn IsMenuItem<Wry>; 7] = [
@@ -214,6 +221,11 @@ pub fn handle(app: &AppHandle, id: &str) {
     };
     if let Some(direction) = zoom {
         crate::ui_zoom::step(app, direction);
+        return;
+    }
+    if id == "cove.quit" {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { crate::quit(&app).await });
         return;
     }
     if id == "cove.fullscreen" {

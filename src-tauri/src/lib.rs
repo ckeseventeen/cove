@@ -224,10 +224,7 @@ pub fn run() {
                 let app_handle = window.app_handle().clone();
                 // A Windows app ends when its window closes; there is no Dock to bring it back.
                 if cfg!(not(target_os = "macos")) {
-                    tauri::async_runtime::spawn(async move {
-                        stop_playback(&app_handle).await;
-                        app_handle.exit(0);
-                    });
+                    tauri::async_runtime::spawn(async move { quit(&app_handle).await });
                     return;
                 }
                 tauri::async_runtime::spawn(async move {
@@ -264,9 +261,23 @@ pub fn run() {
                 let state = app_handle.state::<AppState>();
                 save_current_progress(&state);
                 state.player.cleanup();
+                // Quitting some other way (signing out of Windows) left libmpv running.
+                #[cfg(windows)]
+                if state.player.is_started() {
+                    player::end_process();
+                }
             }
             _ => {}
         });
+}
+
+/// Quit Cove (Windows: closing the library window or 文件 › 退出): stop playback, saving its
+/// progress, and end libmpv before the process exits.
+pub(crate) async fn quit(app_handle: &tauri::AppHandle) {
+    stop_playback(app_handle).await;
+    #[cfg(windows)]
+    app_handle.state::<AppState>().player.shutdown().await;
+    app_handle.exit(0);
 }
 
 pub(crate) fn show_main_window(app: &tauri::AppHandle) {

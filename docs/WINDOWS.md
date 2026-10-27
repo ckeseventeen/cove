@@ -16,7 +16,7 @@ Cove 的 Windows 版与 Mac 版共用同一套界面和绝大部分 Rust 代码�
 | SMB | NetFS 挂载到数据目录 | 直接用网络路径 `\\nas\share`，WNetAddConnection2W 登录；只支持 445 端口 |
 | 密码与令牌 | 钥匙串 | Windows 凭据管理器；超过约 1000 字符的令牌（OneDrive）分段保存 |
 | 菜单 | 系统菜单栏 | 主窗口的菜单栏（文件 / 编辑 / 显示 / 控制 / 帮助），F11 全屏 |
-| 关闭窗口 | 播放音乐时隐藏窗口继续播放 | 退出 Cove（Windows 没有 Dock 可以找回窗口），先保存进度 |
+| 关闭窗口 | 播放音乐时隐藏窗口继续播放 | 退出 Cove（Windows 没有 Dock 可以找回窗口），先保存进度，再结束 libmpv：带着 libmpv 的线程退出会卡在卸载 libmpv-2.dll，Cove.exe 留在任务管理器里；3 秒内结束不了就直接终止进程 |
 | 本地路径 | `/Users/me/影视` | 资料库里写作 `/C:/Users/me/影视`，`/` 列出各个磁盘（`paths.rs`） |
 
 界面上：快捷键显示和按键都把 ⌘ 换成 Ctrl（`src/lib/platform.ts`）；文件中“上一级”用 Alt+↑；字体用 Segoe UI 与微软雅黑；标题栏是系统自带的；“钥匙串”“访达”“这台 Mac”等字样换成 Windows 的说法。

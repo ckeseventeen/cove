@@ -21,7 +21,11 @@ use tauri::{LogicalSize, PhysicalPosition, PhysicalSize, WebviewWindow};
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     Graphics::Gdi::{GetMonitorInfoW, GetStockObject, InvalidateRect, MonitorFromWindow, BLACK_BRUSH, MONITORINFO, MONITOR_DEFAULTTONEAREST},
-    System::{LibraryLoader::GetModuleHandleW, Pipes::PeekNamedPipe},
+    System::{
+        LibraryLoader::GetModuleHandleW,
+        Pipes::PeekNamedPipe,
+        Threading::{GetCurrentProcess, TerminateProcess},
+    },
     UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
@@ -268,6 +272,21 @@ pub fn create_player(view: usize, ipc: &Path, log_path: &Path) -> Result<usize> 
         return Err(NimbusError::Internal(format!("libmpv 启动失败（错误 {result}）")));
     }
     Ok(handle as usize)
+}
+
+/// Stop libmpv and wait for its threads to end; not on the main thread, which mpv's window (a child
+/// of the library window) needs while it closes.
+pub fn destroy_player(handle: usize) {
+    if let Ok(mpv) = mpv() {
+        unsafe { (mpv.terminate_destroy)(handle as *mut MpvHandle) };
+    }
+}
+
+/// End Cove at once, without unloading libraries: a process that exits normally with libmpv's
+/// threads still running can hang in unloading libmpv-2.dll and stay behind with no window.
+pub fn end_process() -> ! {
+    unsafe { TerminateProcess(GetCurrentProcess(), 0) };
+    std::process::exit(0)
 }
 
 /// Where the window was before it became the mini-player.

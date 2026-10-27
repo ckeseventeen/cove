@@ -25,6 +25,8 @@ mod native;
 mod native;
 
 pub use native::{attach_controls_window, detach_controls_window, is_floating, set_floating};
+#[cfg(windows)]
+pub use native::end_process;
 use native::{ipc_connect, runtime_dir, IpcStream};
 
 /// mpv's settings on every system; each adds where it draws, its control channel and its log.
@@ -343,6 +345,28 @@ impl PlayerController {
         if let Some(view) = *self.native_view.lock() {
             let _ = window.run_on_main_thread(move || native::view_layout(view));
         }
+    }
+
+    /// End libmpv before Cove quits; if it does not end within a few seconds, Cove ends at once.
+    #[cfg(windows)]
+    pub async fn shutdown(&self) {
+        let Some(handle) = self.native_handle.lock().take() else {
+            return;
+        };
+        let ended = tokio::time::timeout(
+            Duration::from_secs(3),
+            tokio::task::spawn_blocking(move || native::destroy_player(handle)),
+        )
+        .await;
+        if ended.is_err() {
+            native::end_process();
+        }
+    }
+
+    /// Whether libmpv was started and is still running (Windows quits end it first).
+    #[cfg(windows)]
+    pub fn is_started(&self) -> bool {
+        self.native_handle.lock().is_some()
     }
 
     /// Remove the IPC socket when the app exits so stale sockets do not accumulate.
